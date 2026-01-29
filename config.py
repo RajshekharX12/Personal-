@@ -13,8 +13,8 @@ API_ID = int(os.environ.get("API_ID", "15631044"))
 API_HASH = os.environ.get("API_HASH", "52b1b075a9996c304a2c938ffb7073c4")
 OWNER_ID = int(os.environ.get("OWNER_ID", "5770074932"))
 DB_URI = os.environ.get("DATABASE_URL", "mongodb+srv://walesavitabank_db_user:rNIU8qgA5Xm84FPg@rental.tqar0i.mongodb.net/?appName=rental")
-DB_NAME = os.environ.get("DATABASE_NAME", "rentalbot")
-CRYPTO_API = os.environ.get("CRYPTO_API", "")
+DB_NAME = os.environ.get("DATABASE_NAME", "rental")
+CRYPTO_API = os.environ.get("CRYPTO_API", "523718:AAEQO6x6qx2PXerElEVuIvBcuL5rdHgDR4Q")
 USDT_ADDRESS = os.environ.get("USDT_ADDRESS", "TAk7HV87pQXiE8tv9mQ3tzthhqs46JBbdC") # TRC-20 address
 
 # ============== FRAGMENT data =============
@@ -38,6 +38,7 @@ except ValueError:
 
 
 ADMINS.append(OWNER_ID)
+
 
 
 
