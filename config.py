@@ -15,7 +15,7 @@ OWNER_ID = int(os.environ.get("OWNER_ID", ""))
 DB_URI = os.environ.get("DATABASE_URL", "")
 DB_NAME = os.environ.get("DATABASE_NAME", "rentalbot")
 CRYPTO_API = os.environ.get("CRYPTO_API", "")
-USDT_ADDRESS = os.environ.get("USDT_ADDRESS", "TU5wSTooaND4E5NVEidd9MyNM1NByZGcCF") # TRC-20 address
+USDT_ADDRESS = os.environ.get("USDT_ADDRESS", "TAk7HV87pQXiE8tv9mQ3tzthhqs46JBbdC") # TRC-20 address
 
 # ============== FRAGMENT data =============
 FRAGMENT_API_HASH = os.environ.get("FRAGMENT_API_HASH", "38f80e92d2dbe5065b")
@@ -35,5 +35,6 @@ try:
         ADMINS.append(int(x))
 except ValueError:
         raise Exception("Your Admins list doesn't contain valid integers.")
+
 
 ADMINS.append(OWNER_ID)
