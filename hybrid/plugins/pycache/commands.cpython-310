@@ -1,0 +1,147 @@
+o
+    ÿëÒhß,  ã                   @   sò  d dl Z d dlZd dlZd dlZd dlZd dlZd dlZd dl mZ d dl	m
+Z
+m
+Z
+ d dlm
+Z
+ d dl mZ d dl mZmZ d d lmZmZmZmZmZ d dlmZ d d	lT d d	lT d d
+lmZ eed
+dd
+ggƒZe e
+ d¡e
+j @ ¡de
+defdd„ƒZ!e e
+ d¡e
+ "e¡@ ¡dd„ ƒZ#e e
+ d¡e
+ "e¡@ ¡dd„ ƒZ$e e
+ d¡e
+ "e¡@ ¡dd„ ƒZ%e e
+ d¡e
+ "e¡@ ¡dd„ ƒZ&e e
+ d¡e
+ "e¡@ ¡d d!„ ƒZ'e e
+ d"¡e
+ "e¡@ ¡d#d$„ ƒZ(e e
+ d%¡e
+ "e¡@ ¡d&d'„ ƒZ)e e
+ d(¡e
+ "e¡@ ¡d)d*„ ƒZ*e e
+ d+¡e
+ "e¡@ ¡d,d-„ ƒZ+e e
+ d.¡e
+ "e¡@ ¡defd/d0„ƒZ,e e
+ d1¡e
+ "e¡@ ¡defd2d3„ƒZ-e e
+ d4¡e
+ "e¡@ ¡defd5d6„ƒZ.e e
+ d7¡e
+j @ ¡defd8d9„ƒZ/e e
+ d:¡e
+j @ ¡defd;d<„ƒZ0dS )=é    N)Ú Message)ÚClientÚ filters)Ú	FloodWait)Ú
+CallbackQuery)ÚInlineKeyboardMarkupÚInlineKeyboardButton)ÚBotÚ
+LOG_FILE_NAMEÚ loggingÚADMINSÚgen_4letters)Útemp)Ú*)Ú InvoicezBack to Admin MenuÚ
+admin_panel©Ú
+callback_dataÚstartÚclientÚ messagec                  Ã   s  |j }t|jƒ t|jƒ}|s6ttdddgtdddgtdd dgtdd	dggƒ}|jd
+|d
+I d H S t  |t d ¡}t|d
+ ddt|d ddgt|d ddt|d ddgt|d ddgg}|jt	v rv| 
+dtdddg¡ |j|d j
+|jdt|ƒd
+I d H  d S )Nu   ðŸ‡ºðŸ‡¸ EnglishÚ lang_enr   u   ðŸ‡·ðŸ‡º Ð ÑƒÑÑÐºÐ¸Ð¹Ú lang_ruu   ðŸ‡°ðŸ‡· í•œêµ­ì–´Ú lang_kou   ðŸ‡¨ðŸ‡³ ä¸­æ–‡Ú lang_zhu!   ðŸŒ Please choose your language:©Úreply_markupÚenÚrentÚ rentnumÚ
+my_rentalsÚ profileÚhelpÚcontact_supportzhttps://t.me/aress)Úurlr   u   ðŸ› ï¸ Admin Panelr   Ú welcome)Úname)
+Ú	from_userÚsave_user_idÚidÚget_user_languager    r   ÚreplyÚ	LANGUAGESÚgetr   ÚinsertÚformatÚ mention) r   r   ÚuserÚlangÚkeyboardÚtÚrows© r6   ú8/mnt/c/Users/LENOVO/RentalBot/hybrid/plugins/commands.pyÚ
+start_command1   s0   €
+
+üÿÿû
+*r8   Úupdatec              
+   Ã   s¨   z't  ddg¡ d¡}dt|ƒv r| d¡I d H W S | d|› d¡I d H  W n tyD } z| t|ƒ¡I d H W  Y d }~S d }~ww | d ¡I d H }td|ƒ d S )	NÚgitÚpullzUTF-8zAlready up to date.zIts already up-to date!z```z2**Updated with default branch, restarting now...**r	   ) Ú
+subprocessÚcheck_outputÚdecodeÚstrÚ
+reply_textÚ	ExceptionÚ restart)Ú_r   ÚoutÚeÚmr6   r6   r7   Úupdate_restartO   s   € €ÿrG   rB   c                 Ã   s    |  d¡I d H }td|ƒ d S )Nz**Restarting...**r	   )r@   rB   )rC   r   rF   r6   r6   r7   Úcommand_restart[   s   €rH   Úlogsc                 Ã   s   |j tdI d H  d S )N)Údocument)Úreply_documentr
+   )rC   r   r6   r6   r7   Úlogs_cmd`   s   €rL   Ú cleardbc                 Ã   sˆ   z
+|j jdddI d H }W n ty   | d¡I d H  Y S w |j ¡  ¡ dkr1| d¡I d H S t ƒ \}} |rB| d ¡I d H  d S d S )Nuh   âš ï¸ Are you sure you want to clear the database? This action cannot be undone. Type 'YES' to confirm.é   ©Ú timeoutõ   â° Timeout! Please try again.ÚYESu'   âŒ Database clear operation cancelled.u0   âœ… All data has been cleared from the database.)ÚchatÚaskrA   r+   ÚtextÚstripÚupperÚdelete_all_data)rC   r   ÚresponseÚstatr6   r6   r7   Úclear_db_cmdd   s   €þÿ
+ÿr[   Ú sysinfoc                 Ã   sº   zIt jdd}t  ¡ }t  d¡}dt ¡ › dt ¡ › dt  ¡ › d |› d|j› d	t	|j
+d
+ d
+ƒ› d|j› d	t	|j
+d
+ d
+ƒ› d
+}| 
+|¡I d H  W d S  ty\   | 
+d¡I d H  Y d S w )Né   )Úintervalú/u(   **System Information:**
+ðŸ–¥ï¸ System: Ú u   
+ðŸ’» Machine: u   
+ðŸ§  CPU Usage: u   %
+ðŸ’¾ Memory: z
+% used of i   @é   u    GB
+ðŸ—„ï¸ Disk: z GB
+uJ   âŒ psutil module is not installed. Please install it to use this command.)
+ÚpsutilÚ
+cpu_percentÚvirtual_memoryÚ
+disk_usageÚplatformÚsystemÚ releaseÚ machineÚ percentÚroundÚtotalr+   Ú
+ImportError)rC   r   Ú	cpu_usageÚmemoryÚdiskÚsys_infor6   r6   r7   Ú
+sysinfo_cmds   s6   €
+ÿÿþýüüûûÿÿrr   Úaddadminc                 Ã   ó¢   t |jƒdkr| d¡I d H S z	t|jd ƒ}W n ty*   | d¡I d H  Y S w t|ƒ\}}|rA| d|› d¡I d H  d S | d |› d|› ¡I d H  d S )	Nra   zUsage: /addadmin <user_id>r]   õ4   âŒ Invalid user ID. Please provide a valid integer.õ	   âœ… User z has been added as an admin.õ	   âŒ User z could not be added. Status: )ÚlenÚ commandr+   ÚintÚ
+ValueErrorÚ	add_admin©rC   r   Ú user_idÚ successÚstatusr6   r6   r7   Ú
+add_admin_cmd†   ó   €ÿ r   Úremadminc                 Ã   rt   )	Nra   zUsage: /removeadmin <user_id>r]   ru   rv   z has been removed from admins.rw   z could not be removed. Status: )rx   ry   r+   rz   r{   Úremove_adminr}   r6   r6   r7   Úremove_admin_cmd”   r‚   r…   Ú	broadcastc           	      Ã   s†  |j s| d¡I d H S |j }|s| d¡I d H S t i ddi¡}d}d}|D ]‹}t|d ƒ} z|j| dI d H  |d7 }t  d ¡I d H  W q' ty’ } z@t  |j	¡I d H  z|j| dI d H  |d7 }W n! t
+y‡ } zt
+ d| › d	|› ¡ |d7 }W Y d }~nd }~ww W Y d }~q'd }~w t
+y² } zt
+ d| › d
+|› ¡ |d7 }W Y d }~q'd }~ww | d
+|› d|› ¡I d H  d S )
+Nz'Usage: /broadcast as reply to a messageu0   âŒ Please reply to a text message to broadcast.r~   r]   r   )Ú chat_idgš™™™™™¹?zFailed to send broadcast to z after FloodWait: z: u'   ðŸ“¢ Broadcast completed!
+âœ… Success: u
+   
+âŒ Failed: )
+Úreply_to_messager+   Ú	users_colÚfindrz   ÚcopyÚ asyncioÚsleepr   ÚxrA   r
+   Úerror)	rC   r   Úbroadcast_messageÚusersÚ
+success_countÚ
+fail_countr1   r~   rE   r6   r6   r7   Ú
+broadcast_cmd¢   s@   €€þ€€þ r”   Úchecknumc                 Ã   s¦   z
+|j jdddI d H }W n ty   | d¡I d H  Y S w |j d¡r)|jnd}|s5| d ¡I d H S t|ƒ}|rG| d|› d	¡I d H S | d
+|› d
+¡I d H S )Nu&   âš ï¸ send the number you wanna checkrN   rO   rQ   z+888FuI   âŒ Invalid number format. Please send a valid number starting with +888.u
+   âœ… Number z is available.u
+   âŒ Number z is not available.) rS   rT   rA   r+   rU   Ú
+startswithÚcheck_number_conn)rC   r   rY   ÚnumberÚcheckr6   r6   r7   Ú
+check_num_cmdÁ   s    €þÿrš   Ú	exportcsvc              
+   Ã   s”   z*|  d¡I d H }tdtƒ › dƒ}|j|ddI d H  t |¡ | ¡ I d H  W d S  t yI } z| d|› ¡I d H  W Y d }~d S d }~ww ) Nu(   â³ **Exporting numbers data to CSV...**Únumbers_export_z.csvu   ðŸ“‘ Exported Numbers Data)Ú captionu   âŒ Failed to export: )	r+   Úexport_numbers_csvr
+   rK   ÚosÚremoveÚdeleterA   r@   )rC   r   ÚmsgÚfilenamerE   r6   r6   r7   Úexport_csv_cmdÔ   s   €
+$€ÿr¤   Ú checktxc                 Ã   s    z
+|j jdddI d H }W n ty   | d¡I d H  Y S w |j}t|ƒ\}}}|rD|rDd|› d|› d |› d|› } | | ¡I d H S | d	|› d
+¡I d H S )
+Nu0   âš ï¸ send the transaction hash you wanna checké,  rO   rQ   u$   âœ… Transaction found!
+
+ðŸ”— Hash: `u   `
+ðŸ¦ To: `u   `
+ðŸ’° Amount: r`   u   âŒ Transaction z is not found or unconfirmed.)rS   rT   rA   r+   rU   Ú
+get_tron_tx)rC   r   rY   Ú tx_hashÚtoÚamountÚsymbolrU   r6   r6   r7   Úcheck_tx_cmdß   s0   €þÿÿþýýÿr¬   Ú	cleartxdbc                 Ã   s’   z
+|j jdddI d H }W n ty   | d¡I d H  Y S w |j}|s-| d¡I d H S t|ƒr=| d|› d ¡I d H S | d|› d	¡I d H S )
+Nu2   âš ï¸ Send the transaction hash you want to clearr¦   rO   rQ   u$   âŒ Invalid transaction hash format.u   âœ… Transaction z has been cleared.u    âŒ Failed to clear transaction Ú.)rS   rT   rA   r+   rU   Úremove_tron_tx_hash)rC   r   rY   r¨   r6   r6   r7   Úclear_tx_db_cmdö   s   €þÿr°   Úbannedc                 Ã   s>   t j}|s| d¡I d H S dd |¡ }| |¡I d H  d S )NzNo banned numbers.u   ðŸš« Banned Numbers:
+
+Ú
+)r   ÚBLOCKED_NUMSr+   Újoin)rC   r   ÚBANNEDrU   r6   r6   r7   Ú
+banned_cmd
+  s   €r¶   Ú	createbtnc                 Ã   s`   t |jƒdk r| d¡I d H S |jd }|jd }tt||dggƒ}|jd|d I d H  d S )Né   z&Usage: /createbtn <button_text> <data>r]   ra   r   zHere is your button:r   )rx   ry   r+   r    r   )rC   r   Ú
+button_textÚdatar3   r6   r6   r7   Úcreate_button_cmd  s   €
+
+r»   )1ÚrerŸ   ÚrandomrŒ   r<   rb   rf   Úpyrogram.typesr   Úpyrogramr   r   Úpyrogram.errorsr   r   r    r   Úhybridr	   r
+   r
+   r   r
+   Úhybrid.plugins.tempr   Úhybrid.plugins.funcÚhybrid.plugins.dbÚ
+aiosend.typesr   ÚDEFAULT_ADMIN_BACK_KEYBOARDÚ
+on_messagery   Ú privater8   r1   rG   rH   rL   r[   rr   r   r…   r”   rš   r¤   r¬   r°   r¶   r»   r6   r6   r6   r7   Ú<module>   sd   ÿ
+
+
+
+
+
+
+
+
+
+
+ 
