@@ -1,0 +1,269 @@
+o
+    ûÔhO  ã                   @   sÀ  d dl Z d dlZd dlZd dlZd dlZd dlZd dlZd dl Z d dlm	Z	 d dl
+m
+Z
+ d dlmZm
+Z
+mZ d dlmZmZ d dlmZmZ d d lmZmZmZ d dlmZmZmZmZmZmZ d d	lm Z  d d
+l!m"Z"m#Z#m$Z$m%Z%m&Z&m'Z'm(Z( d
+d„ Z)dTdd„Z*defdd„Z+dd„ Z,dUdd„Z-dd„ Z.de/fdd„Z0dedefdd„Z1dede2fd d!„Z3dede4fd"d#„Z5dVd%e4d&e4fd'd(„Z6dWd%e4fd)d*„Z7d+e4d,e2fd-d.„Z8d d/l9m:Z:m;Z;m<Z< d0Z=dXd+e4d%e4fd1d2„Z>d3ed+e4d4e/d5e2d6ed7e2fd8d9„Z?dYd:e2d;ed<e2de@eAe2f fd=d>„ZBd:e2deAfd?d@„ZCde2fdAdB„ZDdCe2de2fdDdE„ZEd4e/de/fdFdG„ZFdHe2fdIdJ„ZGd dKl9mHZHmIZImJZJm:Z: dZdMe2fdNdO„ZKd6ed+e4fdPdQ„ZLd3ed+e4d4e/d6efdRdS„ZMdS )[é    N)Úexecvp)Ú
+executable)ÚdatetimeÚ	timedeltaÚtimezone)ÚClientÚtypes)Ú	functionsr   )Ú MessageÚInlineKeyboardMarkupÚInlineKeyboardButton)ÚSessionPasswordNeededÚ	FloodWaitÚPhoneCodeInvalidÚPhoneNumberUnoccupiedÚPhoneNumberBannedÚRPCError)Útemp) Ú	LANGUAGESÚD30_RATEÚD60_RATEÚD90_RATEÚAPI_IDÚAPI_HASHÚUSDT_ADDRESSc                   C   s   t  tj¡S ©N)r   Únowr   Úutc© r   r   ú4/mnt/c/Users/LENOVO/RentalBot/hybrid/plugins/func.pyÚget_current_datetime!   s   r    é
+   c                  C   sV   |dkrdS t | | d ƒ}t ||  | ƒ}|| }d| d|  }d|› d |› dS )	Nr   zTotal cannot be zero.éd   u   â–¥u   â–¢ú[z] ú%)Úint) Ú currentÚtotalÚlengthÚ
+percentageÚ
+filled_lengthÚempty_lengthÚprogress_barr   r   r   Úfetch_progress$   s   r-   Úmc                 C   s*   |r
+t | |j|jjƒ tttddgƒ d S )Nz-mÚhybrid)Úrestart_handlerÚidÚchatr   r   )Úsession_namer.   r   r   r   Ú restart-   s   r4   c              
+   C   s`   | › | › dœ}d}zt j||dd}|jdkrW dS W d S  ty/ } z W Y d }~d S d }~ww )N)ÚhttpÚhttpszhttp://httpbin.org/ipr!   )Ú proxiesÚ timeoutéÈ   TF)ÚrequestsÚgetÚ
+status_codeÚ	Exception)Úpro_xyÚproxyÚurlÚresponseÚer   r   r   Ú
+check_proxy2   s   þ
+€ÿrC   c                 C   sú   zt ddƒ
+}t |¡}W d   ƒ n1 sw   Y  W n ty'   i }Y n tjy2   i }Y nw |d u s;|d u rE| |v rC||  S d S | |vrMi || < |||  d< |||  d< t ddƒ}tj||dd  W d   ƒ ||  S 1 stw   Y  ||  S )Núrestart.jsonÚrÚ
+message_idÚ user_idÚwé   )Úindent)ÚopenÚjsonÚloadÚFileNotFoundErrorÚJSONDecodeErrorÚdump)r3   Úmsg_idrG   ÚfÚrestart_datar   r   r   r0   C   s0   ÿ€ÿ
+ÿþr0   c              	   C   s„   z4t ddƒ$}t |¡}| | i ¡ d¡}| | i ¡ d¡}||fW  d   ƒ W S 1 s-w   Y  W d S  ttjfyA   Y dS w )NrD   rE   rF   rG   ©NN)rK   rL   rM   r;   rN   rO   )r3   rR   rS   rQ   rG   r   r   r   Úget_restart_data[   s   
+(üÿrU   Úreturnc              	   C   s$   zt | ƒW S  ttfy   Y dS w )z9Convert total_hours to float safely (int, float, or str).ç        )ÚfloatÚ	TypeErrorÚ
+ValueError)Ú
+total_hoursr   r   r   Ú_normalize_hourse   s
+   
+ÿr\   Údtc                 C   s2   | du r t ƒ S | jdu r| jtjdS |  tj¡S )z&Ensure datetime is timezone-aware UTC.N©Útzinfo)r    r_   Ú replacer   r   Ú
+astimezone)r]   r   r   r   Ú
+_ensure_utcl   s
+   
+rb   Ú
+start_datec           
+      C   sÈ   t | ƒ} t|ƒ}| t|d }tƒ jtjd}|| }|  ¡ dkr#dS |j}t	|j
+dƒ\}} t	| dƒ\}}	g }
+|dkrC|
+ 
+|› d ¡ |dkrO|
+ 
+|› d¡ |dkr[|
+ 
+|› d	¡ |
+rbd
+ |
+¡S d
+S )z(Return remaining time as 'X days Yh Zm'.©Úhoursr^   r   Ú Expiredé  é<   z daysÚhr.   ú Ú0m)
+rb   r\   r   r    r`   r   r   Ú
+total_secondsÚdaysÚdivmodÚ secondsÚappendÚjoin)
+rc   r[   Úexpiryr   Ú	remainingrm   re   Ú	remainderÚ minutesÚ_Úpartsr   r   r   Úformat_remaining_timet   s$   rx   c                 C   sR   t | ƒ} t|ƒ}| t|d }tƒ }|| }| ¡ dkrdS tdt| ¡ d ƒƒS )z"Return remaining hours as integer.rd   r   rg   ) rb   r\   r   r    rl   Úmaxr%   )rc   r[   rr   r   rs   r   r   r   Úget_remaining_hoursŽ   s   rz   é   ÚpageÚper_pagec                 C   s>   t tjƒ}t || ¡}| d | }|| }tj||… |fS )Nr{   )Úlenr   ÚNUMBE_RSÚmathÚceil)r|   r}   r'   ÚpagesÚstartÚendr   r   r   Úget_numbers_pageœ   s
+   
+r…   c               	   Ã   sÖ   t |ƒ\}}g }|D ]}| t|d|› d|› dg¡ q
+g }|dkr2| tdd|d › d¡ ||k rD| td d|d › d¡ |rK| |¡ | tdd	dg¡ | jjd
+|› d
+|› dt|ƒd
+I d H  d S )NÚ
+admin_number_rv   ©Ú
+callback_datar{   u
+   â¬…ï¸ PrevÚadmin_numbers_page_u
+   âž¡ï¸ NextzBack to Admin MenuÚ
+admin_panelu!   ðŸ“ž **Available Numbers** (Page ú/ú)©Úreply_markup)r…   rp   r   Ú messageÚ	edit_textr
+   ) Úqueryr|   Ú numbersr‚   ÚkbÚnumÚnavr   r   r   Úshow_numbers£   s"   €"
+þr–   rG   Úkeyc                 K   sH   ddl m} || ƒp
+d}t |td ¡ ||¡}|r"|jdi |¤ŽS |S )Nr   )Úget_user_languageÚenr   )Úhybrid.plugins.dbr˜   r   r;   Úformat)rG   r—   Úkwargsr˜   ÚlangÚtextr   r   r   Út¸   s   rŸ   )Úget_number_dataÚget_number_infoÚsave_number_infoé   c           
+   
+      s¬  t j}dd„ |D ƒ}tƒ ‰ ‡ fdd„|D ƒ}dd„ |D ƒ}dd„ |D ƒ}|| }|t }|t } ||| … }g }	|D ]!}
+|
+t jv rDd}
+nd }
+|	 t|
+› d|
+› d	|
+› d
+|› d
+g¡ q:g }|dkr‹| tt | d
+ƒd|d › d
+¡ | td|d › dt 	t
+|ƒt ¡› dd
+¡ | t
+|ƒk r¾|dkr­| td|d › dt 	t
+|ƒt ¡› dd
+¡ | tt | dƒd|d › d
+¡ |rÅ|	 |¡ |	 tt | dƒdd
+g¡ t
+|	ƒS )Nc                 S   ó   g | ]	}|t jvr|‘qS r   )r   Ú
+UN_AV_NUMS)Ú.0r”   r   r   r   Ú
+<listcomp>Æ   ó    z*build_rentnum_keyboard.<locals>.<listcomp>c                    s"   g | ]
+}|ˆ v sˆ   |¡s|‘qS r   )Úadd)r¦   Úx©Úseenr   r   r§   È   s   " c                 S   r¤   r   ©r   Ú
+RENTED_NUMS©r¦   Únr   r   r   r§   Ê   r¨   c                 S   s   g | ]	}|t jv r|‘qS r   r­   r¯   r   r   r   r§   Ë   r¨   u    ðŸ”´u    ðŸŸ¢rj   znuminfo:ú:r‡   r   Úbackz
+rentnum_page:r{   zPage r‹   Ú
+pagenumberÚnextÚ	back_home)r   Ú
+AVAILABLE_NUMÚsetÚNUMBERS_PER_PAGEr®   rp   r   rŸ   r€   r   r~   r
+   )
+rG   r|   Úfiltered_numbersÚavailable_numsÚ
+rented_numsÚordered_numbersrƒ   r„   Únumbers_pageÚkeyboardÚnumberÚstatusÚ nav_rowr   r«   r   Úbuild_rentnum_keyboardÄ   s<   
+ ÿ"00"
+rÂ   ÚclientÚamountÚ
+descriptionÚmsgÚ payloadc            	   	   Ã   sˆ   | j |d|dd | ¡ I d H j¡d|d I d H } | j}|jd|› d |› dtt d	| jd
+gt t	|d
+ƒd|› d
+ggƒdI d H  d S )NÚUSDTÚ openBotzhttps://t.me/{}i   ) rÄ   ÚassetrÅ   Ú
+paid_btn_nameÚpaid_btn_urlÚ
+expires_inrÇ   u#   ðŸ’¸ **Invoice Created**
+
+Amount: `z` USDT
+Description: `z`
+Pay using the button below.u   ðŸ’³ Pay Now)r@   Úi_paidÚcheck_payment_r‡   r   )
+Úcreate_invoicer›   Úget_meÚusernameÚ
+invoice_idÚeditr
+   r   Úbot_invoice_urlrŸ   )	ÚcprÃ   rG   rÄ   rÅ   rÆ   rÇ   Ú invoiceÚinv_idr   r   r   Úsend_cp_invoiceð   s,   €ù	ÿþþûrÙ   r¿   ÚappÚtwo_fa_passwordc           
+   
+   Ã   sR  d|   dd¡› }t|ttd}t d¡ t d| › d |› d¡ d	d
+„ }zèz³t d
+¡ | ¡ I dH  t d
+| › dt |ddƒ› d¡ t d¡ z
+| | ¡I dH }W nF t	y› }  z:t 
+d| j
+¡ t 
+| j
+d ¡I dH  t| ||ƒI dH W  Y d} ~ W W t |ddƒr‘| ¡ I dH  t d¡ t d¡ S d} ~ ww t dt |ddƒ|t |ddƒƒ|t |ddƒƒt |ddƒ¡ |t |ddƒƒ ¡ }|t |ddƒƒ ¡ }	|dkr2|	dkr2t d|¡ z |j| |jdI dH }t d|t |ddƒƒ|t |ddƒƒ¡ W nF ty1 }  z't d | ¡ W Y d} ~ W W t |ddƒr&| ¡ I dH  t d¡ t d¡ d!S d} ~ ww |dkr=t d"¡ n t 
+d#||	¡ d$d%lm}
+ d}
+td&ƒD ]@}z|
+| ƒ}
+W n tys }  zt d'| ¡ d}
+W Y d} ~ nd} ~ ww |
+rt d(|
+¡  nt d)|d ¡ t 
+d*¡I dH  qP|
+s¶t d+| ¡ W W t |ddƒr¯| ¡ I dH  t d¡ t d¡ d,S z|j| |j|
+d-I dH  t d.¡ W nL tyô   t d/¡ Y W W t |ddƒrí| ¡ I dH  t d¡ t d¡ d0S  ty   t d1¡ Y W W t |ddƒr| ¡ I dH  t d¡ t d¡ d2S  tys   |rlz| |¡I dH  t d3¡ W n: tyk }  z(t d4| ¡ W Y d} ~ Y W W t |ddƒr`| ¡ I dH  t d¡ t d¡ d5S d} ~ ww t d6¡ Y n¤ tyœ   t d7¡ Y W W t |ddƒr•| ¡ I dH  t d¡ t d¡ d8S  t	yã }  z;t 
+d9| j
+¡ t 
+| j
+d ¡I dH  t| ||ƒI dH W  Y d} ~ W W t |ddƒrÙ| ¡ I dH  t d¡ t d¡ S d} ~ w ty }  z't d:| ¡ W Y d} ~ W W t |ddƒr
+| ¡ I dH  t d¡ t d¡ d;S d} ~ ww z/| tj j!d<d=¡I dH  t d>¡ W W W t |ddƒr@| ¡ I dH  t d¡ t d¡ d?S  t"y© }  zVd@t#| ƒ ¡ v r~t dA¡ W Y d} ~ W W t |ddƒrw| ¡ I dH  t d¡ t d¡ dBS t dC| ¡ W Y d} ~ W W t |ddƒrž| ¡ I dH  t d¡ t d¡ dDS d} ~ w tyÜ }  z't dE| ¡ W Y d} ~ W W t |ddƒrÑ| ¡ I dH  t d¡ t d¡ dDS d} ~ ww  ty }  z&t dF| ¡ W Y d} ~ W t |ddƒr| ¡ I dH  t d¡ t d¡ dGS d} ~ ww t |ddƒr#| ¡ I dH  t d¡ t d¡ w )HuW  
+    Delete Telegram account linked to `number`.
+
+    Logic:
+    - If code type is not FRAGMENT_SMS but next_type is â†’ force one resend to switch to Fragment.
+    - Wait up to 30s for OTP from Fragment helper.
+    - Handle 2FA (immediate deletion if password provided, else scheduled).
+    - Manage all known errors, retry on FloodWait.
+    z delete-ú+Ú )Úapi_idÚapi_hashz=== delete_account START ===zStarting deletion process for z
+ (session='z')c                 S   s   | d u rdS t | dt| ƒƒS )NÚNoneÚname)Ú getattrÚstr)rª   r   r   r   Ú
+_type_name  s   z"delete_account.<locals>._type_namezConnecting pyrogram client...NzConnected to Telegram for z (is_connected=Úis_connectedFrŒ   z1Requesting login code using client.send_code(...)z?FloodWait %s seconds during send_code. Sleeping and retrying...r{   zDisconnected client.z=== delete_account END ===z?SentCode: phone_code_hash=%s, type=%s, next_type=%s, timeout=%sÚphone_code_hashÚtypeÚ	next_typer8   ÚFRAGMENT_SMSuL   First code is %s, next_type is FRAGMENT_SMS â†’ resending to force Fragment.)ræ   z#After resend: type=%s, next_type=%szResend failed: %s)FÚ
+ResendErrorz#Code already sent via Fragment SMS.zFNo Fragment type available (type=%s, next_type=%s). Proceeding anyway.r   )Úget_login_codeé   zget_login_code failed: %szReceived OTP: %sz&No OTP yet. Waiting 5s (attempt %d/6).é   zNo OTP received for %s)FÚOTP)Úphone_numberræ   Ú
+phone_codezSigned in successfully.z"No account exists for this number.)TÚ	NoAccountzInvalid OTP.)FÚ
+InvalidOTPz2FA password accepted.z2FA password failed: %s)FÚInvalid2FAPassworduJ   2FA enabled but no password given â†’ deletion will be scheduled (7 days).zNumber banned.)FÚBannedz(FloodWait %s during sign_in. Retrying...zUnexpected sign_in error: %s)FÚ
+SignInErrorÚ Cleanup)ÚreasonzAccount deleted immediately.)TÚ DeletedÚ2FA_CONFIRM_WAITz)Account scheduled for deletion in 7 days.)TÚ7DayszDeleteAccount RPCError: %s)FÚ
+DeleteErrorz"Unexpected DeleteAccount error: %szTop-level error: %s)FÚError)$r`   r    r   r   Ú loggingÚinfoÚ connectrâ   Ú	send_coder   Ú warningÚvalueÚ asyncioÚsleepÚdelete_accountÚ
+disconnectÚupperÚ
+resend_coderæ   r=   ÚerrorÚhybrid.plugins.fragmentrë   ÚrangeÚ sign_inr   r   r
+   Úcheck_passwordr   Úinvoker	   Ú accountÚ
+DeleteAccountr   rã   )
+r¿   rÚ   rÛ   r3   rÃ   rä   Ú	sent_coderB   Útype_strÚ
+next_type_strrë   ÚotpÚ attemptr   r   r   r    sl  €
+
+
+ 
+ i
+€‘
+
+û	ýP
+€«
+€þ8
+Èý
+,
+Ò
+)
+Õ!
+€Ú
+€
+
+â 
+€æ
+€æ
+
+ï
+
+
+ó	
+€õ
+€õ
+€ù
+r  c                 Ã   s   ddl m} | | ¡I d H S )Nr   )Úfragment_api)r
+  r  Úcheck_is_number_free)r¿   r  r   r   r   Úcheck_number_conn—  s   €r  c                 C   sl   t | ƒ} |  d¡r| }n|  d¡rd|  }ntdƒ‚|dd… }|dd … }|d d… }|› d|› d|› S )	zP
+    Format a phone number from +88869696069 (int or str) to +888 6969 6069
+    z+888Ú888rÜ   zNumber must start with +888NrI   r£   rj   )rã   Ú
+startswithrZ   )r¿   Úclean_numberÚprefixÚ
+first_blockÚsecond_blockr   r   r   Ú
+format_number›  s   
+
+
+r  Údate_strc              
+   C   s^   zt  | d¡}W n! ty)   zt  | d¡}W n ty&   t  | d¡}Y nw Y nw | d¡S )Nz%Y-%m-%d %H:%M:%S.%fú%Y-%m-%d %H:%M:%Sz%Y-%m-%d %H:%M:%S %Zz%d/%m/%y)r   ÚstrptimerZ   Ústrftime)r   r]   r   r   r   Ú
+format_date®  s   ÿ€ý
+r$  c                 C   s   t  dd¡}t| | dƒS )Ng{®Gáz„?g\Âõ(\ß?é   )ÚrandomÚ uniformÚround)rÄ   Úfractionr   r   r   Úadd_random_fraction¸  s   r*  Ú tx_hashc                 C   sþ   d| › }t  |¡}| ¡  | ¡ }d }d }d}d|v rH|d rH|d d } |  d¡}t|  dd ¡ƒ}t|  dd	¡ƒ}	|  d
+d
+¡}|d|	  }n2d
+|v rzd|d
+ v rz|d
+ }
+|
+ d¡}|
+ d¡}|
+ di ¡}
+t|
+ dd	¡ƒ}	|
+ dd¡}|d|	  }|||fS )Nz:https://apilist.tronscanapi.com/api/transaction-info?hash=ÚTRXÚtrc20TransferInfor   Ú
+to_addressÚ
+amount_strÚ0Údecimalsrì   ÚsymbolÚTRC20r!   ÚcontractDatarÄ   Ú	tokenInfoÚtokenDecimalÚ	tokenAbbr)r:   r;   Úraise_for_statusrL   r%   )r+  r@   ÚrespÚdatar.  Úhuman_amountr2  rŸ   Ú
+raw_amountr1  ÚcÚ
+token_infor   r   r   Ú
+get_tron_tx¼  s.   
+
+
+
+
+
+r?  )Ú
+number_colÚ
+rental_colÚget_user_balancer    únumbers_export.csvÚfilenamec              
+   C   sH  t  i dddœ¡}g }|D ]g}|d }t|ƒ}|re| d¡re| d¡}t|ƒp(d} | d ¡}| d¡}	| d	d¡}
+t ¡ }
+|	|
+ }t d|jƒ}
+t d|j	d
+ ƒ}| 
+|d
+|| | 
+d¡|	 
+d¡|
+||
+d
+œ	¡ q
+| 
+|ddddddddd
+œ	¡ q
+t| dddd}t
+j||d  ¡ d}| ¡  | |¡ W d  ƒ | S 1 sw   Y  | S )z¬
+    Export all numbers with rental details to a CSV file.
+
+    Columns: Number, Rented, User ID, Balance, Rent Date, Expiry Date, Days Left, Hours Left, Rented Amount
+    r   r{   )Ú_idr¿   r¿   rG   rW   Ú	rent_dateÚ
+expiry_datere   rg   ÚYesr!  )	ÚNumberÚRentedz User IDÚ Balancez	Rent Datez
+Expiry Datez	Days Leftz
+Hours LeftzRented Amount (Hours)ÚNorÝ   rH   zutf-8)ÚmodeÚ newlineÚencoding)Ú
+fieldnamesN)r@  Úfindr    r;   rB  r   Úutcnowry   rm   ro   rp   r#  rK   ÚcsvÚ
+DictWriterÚkeysÚ
+writeheaderÚ	writerows)rD  Ú
+all_numbersÚrowsÚ num_docr¿   Ú
+rented_datarG   Ú balancerF  rG  re   r   rs   Ú	days_leftÚ
+hours_leftÚfileÚwriterr   r   r   Úexport_numbers_csvà  sZ   
+
+
+
+÷
+÷
+
+ýûra  c                 Ã   s@   t tdddgtdddggƒ}|jt|dƒ|d I d H  d S )Nz@sendÚset_payment_cryptobotr‡   z
+USDT TRC-20Úset_payment_tronÚchoose_payment_methodr   )r
+   r   ÚreplyrŸ   )rÃ   rÆ   rG   r¾   r   r   r   Úgive_payment_option  s   €þþrf  c                  Ã   sN   t }t|ƒ}|jt|d||dttt|dƒd|› dggƒdI d H  d S ) NÚ
+pay_amount)rÄ   Ú addressrÎ   Úcheck_payment_TRON_r‡   r   )r   r*  rÔ   rŸ   r
+   r   )rÃ   rG   rÄ   rÆ   Útron_addressÚfinal_amountr   r   r   Úsend_tron_invoice#  s   €ÿrl  )r!   rT   )r{   r!   )r{   )r   r   )rC  )NrL   r€   r  rý   r&  r:   Ú	tracebackrS  Úosr   Úsysr   r   r   r   Úpyrogramr    r   Úpyrogram.rawr	   Úpyrogram.typesr
+   r
+   r   Úpyrogram.errorsr
+   r   r   r   r   r   Úhybrid.plugins.tempr   Úconfigr   r   r   r   r   r   r   r    r-   r4   rC   r0   rU   rX   r\   rb   rã   rx   r%   rz   r…   r–   rŸ   rš   r    r¡   r¢   r¸   rÂ   rÙ   ÚtupleÚboolr  r  r  r$  r*  r?  r@  rA  rB  ra  rf  rl  r   r   r   r   Ú<module>   sZ    	$
+	
+
+  ",$ 
+ 9
