@@ -9,9 +9,9 @@ import base64
 load_dotenv() 
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8228954627:AAHHD6OOPgLklPfKPYuzxlgwhhnbB-SAaAw")
-API_ID = int(os.environ.get("API_ID", ""))
-API_HASH = os.environ.get("API_HASH", "")
-OWNER_ID = int(os.environ.get("OWNER_ID", ""))
+API_ID = int(os.environ.get("API_ID", "15631044"))
+API_HASH = os.environ.get("API_HASH", "52b1b075a9996c304a2c938ffb7073c4")
+OWNER_ID = int(os.environ.get("OWNER_ID", "5770074932"))
 DB_URI = os.environ.get("DATABASE_URL", "")
 DB_NAME = os.environ.get("DATABASE_NAME", "rentalbot")
 CRYPTO_API = os.environ.get("CRYPTO_API", "")
@@ -38,5 +38,6 @@ except ValueError:
 
 
 ADMINS.append(OWNER_ID)
+
 
 
