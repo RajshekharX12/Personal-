@@ -8,7 +8,7 @@ import base64
 
 load_dotenv() 
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8228954627:AAHHD6OOPgLklPfKPYuzxlgwhhnbB-SAaAw")
 API_ID = int(os.environ.get("API_ID", ""))
 API_HASH = os.environ.get("API_HASH", "")
 OWNER_ID = int(os.environ.get("OWNER_ID", ""))
@@ -38,4 +38,5 @@ except ValueError:
 
 
 ADMINS.append(OWNER_ID)
+
 
