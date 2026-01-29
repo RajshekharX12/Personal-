@@ -1,0 +1,236 @@
+o
+    6ªÒh–O  ã                   @   s–  d dl Z d dlZd dlZd dlZd dlZd dlmZm Z mZm	Z	 d dl
+m
+Z
+ d dlZd dl
+mZ d dlmZmZmZmZ dZeeeeB f Ze e¡ZejsVejejd d G d	d
+„ d
+eƒZ G d
+d„ deƒZ!d=dede eef fdd„Z"defdd„Z#dedee fdd„Z$	
+							d>dededed ed!e%d"e	e d#e&d$e&deee e f fd%d&„Z'dedee fd'd(„Z(	
+	)						d?dededed ed!e%d"e	e d#e&d$e&deee e f fd*d+„Z)d=d,edefd-d.„Z*d=d,ede&fd/d0„Z+d=d,edefd1d2„Z,G d3d4„ d4ƒZ-d=dede ee	e f fd5d6„Z.e-ee.d
+ƒd7 e.d
+ƒd8 e.d
+ƒd9 d:Z/	
+				d@deded"e	e d#e&d$e&deee e f fd;d<„Z0dS )Aé    N)ÚListÚDictÚTupleÚOptional)Ú
+AsyncClient)Ú
+BeautifulSoup)ÚRequestExceptionÚ TimeoutÚSSLErrorÚConnectionErrorÚ38f80e92d2dbe5065bz%%(asctime)s %(levelname)s %(message)s)ÚlevelÚformatc                   @   ó   e Zd ZdZdS )ÚFragmentAuthErrorzARaised when cookies are invalid / expired or site requires login.N©Ú__name__Ú
+__module__Ú__qualname__Ú __doc__© r   r   ú8/mnt/c/Users/LENOVO/RentalBot/hybrid/plugins/fragment.pyr      ó    r   c                   @   r   )ÚFragmentRateLimitErrorz?Raised when server responds with 429 and we shouldn't continue.Nr   r   r   r   r   r   !   r   r   ú	frag.jsonÚpathÚreturnc                 C   sJ   t | ddd
+}t |¡}W d  ƒ n1 sw   Y  dd„ |D ƒ}|S ) z9Load cookies from Chromium-style JSON export (frag.json).Úrúutf-8©ÚencodingNc                 S   ó*   i | ]}d |v rd|v r|d  |d “qS ©ÚnameÚvaluer   ©Ú.0Úcr   r   r   Ú
+<dictcomp>*   ó   * z+_load_cookies_from_file.<locals>.<dictcomp>©ÚopenÚjsonÚload)r   ÚfÚrawÚ cookiesr   r   r   Ú_load_cookies_from_file&   s
+   ÿr1   c                   C   s   dS )NzoMozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36r   r   r   r   r   Ú_default_user_agent-   s   r2   Úhtmlc                  C   sf  t | dƒ}tƒ }t d|jdd¡D ] }| |¡ q| d¡D ]7}|d }t  d |¡}|r@| d¡} |  	d	¡s;d	|  } | | ¡ |jd
+d
+}t  d|¡}	|	rV| |	 d¡¡ q| d
+¡D ]}
+|
+jdd
+d
+}
+t  d|
+¡}|ru| | d¡¡ q\|j
+d
+dD ]+}|j
+ ¡ D ]#}
+t
+|
+ttfƒr‘d |
+¡}
+t
+|
+tƒr¦t  d|
+¡}|r¦| | d¡¡ qƒq|tdd„ |D ƒƒ}|S )z8Try multiple parsing strategies to find +888... numbers.ú
+html.parserz
+\+888\d{4,15}ú )Ú	separatorú a[href]Úhrefz(?:/number/|\b)(\+?888\d{4,15})é   ú+T©Ústripr   z5.number, .tm-number, .number-item, .my-number, .phone)Úattrsc                  S   s   h | ]	}t  d d|¡’qS )z\s+Ú )ÚreÚsub)r&   Únr   r   r   Ú	<setcomp>\   s    z+_parse_numbers_from_html.<locals>.<setcomp>)r    Úsetr?   Ú findallÚget_textÚaddÚselectÚsearchÚgroupÚ
+startswithÚfind_allr=   ÚvaluesÚ
+isinstanceÚlistÚtupleÚjoinÚstrÚsorted)r3   ÚsoupÚfoundÚmatchÚar8   ÚmÚnumÚtextÚm2Ú	candidateÚtxtÚtagÚattr_valÚ
+normalizedr   r   r   Ú_parse_numbers_from_html1   sF   
+
+
+
+€€
+
+€ú	r`   úhttps://fragment.com/my/numbersé   é   ç333333ã?TFÚcookies_fileÚurlÚ timeoutÚ
+max_retriesÚbackoff_baseÚ
+user_agentÚ
+verify_sslÚ verbosec              
+   C   sü  |pt ƒ }t| ƒ}	t ¡ }
+|
+j |	¡ |ddddœ}
+d}d}
+ddd dœ}||k r\|d	7 }||d
+< zÔ| r;t  d
+||¡ |
+j||
+|d|d
+}|j	|d< |j	dkr|j
+ d¡}d|› }||d< |rdt
+|ƒ‚|d|d	   t ¡ d  }t 
+d|¡ t |¡ W q$|j	dv r”d|j	› |d< td|j	› ƒ‚|j	dkrÌ|j}g d¢}| ¡ }d|j ¡ v s·d|v s·d|v r¿d|v r¿d|d< td ƒ‚t|ƒ}d!|d< ||fW S d"|j	  kr×d#k rön n|d|d	   t ¡ d  }t 
+d$|j	|¡ t |¡ W q$d%|j	› |d< td%|j	› ƒ‚ tttfy8 } z#|}
+|d|d	   t ¡ d  }t 
+d&|||¡ t |¡ W Y d}~q$d}~w t
+y@   ‚  tyH   ‚  ty[ } z t d'|¡ ‚ d}~ww d(|› d)|d< |
+rqtd*|› d+|
+› ƒ‚td*|› d,| d¡› ƒ‚)-a
+  
+    Fetch and return list of +888 numbers from fragment.com/my/numbers.
+
+    Returns:
+        (numbers_list, meta)
+        - numbers_list: List[str] (deduplicated, normalized)
+        - meta: dict with information about status, attempts, last_status_code, message
+    Raises:
+        FragmentAuthError if server indicates login required / cookie invalid.
+        FragmentRateLimitError if server returns 429 and Retry-After suggests waiting.
+        RequestException for other network-level failures (after retries).
+    ú?text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8úen-US,en;q=0.9úhttps://fragment.com/©ú
+User-AgentÚAcceptúAccept-LanguageÚ Refererr   Nr>   ©ÚattemptsÚlast_status_codeÚ messager9   rv   úGET %s (attempt %d)T©Ú headersrg   Úallow_redirectsÚverifyrw   é­  ú
+Retry-Afterú!Rate limited (429). Retry-After: rx   é   ç      à?z#429 received, backing off for %.1fs©i‘  i“  úAuth failure HTTP z(Authentication/permission failure: HTTP éÈ   )Úloginú sign inz sign-inú/loginÚ	stel_ssidÚ
+stel_tokenrˆ   z
+please logr‡   Úpasswordu7   Detected login page â€” cookies may be expired/invalid.z7Detected login page. Cookies likely expired or invalid.ÚOKéô  éX  ú"Server error %d, backing off %.1fszUnexpected HTTP status: õ5   Network error on attempt %d: %s â€” backing off %.1fszFatal request exception: %sú
+Exhausted ú retriesú
+Failed after ú
+ attempts: z attempts: last status )r2   r1   ÚrequestsÚ Sessionr0   ÚupdateÚloggerÚinfoÚgetÚ
+status_coder{   r   ÚrandomÚ warningÚtimeÚsleepr   rY   Úlowerrf   r`   r   r
+   r	   r
+   Ú	exception)re   rf   rg   rh   ri   rj   rk   rl   Úuar0   Ú sessionr{   Ú attemptÚlast_excÚmetaÚrespÚ
+retry_afterÚmsgÚ	sleep_forÚbodyÚ
+login_signsr    Ú numbersÚexcr   r   r   Úget_fragment_numbers`   sŒ   
+û
+
+
+
+
+
+
+&
+
+
+€€ýr¯   c           
+      C   s¼   t | dƒ}tƒ }t d| d¡¡D ] }| |¡ q| d¡D ]!}|jdd}|d  }||fD ]} | s3q.t d| ¡}|  |¡ q.q| d¡D ]}	|	jddd}
+t d|
+¡}|  |¡ qEt|ƒS )	zCExtract Telegram usernames (starting with @) from the convert page.r4   z@[a-zA-Z0-9_]{5,32}r5   r7   Tr;   r8   z'.username, .tm-username, .user, .handle)	r    rC   r?   rD   rE   rF   rG   r—   rR   )
+r3   rS   rT   rU   rV   rY   r8   r[   rW   r]   r\   r   r   r   Ú_parse_usernames_from_htmlÚ   s$   
+ü r°   úhttps://fragment.com/convertc              
+   C   sb  |pt ƒ }t| ƒ}	t ¡ }
+|
+j |	¡ |ddddœ}
+d}d}
+ddd dœ}||k r|d	7 }||d
+< z«| r;t  d
+||¡ |
+j||
+|d|d
+}|j	|d< |j	dkrb|j
+ d¡}d|› |d< t
+|d ƒ‚|j	dv rud|j	› |d< t|d ƒ‚|j	dkr¥|j
+}d|j ¡ v sd| ¡ v r˜d| ¡ v r˜d|d< tdƒ‚t|ƒ}d|d< ||fW S d|j	  kr°dk rÏn n|d|d	   t ¡ d  }t d |j	|¡ t |¡ W q$d!|j	› |d< t|d ƒ‚ tttfy } z#|}
+|d|d	   t ¡ d  }t d"|||¡ t |¡ W Y d}~q$d}~ww d#|› d$|d< |
+r%td%|› d&|
+› ƒ‚td%|› d'|d › ƒ‚)(zË
+    Fetch and return list of usernames (@...) from fragment.com/convert.
+
+    Returns:
+        (usernames_list, meta)
+    Raises:
+        FragmentAuthError, FragmentRateLimitError, RequestException
+    rm   rn   ro   rp   r   Nr>   ru   r9   rv   ry   Trz   rw   r~   r   r€   rx   rƒ   r„   r…   rˆ   r‡   r‹   zDetected login pagezCookies expired or invalid.rŒ   r   rŽ   r   r‚   r   zUnexpected HTTP r   r‘   r’   r“   r”   z attempts, last code )r2   r1   r•   r–   r0   r—   r˜   r™   rš   r›   r{   r   r   rY   rf   r    r°   rœ   r   rž   rŸ   r   r
+   r	   r
+   )re   rf   rg   rh   ri   rj   rk   rl   r¢   r0   r£   r{   r¤   r¥   r¦   r§   r¨   r«   Ú	usernamesrª   r®   r   r   r   Úget_fragment_usernamesö   sl   
+ü 
+
+
+
+
+&
+
+
+€û r³   Únumberc           
+      C   s¬   t |ƒ}t ¡ }|j |¡ |  dd¡ dd¡}d|› d}|j|dd }|j dkr2td	|j › ƒ‚t	|j
+d
+ƒ} | j
+d
+dd
+}|rT|jdd}	t
+ d|	¡}
+|
+rT|
+ d¡S dS )z?Fetch the login code for a given +888 number from fragment.com.r:   r>   r5   úhttps://fragment.com/number/z/coderb   )rg   r…   z Failed to fetch code page: HTTP r4   Údivztm-number-code-field)Úclass_Tr;   z\d+r   N)r1   r•   r–   r0   r—   Ú replacerš   r›   Ú	Exceptionr    rY   ÚfindrE   r?   rH   rI   )
+r´   re   r0   r£   Únum_pathrf   r§   rS   Úcode_divÚ	code_textrU   r   r   r   Úget_login_codeL  s    
+
+r¾   c                 C   sr   t |ƒ}t ¡ }|j |¡ |  dd¡ dd¡}d}d|dd dœ}|j||d	d
+} | j d
+kr7|  ¡  	d¡r7d
+S dS )Nr:   r>   r5   úhttps://fragment.com/apiÚsetPhoneFlagÚ
+receive_codesÚfalse)Úmethodr´   Úflagr$   rb   ©Údatarg   r…   ÚokTF)
+r1   r•   r–   r0   r—   r¸   Úpostr›   r,   rš   )r´   re   r0   r£   r»   rf   Úformdatar§   r   r   r   Údisable_receive_login_codesd  s   ü rÊ   c           
+      C   sš   t |ƒ}t ¡ }|j |¡ |  dd¡ dd¡}d}d|dœ}|j||d d} |   ¡ }| d	¡s4t	d
+ƒ‚| d
+¡}	|	|d
+< |j||d d} |   ¡  dd
+¡S )z3Terminate all active sessions for the given number.r:   r>   r5   r¿   ÚterminatePhoneSessions)rÃ   r´   rb   rÅ   rÇ   zFailed to start terminationÚterminate_hashr©   z
+No message)
+r1   r•   r–   r0   r—   r¸   rÈ   r,   rš   r¹   )
+r´   re   r0   r£   r»   rf   rÉ   r§   rÆ   rÌ   r   r   r   Úterminate_all_sessionsw  s    þ
+
+rÍ   c                
+   @   sR   e Zd ZdZdededededd f
+dd	„Zd
+edefd
+d„Z d
+edefdd„Z	d S )Ú
+FragmentAPIr¿   Úhashr‰   Ústel_ton_tokenrŠ   r   Nc                 C   s>   t d|idddddd dd	d
+d
+|› d|› d
+|› dœ
+d| _d S )NrÏ   zFMozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0z.application/json, text/javascript, */*; q=0.01zen-US,en;q=0.5zgzip, deflate, br, zstdz0application/x-www-form-urlencoded; charset=UTF-8ÚXMLHttpRequestzhttps://fragment.comz
+keep-alivera   z
+stel_ssid=z; stel_dt=-300; stel_ton_token=z
+; stel_token=)
+rq   rr   rs   zAccept-EncodingzContent-TypezX-Requested-WithÚOriginÚ
+Connectionrt   ÚCookie)Úparamsr{   )r   Úclient)ÚselfrÏ   r‰   rÐ   rŠ   r   r   r   Ú__init__–  s   ÿöüzFragmentAPI.__init__rÆ   c                 Ã   sH   | j j| j|dI d H }| ¡ }d|v r"td|d › d|›dƒ‚|S )N)rf   rÆ   ÚerrorzFragment API error: z (request = ú))rÖ   rÈ   ÚBASE_URLr,   r¹   )r×   rÆ   ÚresponseÚ
+response_datar   r   r   Ú_request©  s   €þzFragmentAPI._requestr´   c                 Ã   s,   | j d|dddœdI d H }| d¡d kS )Né   ÚtrueÚ
+canSellItem)ÚtypeÚusernameÚ auctionrÃ   )rÆ   Úconfirm_buttonzProceed anyway)rÞ   rš   )r×   r´   rÝ   r   r   r   Úcheck_is_number_free¶  s   €üÿ	z FragmentAPI.check_is_number_free)
+r   r   r   rÛ   rQ   rØ   ÚDATA_TrÞ   Úboolræ   r   r   r   r   rÎ   “  s
+    
+rÎ   c                    s`   t | ddd
+}t |¡}W d  ƒ n1 sw   Y  dd„ |D ƒ‰ g d ¢}‡ fdd„|D ƒS )	zì
+    Extract key Fragment cookies (stel_ssid, stel_ton_token, stel_token, stel_dt) 
+    from a cookies JSON file exported by the browser.
+
+    Returns:
+        dict with cookie names as keys and their values (or None if not found).
+    r   r   r   Nc                 S   r!   r"   r   r%   r   r   r   r(   Ï  r)   z+extract_fragment_tokens.<locals>.<dictcomp>)r‰   rÐ   rŠ   Ú stel_dtc                    s   i | ]}|ˆ   |¡“qS r   )rš   )r&   Úk©r0   r   r   r(   Ò  s    r*   )r   r.   r/   Ú	importantr   rë   r   Úextract_fragment_tokensÃ  s   ÿrí   r‰   rÐ   rŠ   )rÏ   r‰   rÐ   rŠ   c                  C   sø   |pt ƒ }t| ƒ}t ¡ } | j |¡ |ddddœ}dddd œ}	g }
+t| ||||d\}
+}|
+D ]@}
+|
+  d	d¡  d
+d¡}d
+|› }|rHt 	d|¡ | j
+||||d
+}|	d  d7  < |j
+dkr_q/t|j
+dƒ}| d¡ro|
+ |
+¡ q/t|
+ƒ|	d< d|	d< |
+S )Nrm   rn   ro   rp   r   r>   )Ú checkedÚ
+restrictedrx   )re   rg   rj   rk   rl   r:   r5   rµ   z
+Checking %s)r{   rg   r}   rî   r9   r…   r4   z+blockquote.tm-section-blockquote.tm-warningrï   rŒ   rx   )r2   r1   r•   r–   r0   r—   r¯   r¸   r˜   r™   rš   r›   r    rY   Ú
+select_oneÚappendÚlen)re   rg   rj   rk   rl   r¢   r0   r£   r{   r¦   Úrestricted_numbersr­   Ú_rX   r»   rf   r§   rS   r   r   r   Úget_restricted_numbersÜ  sD   
+ü 
+û
+
+
+
+€rõ   )r   )r   ra   rb   rc   rd   NTF)r   r±   rb   rc   rd   NTF)r   rb   NTF)1r,   rž   rœ   Ú loggingr?   Útypingr   r   r   r   Úhttpxr   r•   Úbs4r    Úrequests.exceptionsr   r	   r
+   r
+   ÚFRAGMENT_API_HASHÚdictrQ   Úintrç   Ú	getLoggerr   r˜   ÚhandlersÚ
+basicConfigÚINFOr¹   r   r   r1   r2   r`   Úfloatrè   r¯   r°   r³   r¾   rÊ   rÍ   rÎ   rí   Úfragment_apirõ   r   r   r   r   Ú<module>   sÐ   
+ 0øÿþýüûú ùø	
+÷zøÿþýüûú ùø	
+÷V 0
+
+
+üûÿþýüûú
