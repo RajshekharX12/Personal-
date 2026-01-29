@@ -1,0 +1,11 @@
+# pyrotgfork[fast]
+# TgCrypto
+pyroblack
+# pyromod
+python-dotenv
+requests
+aiosend
+psutil
+pymongo[srv]
+tgcrypto-pyroblack
+beautifulsoup4

@@ -1,0 +1,13 @@
+__pycache__
+Bot.session*
+restart.json
+hybridlogs.txt
+rentalbot.session*
+rental-*
+.vscode/
+delete-*
+accdelete*
+fragtest.py
+test/
+RentalBot.zip
+.env

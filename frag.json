@@ -1,0 +1,58 @@
+[
+{
+    "domain": "fragment.com",
+    "expirationDate": 1789739325.314981,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "stel_dt",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "-330",
+    "id": 1
+},
+{
+    "domain": "fragment.com",
+    "expirationDate": 1789652688.688122,
+    "hostOnly": true,
+    "httpOnly": true,
+    "name": "stel_ssid",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "3943d6d51ef010c0e5_12207207789888659352",
+    "id": 2
+},
+{
+    "domain": "fragment.com",
+    "expirationDate": 1790105868.728527,
+    "hostOnly": true,
+    "httpOnly": true,
+    "name": "stel_token",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "3e51d911d364eb89569dd438921556973e51d90b3e51d625b5d521d6e9b82332d5dc9",
+    "id": 3
+},
+{
+    "domain": "fragment.com",
+    "expirationDate": 1789042592.728603,
+    "hostOnly": true,
+    "httpOnly": true,
+    "name": "stel_ton_token",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "lRHwUloSjUz4-h-fT9KMxkItiQnMZxZAdNzz9l4sA3Ci2VOL1hxs_ooHWIVe2hO9SqLz-PKI21-x4OScjxECtPu2jEJBiwfIHzijh1j1qhVjQQrf5eEiikQcBvsKhOC-E7ecMrmVA2sDC36dm1b2F0ZA6KN2J5Mdw6mpBkT3Jxph_DbCl6XVyQg2eQeq-iFZUnWIGF3w",
+    "id": 4
+}
+]
