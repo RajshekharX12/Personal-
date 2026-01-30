@@ -1,141 +1,0 @@
-o
-    }Óhá4  ã                
-   @   s,  d dl mZ d dlZd dlmZmZmZ d dlm Z  eejƒZ	e	d Z
-e
-d Z
-e
-d  Ze
-d Z
-e
-d	 Ze
-d Ze
-d
- Ze
-d
- Ze
-d Ze
-d
- Ze
-d Ze
-d Ze
-d Ze ƒ dfdededededef
-dd„Zdefdd„Zdefdd„Zdedefdd„Zdefdd „Zdeded!edefd"d#„Zdefd$d%„Z defd&d'„Z!defd(d)„Z"defd*d+„Z#d,d-„ Z$ded.e%eB fd/d0„Z&defd1d2„Z'd3d4„ Z(defd5d6„Z)defd7d8„Z*defd9d:„Z+d;d<„ Z,duded>e%d?e%d@e%dAef
-dBdC„Z-defdDdE„Z.dedFe/eB fdGdH„Z0dedIefdJdK„Z1defdLdM„Z2dedNefdOdP„Z3defdQdR„Z4dvd
-edIefdTdU„Z5dvdIedFefdVdW„Z6dedefdXdY„Z7dZd[„ Z8defd\d]„Z9defd^d_„Z:d`edefdadb„Z;d`edFe/eB fdcdd„Z<d`efdedf„Z=e ƒ fdefdgdh„Z>didj„ Z?defdkdl„Z@defdmdn„ZAdodp„ ZBdqdr„ ZCdsdt„ ZDdS )wé    )Ú
-MongoClientN)ÚdatetimeÚtimezoneÚ	timedelta)Úget_current_datetimeÚuserdbÚusersÚadminsÚ numbersÚ	languagesÚrulesÚ rentalsÚ	deletionsÚ tron_txÚrestricted_numbersÚrestricted_toggleÚpayment_methodsFÚnumberÚ user_idÚhoursÚdateÚextendc                  C   s€   |   d¡sd|  d¡ } t || dœ¡}|r*|sdS t || dœd||dœi¡ d S |}tjd|id	d
-| ||d
-œiidd
- dS )u  Save or extend a number for a user.
-
-    - If the number exists and extend=False â†’ return False, "ALREADY"
-    - If the number exists and extend=True â†’ update hours â†’ return True, "UPDATED"
-    - If the number doesn't exist â†’ insert â†’ return True, "SAVED"
-    ú+888ú+)r   únumbers.number©FÚ ALREADYú$set)znumbers.$.hoursznumbers.$.date©TÚ UPDATEDr   z$pushr
-   )r   r   r   T©Úupsert©TÚSAVED)Ú
-startswithÚlstripÚ	users_colÚfind_oneÚ
-update_one) r   r   r   r   r   ÚexistingÚnow© r+   ú2/mnt/c/Users/LENOVO/RentalBot/hybrid/plugins/db.pyÚ
-save_number   s(   
- ÿþýr-   c                 C   s`   |   d¡sd|  d¡ } t d| idddœ¡}|r.d|v r.|d d  }|d |d	 |d
- fS d
-S )z#Get user_id, hours, date by number.r   r   r   é   )r   z	numbers.$r
-   r   r   r   r   F)r$   r%   r&   r'   )r   ÚrecordÚnumr+   r+   r,   Úget_user_by_number9   s   
-þr1   c                 C   s2   t  d| iddi¡}|sg S dd„ | dg ¡D ƒS )Nr   r
-   r.   c                 S   s.   g | ]}t |tƒrd |v r|d  nt|ƒ‘qS ©r   )Ú
-isinstanceÚdictÚstr)Ú.0Únr+   r+   r,   Ú
-<listcomp>K   s   . z'get_numbers_by_user.<locals>.<listcomp>©r&   r'   Úget©r   r/   r+   r+   r,   Úget_numbers_by_userG   s   r<   c                  C   sB   |   d¡sd|  d¡ } t d|iddd| iii¡}|jrd S dS )	z#Remove a number from a user's list.r   r   r   z$pullr
-   r   ©TÚ REMOVED©FÚ	NOT_FOUND)r$   r%   r&   r(   Úmodified_count)r   r   Úresultr+   r+   r,   Ú
-remove_numberM   s   
-þrC   c           	      C   s`   t | ƒ}|sdS |\}}}tƒ }|| }| ¡ d } ||  }tdt|d ƒƒtdt|d ƒƒfS )z>Return remaining rent days for a number, or None if not found.Ni  r   é   )r1   r   Ú
-total_secondsÚmaxÚint)	r   Ú	user_datar   r   Ú
-rented_dater*   Ú elapsedÚ
-elapsed_hoursÚremaining_hoursr+   r+   r,   Úget_remaining_rent_daysX   s   
-$rM   Ú	rent_datec                 C   s<   t |ƒ}|t|d }tjd| id||||dœidd d S )z2
-    Save or update rental data for a number.
-    )r   r   r   )r   rN   r   Ú
-expiry_dateTr    N)rG   r   Ú
-rental_colr(   )r   r   rN   r   rO   r+   r+   r,   Úsave_number_datag   s   ü
-ørQ   c                 C   s   t  d| i¡S )zF
-    Get saved data for a number.
-    Returns None if not rented.
-    r   )rP   r'   r2   r+   r+   r,   Úget_number_datax   s   rR   c                 C   s   t  d| i¡}dd„ |D ƒS )z3
-    Returns list of numbers rented by a user.
-    r   c                 S   ó   g | ]
-}d |v r|d  ‘qS r2   r+   ©r6   Údocr+   r+   r,   r8   „   ó    z$get_user_numbers.<locals>.<listcomp>)rP   Úfind)r   Úrentedr+   r+   r,   Úget_user_numbers   ó   rY   c                 C   ó   t  d| i¡}|jrdS dS )z*
-    Remove rental data for a number.
-    r   r=   r?   )rP   Ú
-delete_oneÚ
-deleted_count©r   rB   r+   r+   r,   Úremove_number_data†   rZ   r_   c                 C   s(   t  d| i¡r	dS t  | g ddœ¡ dS )Nr   )FÚEXISTSr   )r   r
-   Ú balancer"   )r&   r'   Ú
-insert_one©r   r+   r+   r,   Úsave_user_id   s   rd   c                   C   s
-   t  d¡S )zReturn all user IDs in DB.r   )r&   Údistinctr+   r+   r+   r,   Úget_all_user_ids•   s   
-rf   ra   c                 C   s.   t jd| idd|iidd}|jdkrd S dS )	z]
-    Replace the user's balance with a new value.
-    Always overwrites the old balance.
-    r   r   ra   Tr    r   Ú CREATEDr   )r&   r(   Ú
-matched_count)r   ra   rB   r+   r+   r,   Úsave_user_balance›   s   
-ýri   c                 C   s&   t  d| iddi¡}|r| d¡S dS )zGet a user's balance.r   ra   r.   Nr9   r;   r+   r+   r,   Úget_user_balance§   ó   rj   c                  C   sV   ddddiiiddd did d	id
-œig} t t | ¡ƒ}|r)|d
- d |d
- d
- fS dS )zn
-    Return the total balance of all users combined
-    and the number of users who have a balance field.
-    z$matchra   z $existsTz$groupNz$sumz$balancer.   )Ú_idÚ
-total_balanceÚ
-user_countr   rm   rn   )g        r   )Úlistr&   Ú	aggregate)ÚpipelinerB   r+   r+   r,   Úget_total_balance¬   s   þrr   c                 C   s$   t  d| i¡r	dS t  d| i¡ dS )Nr   r   )TÚADDED)Ú
-admins_colr'   rb   rc   r+   r+   r,   Ú	add_admin½   s   ru   c                 C   r[   )Nr   r=   r?   )rt   r\   r]   )r   rB   r+   r+   r,   Úremove_adminÃ   ó   rv   c                 C   s   t  d| i¡d uS )Nr   )rt   r'   rc   r+   r+   r,   Úis_adminÇ   s   rx   c                  C   ó    t  i dddœ¡} dd„ | D ƒS )Nr   r.   )rl   r   c                 S   s   g | ]}|d  ‘qS rc   r+   )r6   Úar+   r+   r,   r8   Ì   s    z"get_all_admins.<locals>.<listcomp>)rt   rW   )r	   r+   r+   r,   Úget_all_adminsÊ   ó   r{   TÚprice_30Úprice_60Úprice_90Ú	availablec                  C   sd   |   d¡sd|  d¡ } | |||dœddddœ|tƒ d œ}tjd| id	|id
-d
-}|jdkr0d
-S dS )zECreate or update number details with rates & hours for 30/60/90 days.r   r   )Ú30dÚ60dÚ90diÐ  i   ip  )r   Úpricesr   r€   Ú
-updated_atr   r   Tr    r   rg   r   )r$   r%   r   Ú
-number_colr(   rh   ) r   r}   r~   r   r€   ÚdatarB   r+   r+   r,   Úsave_number_infoÐ   s(   
-ýýóýrˆ   c                 K   s–   |   d¡sd|  d¡ } i }d|v r|d |d< d|v r"|d |d< d |v r,|d  |d< d	|v r6|d	 |d	< |s:d
-S tƒ |d
-< t d| id
-|i¡ dS )zv
-    Edit specific details of a number.
-    Example: edit_number_info("+88812345", price_30=120, available=False)
-    r   r   r}   z
-prices.30dr~   z
-prices.60dr   z
-prices.90dr€   )FÚ
-NO_CHANGESr…   r   r   r   )r$   r%   r   r†   r(   )r   ÚkwargsÚ updatesr+   r+   r,   Úedit_number_infoì   s    
-
-rŒ   Úreturnc                 C   s8   |   d¡sd|  d¡ } t d| iddi¡}|r|S dS ) z:Return all data for a given number, or False if not found.r   r   r   rl   r   F)r$   r%   r†   r'   ©r   r/   r+   r+   r,   Úget_number_info  s   
-r   Úlangc                 C   ó    t jd| idd|iidd d S )Nr   r   ÚlanguageTr    )Úlang_colr(   )r   r   r+   r+   r,   Úsave_user_language  ó    r”   c                 C   s    t  d| i¡}|r| d¡S d S )Nr   r’   )r“   r'   r:   ©r   Úuserr+   r+   r,   Úget_user_language  ó   r˜   Úmethodc                 C   r‘   )Nr   r   Úpayment_methodTr    )Ú
-payment_colr(   )r   rš   r+   r+   r,   Úsave_user_payment_method  r•   r   c                 C   s    t  d| i¡}|r| d¡S dS )Nr   r›   Ú	cryptobot)rœ   r'   r:   r–   r+   r+   r,   Úget_user_payment_method  r™   rŸ   Úenc                 C   s(   t jdd|› id| |dœidd d S )z6Save or update the rules text for a specific language.rl   Úrules_r   )Útextr’   Tr    N)Ú	rules_colr(   )r   r   r+   r+   r,   Ú
-save_rules!  s
-   
-ýr¤   c                 C   s&   t  dd| › i¡}|r| d¡S dS )z1Get the saved rules text for a specific language.rl   r¡   r¢   z
-No rules set.)r£   r'   r:   )r   r/   r+   r+   r,   Ú	get_rules)  rk   r¥   c                 C   s    t jd| idd|iidd dS ) z2Mark a number as scheduled for deletion in 7 days.r   r   Ú
-deletion_dateTr    N)Údelaccolr(   ©r   r   r+   r+   r,   Úsave_7day_deletion0  s
-   
-
-ýr©   c                  C   s&   t ƒ } t dd| ii¡}dd„ |D ƒS )z.Return list of numbers scheduled for deletion.r¦   z$ltec                 S   rS   r2   r+   rT   r+   r+   r,   r8   <  rV   z&get_7day_deletions.<locals>.<listcomp>)r   r§   rW   )r*   r   r+   r+   r,   Úget_7day_deletions8  s   rª   c                 C   s"   t  d| idddii¡}|jdkS )z,Remove the deletion_date field for a number.r   z$unsetr¦   Ú r   )r§   r(   rA   r^   r+   r+   r,   Úremove_7day_deletion>  s
-   
-þ
-r¬   c                 C   s.   t  d| iddi¡}|rd|v r| d¡S dS )z-Get the scheduled deletion date for a number.r   r¦   r.   N)r§   r'   r:   rŽ   r+   r+   r,   Ú
-get_7day_dateF  s   r­   Ú tx_hashc                 C   ó&   t  d| i¡r	dS t  | |dœ¡ dS )Nr®   r   ©r®   r   r"   )Ú troncolr'   rb   r°   r+   r+   r,   Úsave_tron_tx_hashM  s   þr²   c                 C   s   t  d| iddi¡S )zGet a Tron transaction hash.r®   rl   r   )r±   r'   )r®   r+   r+   r,   Úget_tron_tx_hashV  s   r³   c                 C   r[   )Nr®   r=   r?   )r±   r\   r]   )r®   rB   r+   r+   r,   Úremove_tron_tx_hashZ  rw   r´   c                 C   r¯   )Nr   r   r¨   r"   )Ú
-restrictedcolr'   rb   r¨   r+   r+   r,   Úsave_restricted_number_  s   r¶   c                  C   ry   )Nr   r.   )rl   r   c                 S   rS   r2   r+   )r6   Úrr+   r+   r,   r8   g  rV   z*get_restricted_numbers.<locals>.<listcomp>)rµ   rW   )Ú
-restrictedr+   r+   r,   Úget_restricted_numberse  r|   r¹   c                 C   r[   )Nr   r=   r?   )rµ   r\   r]   r^   r+   r+   r,   Úremove_restricted_numberi  rw   rº   c                 C   s.   t  d| iddi¡}|rd|v r| d¡S d S )Nr   r   r.   )rµ   r'   r:   rŽ   r+   r+   r,   Úget_rest_num_datem  s   r»   c                  C   sP   t  ddi¡} | r|  dd¡ }t  ddidd|ii¡ |S t  ddd œ¡ dS )z7Toggle for Delete restricted numbers older than 3 days.rl   Úrest_del_toggleÚ enabledFr   T)rl   r½   )Úrest_toggle_colr'   r:   r(   rb   )ÚtoggleÚ	new_stater+   r+   r,   Úrestricted_del_toggleq  s   rÁ   c                  C   s"   t  ddi¡} | r|  dd¡S dS )Nrl   r¼   r½   F)r¾   r'   r:   )r¿   r+   r+   r,   Úis_restricted_del_enabled|  s   rÂ   c                   C   s|   t  i ¡ t i ¡ t i ¡ t i ¡ t i ¡ t i ¡ t  i ¡ t i ¡ t	 i ¡ t
- i ¡ t
- i ¡ t i ¡ dS )N)TzALL DATA DELETED)
-r&   Ú
-delete_manyrt   r†   r“   Ú
-numbers_colr£   rP   r§   r±   rµ   r¾   rœ   r+   r+   r+   r,   Údelete_all_dataƒ  s   
-
-
-
-
-
-
-
-
-
-
-
-rÅ   )T)r    )EÚ pymongor   Úconfigr   r   r   Úhybrid.plugins.funcr   ÚDB_URIÚclientÚdbr&   rt   r†   r“   rÄ   r£   rP   r§   r±   rµ   r¾   rœ   r5   rG   Úboolr-   r1   r<   rC   rM   rQ   rR   rY   r_   rd   rf   Úfloatri   rj   rr   ru   rv   rx   r{   rˆ   rŒ   r4   r   r”   r˜   r   rŸ   r¤   r¥   r©   rª   r¬   r­   r²   r³   r´   r¶   r¹   rº   r»   rÁ   rÂ   rÅ   r+   r+   r+   r,   Ú<module>   sv   
-& 
-  	 
-  	
- 

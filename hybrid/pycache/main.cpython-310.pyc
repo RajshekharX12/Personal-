@@ -1,5 +1,0 @@
-o
-    °Âha  ã                   @   s<   d dl Z d dlmZmZ dd„ Zedkre  eƒ ¡ dS dS )é    N)ÚBotÚ
-CRYPTO_STATc                  Ã   sJ   t ƒ } |  ¡ I d H  trddlm} | ¡ I d H  t  ¡  ¡ I d H  d S )Nr   )Úcp)	r   Ústartr   Úhybrid.__init__r   Ú
-start_pollingÚ asyncioÚEventÚwait)Úbotr   © r   ú0/mnt/c/Users/LENOVO/RentalBot/hybrid/__main__.pyÚmain   s   €r   Ú__main__) r   Úhybridr   r   r   Ú__name__Úrunr   r   r   r
-   Ú<module>   s   ÿ
