@@ -1,7 +1,7 @@
 [
 {
     "domain": "fragment.com",
-    "expirationDate": 1785257961.388116,
+    "expirationDate": 1785443870.414987,
     "hostOnly": true,
     "httpOnly": false,
     "name": "stel_dt",
@@ -29,7 +29,7 @@
 },
 {
     "domain": "fragment.com",
-    "expirationDate": 1785257958.679834,
+    "expirationDate": 1785443868.942807,
     "hostOnly": true,
     "httpOnly": true,
     "name": "stel_token",
@@ -38,12 +38,12 @@
     "secure": true,
     "session": false,
     "storeId": "0",
-    "value": "b622ef72deee83a8df597e971a654366b622ef68b622ec7f82f0877bede458cd2af44",
+    "value": "0d8fc22409d077ab64f1aa3ea1c86e5e0d8fc23e0d8fc7c55025ecfba79ed1d16948a",
     "id": 3
 },
 {
     "domain": "fragment.com",
-    "expirationDate": 1785257958.680147,
+    "expirationDate": 1785443868.943048,
     "hostOnly": true,
     "httpOnly": true,
     "name": "stel_ton_token",
@@ -52,7 +52,7 @@
     "secure": true,
     "session": false,
     "storeId": "0",
-    "value": "D_KmGjlpuVuKOJ0A0RUWhEDZPJ1n0cIQ29DvsF7ar3lQZwvATh1y_N-lnqxl0P_H7SxYNWNCay0UlGZv6IK4VX2Yqq6oaerHwRwJE-tiXv1tsz--x7tOBLY1kXinr8Ksh8CVl-ocumx7PBhUiURNMqPIeW2i7xofHY_jX_H3C7MtkPQnJ2zGkGgex9qHWkpaPAsffTvI",
+    "value": "xJ38QjNoVkMFCy4EfGCjG2lq_QtNDzooLPxhrgr0zryhczOGv4NB0ZlG8D7421kbRKFbVr3agjdKnBgvGo2aLyaMTvrOGn4tZyMM46sUmus3aiVh3cZ3oCk75kQhgQEcsw7YhbJQzAfVVPe2NdFkQ4FjTKgeu2BilC0q_qySHjd1JmNG9xHaGdj2RQIeaaBVaQUg8W3p",
     "id": 4
 }
 ]
