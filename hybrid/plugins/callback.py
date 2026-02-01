@@ -1037,9 +1037,16 @@ Details:
         user = await client.get_users(user_id)
 
         # ========== Delete Account logic ========== #
-        check = await fragment_api.check_is_number_free(number)
-        if check:
-            return await query.message.edit_text("❌ Cannot delete account. The number is currently in use in Fragment.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        is_free = await fragment_api.check_is_number_free(number)
+        if is_free:
+            # If free, there is no account to delete.
+            # We can treat this as "Deletion successful/already deleted".
+            # Or we can just error out? 
+            # The admin pressed "Delete Account", presumably to clean it up.
+            # So let's tell them it's already free.
+             return await query.message.edit_text("❌ Cannot delete account. The number is ALREADY free (no account connected).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        
+        # If not free, proceeded to delete
         stat, reason = await delete_account(number, app=client, chat=query.message.chat)
         if stat:
             keyboard = [

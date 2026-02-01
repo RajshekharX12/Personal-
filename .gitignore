@@ -8,6 +8,5 @@ rental-*
 delete-*
 accdelete*
 fragtest.py
-test/
 RentalBot.zip
 .env
