@@ -90,13 +90,13 @@ async def load_num_data():
 
 
 from hybrid.plugins.db import get_number_data, get_remaining_rent_days, is_restricted_del_enabled, remove_number, remove_number_data, save_restricted_number
-from hybrid.plugins.db import numbers_col
+from hybrid.plugins.db import numbers_col, rental_col
 from hybrid.plugins.func import get_current_datetime, check_number_conn, delete_account
 
 async def schedule_reminders(client):
     """Schedule reminders for numbers expiring within 3 days."""
     now = get_current_datetime().replace(tzinfo=timezone.utc)  # ✅ ensure aware
-    rented = numbers_col.find({"user_id": {"$exists": True}})
+    rented = rental_col.find({"user_id": {"$exists": True}})
 
     for doc in rented:
         number = doc["number"]
@@ -141,11 +141,12 @@ async def check_expired_numbers(client):
     """Hourly background checker to remove expired numbers."""
     while True:
         now = get_current_datetime().replace(tzinfo=timezone.utc)  # ✅ ensure aware
-        rented = numbers_col.find({"user_id": {"$exists": True}})
+        rented = rental_col.find({"user_id": {"$exists": True}})
         for doc in rented:
             number = doc["number"]
             user_id = doc["user_id"]
             expiry = doc.get("expiry_date")
+
             if expiry:
                 expiry = expiry.replace(tzinfo=timezone.utc)  # ✅ normalize
                 if expiry <= now:
