@@ -618,8 +618,13 @@ PREMIUM_EMOJI = {
 }
 
 
+def _utf16_len(s: str) -> int:
+    """Telegram entities use UTF-16 code units; emojis often need 2 units each."""
+    return len(s.encode("utf-16-le")) // 2
+
+
 def build_custom_emoji_entities(text: str):
-    """Build list of MessageEntity for custom emoji in text. Use with same text when sending."""
+    """Build list of MessageEntity for custom emoji in text. Offsets/lengths in UTF-16 (Telegram requirement)."""
     from pyrogram.types import MessageEntity
     from pyrogram.enums import MessageEntityType
     entities = []
@@ -628,8 +633,15 @@ def build_custom_emoji_entities(text: str):
         found = False
         for emoji, eid in PREMIUM_EMOJI.items():
             if text[i:i + len(emoji)] == emoji:
+                offset_utf16 = _utf16_len(text[:i])
+                length_utf16 = _utf16_len(emoji)
                 entities.append(
-                    MessageEntity(type=MessageEntityType.CUSTOM_EMOJI, offset=i, length=len(emoji), custom_emoji_id=int(eid))
+                    MessageEntity(
+                        type=MessageEntityType.CUSTOM_EMOJI,
+                        offset=offset_utf16,
+                        length=length_utf16,
+                        custom_emoji_id=int(eid),
+                    )
                 )
                 i += len(emoji)
                 found = True
@@ -656,4 +668,3 @@ async def send_ton_invoice(client: Client, user_id: int, amount: float, msg: Mes
         [InlineKeyboardButton(t(user_id, "pay_now_ton"), url=pay_link)],
         [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{amount}")],
     ]))
-
