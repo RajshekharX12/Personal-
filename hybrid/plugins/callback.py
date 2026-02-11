@@ -20,7 +20,7 @@ from hybrid.plugins.temp import temp
 from hybrid.plugins.func import *
 from hybrid.plugins.db import *
 from hybrid.plugins.fragment import *
-from config import D30_RATE, D60_RATE, D90_RATE, USDT_ADDRESS
+from config import D30_RATE, D60_RATE, D90_RATE, TON_ADDRESS
 
 from aiosend.types import Invoice
 from datetime import datetime, timezone
@@ -109,8 +109,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
         user = query.from_user
         balance = get_user_balance(user.id) or 0.0
         method = get_user_payment_method(user.id)
-        if method == "tron":
-            payment_method = "USDT TRC-20"
+        if method == "tonkeeper":
+            payment_method = "TON (Tonkeeper)"
         elif method == "cryptobot":
             payment_method = "CryptoBot (@send)"
         else:
@@ -134,7 +134,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
     elif data == "change_payment_method":
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("USDT TRC-20", callback_data="setpayment_tron")],
+            [InlineKeyboardButton("TON (Tonkeeper)", callback_data="setpayment_tonkeeper")],
             [InlineKeyboardButton("CryptoBot (@send)", callback_data="setpayment_cryptobot")],
             [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]
         ])
@@ -163,11 +163,11 @@ async def callback_handler(client: Client, query: CallbackQuery):
             reply_markup=keyboard
         )
 
-    elif data == "setpayment_tron" or data == "setpayment_cryptobot" or data.startswith("setpayment_"):
+    elif data == "setpayment_tonkeeper" or data == "setpayment_cryptobot" or data.startswith("setpayment_"):
         method = data.replace("setpayment_", "")
-        if method == "tron":
-            save_user_payment_method(user_id, "tron")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="USDT TRC-20"),
+        if method == "tonkeeper":
+            save_user_payment_method(user_id, "tonkeeper")
+            await query.message.edit_text(t(user_id, "selected_payment_method", method="TON (Tonkeeper)"),
                                           reply_markup=InlineKeyboardMarkup(
                                               [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
                                           ))
@@ -183,9 +183,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
     
     elif data.startswith("set_payment_"):
         method = data.replace("set_payment_", "")
-        if method == "tron":
-            save_user_payment_method(user_id, "tron")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="USDT TRC-20"),
+        if method == "tonkeeper":
+            save_user_payment_method(user_id, "tonkeeper")
+            await query.message.edit_text(t(user_id, "selected_payment_method", method="TON (Tonkeeper)"),
                                           reply_markup=InlineKeyboardMarkup(
                                               [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
                                           ))
@@ -282,7 +282,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 await response.sent_message.delete()
                 return
 
-        elif method == "tron":
+        elif method == "tonkeeper":
             try:
                 response = await chat.ask(
                     t(user_id, "enter_amount"),
@@ -297,14 +297,14 @@ async def callback_handler(client: Client, query: CallbackQuery):
             try:
                 amount = float(response.text.strip())
                 if amount <= 0:
-                    return await query.message.reply("❌ Amount must be greater than 0.5 USDT.")
+                    return await query.message.reply("❌ Amount must be greater than 0.5 TON.")
             except ValueError:
                 return await query.message.reply("❌ Invalid input. Please enter a valid number.")
 
             final_amount = add_random_fraction(amount)
-            address = USDT_ADDRESS
+            address = TON_ADDRESS
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TRON_{final_amount}")],
+                [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{final_amount}")],
             ])
 
             await query.message.edit_text(
@@ -321,10 +321,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
         temp.PAID_LOCK.append(user_id)
 
         inv_id = data.replace("check_payment_", "")
-        if inv_id.startswith("TRON_"):
+        if inv_id.startswith("TON_"):
             try:
-                amount = float(inv_id.replace("TRON_", ""))
-                # await query.message.reply(f"Amount: {amount}")
+                amount = float(inv_id.replace("TON_", ""))
             except ValueError:
                 await query.answer("❌ Invalid amount format.", show_alert=True)
                 temp.PAID_LOCK.remove(user_id)
@@ -344,26 +343,18 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 temp.PAID_LOCK.remove(user_id)
                 return
             tx_id = response.text.strip()
-            check, reason = save_tron_tx_hash(tx_id, user_id)
+            check, reason = save_ton_tx_hash(tx_id, user_id)
             if not check and reason == "ALREADY":
                 await query.message.reply(t(user_id, "tx_id_already_used"))
                 await response.delete()
                 await response.sent_message.delete()
                 temp.PAID_LOCK.remove(user_id)
                 return
-            add_ress, tx_amount, symbol = get_tron_tx(tx_id)
-            if not add_ress or add_ress != USDT_ADDRESS or float(tx_amount) < float(amount):
-                remove_tron_tx_hash(tx_id)
+            add_ress, tx_amount = get_ton_tx(tx_id)
+            if not add_ress or add_ress != TON_ADDRESS or float(tx_amount) < float(amount):
+                remove_ton_tx_hash(tx_id)
                 await query.answer(t(user_id, "tx_id_invalid"), show_alert=True)
                 await query.message.reply(t(user_id, "tx_id_invalid"))
-                await response.delete()
-                await response.sent_message.delete()
-                temp.PAID_LOCK.remove(user_id)
-                return
-            if symbol != "USDT":
-                remove_tron_tx_hash(tx_id)
-                await query.answer("❌ Invalid token. Please send USDT TRC-20.", show_alert=True)
-                await query.message.reply("❌ Invalid token. Please send USDT TRC-20.")
                 await response.delete()
                 await response.sent_message.delete()
                 temp.PAID_LOCK.remove(user_id)
@@ -1401,9 +1392,9 @@ Details:
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
-            elif method == "tron":
+            elif method == "tonkeeper":
                 amount = add_random_fraction(amount)
-                return await send_tron_invoice(client, user_id, amount, query.message)
+                return await send_ton_invoice(client, user_id, amount, query.message)
             return
         
         if hours == 720:
@@ -1477,9 +1468,9 @@ Details:
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
-            elif method == "tron":
+            elif method == "tonkeeper":
                 amount = add_random_fraction(amount)
-                return await send_tron_invoice(client, user_id, amount, query.message)
+                return await send_ton_invoice(client, user_id, amount, query.message)
             return
         # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
         rented_data = get_number_data(number)

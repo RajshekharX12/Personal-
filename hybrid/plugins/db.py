@@ -15,7 +15,7 @@ numbers_col = db["numbers"]
 rules_col = db["rules"]
 rental_col = db["rentals"]
 delaccol = db["deletions"]
-troncol = db["tron_tx"]
+toncol = db["ton_tx"]
 restrictedcol = db["restricted_numbers"]
 rest_toggle_col = db["restricted_toggle"]
 payment_col = db["payment_methods"]
@@ -329,22 +329,22 @@ def get_7day_date(number: str):
     return record.get("deletion_date") if record and "deletion_date" in record else None
 
 
-# ======== TRON TRANSACTION HASH DB ===========
-def save_tron_tx_hash(tx_hash: str, user_id: int):
-    if troncol.find_one({"tx_hash": tx_hash}):
+# ======== TON TRANSACTION HASH DB ===========
+def save_ton_tx_hash(tx_hash: str, user_id: int):
+    if toncol.find_one({"tx_hash": tx_hash}):
         return False, "ALREADY"
-    troncol.insert_one({
+    toncol.insert_one({
         "tx_hash": tx_hash,
         "user_id": user_id,
     })
     return True, "SAVED"
 
-def get_tron_tx_hash(tx_hash: str) -> dict | bool:
-    """Get a Tron transaction hash."""
-    return troncol.find_one({"tx_hash": tx_hash}, {"_id": 0})
+def get_ton_tx_hash(tx_hash: str) -> dict | bool:
+    """Get a TON transaction hash."""
+    return toncol.find_one({"tx_hash": tx_hash}, {"_id": 0})
 
-def remove_tron_tx_hash(tx_hash: str):
-    result = troncol.delete_one({"tx_hash": tx_hash})
+def remove_ton_tx_hash(tx_hash: str):
+    result = toncol.delete_one({"tx_hash": tx_hash})
     return (True, "REMOVED") if result.deleted_count else (False, "NOT_FOUND")
 
 # ========= RESTRICTED NOTIFY =========
@@ -393,7 +393,7 @@ def delete_all_data():
     rules_col.delete_many({})
     rental_col.delete_many({})
     delaccol.delete_many({})
-    troncol.delete_many({})
+    toncol.delete_many({})
     restrictedcol.delete_many({})
     rest_toggle_col.delete_many({})
     payment_col.delete_many({})

@@ -27,7 +27,7 @@ from pyrogram.errors import (
 )
 
 from hybrid.plugins.temp import temp
-from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH, USDT_ADDRESS
+from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH, TON_ADDRESS
 
 
 def get_current_datetime():
@@ -441,36 +441,26 @@ def add_random_fraction(amount: float) -> float:
     fraction = random.uniform(0.01, 0.49)
     return round(amount + fraction, 2)
 
-def get_tron_tx(tx_hash: str):
-    url = f"https://apilist.tronscanapi.com/api/transaction-info?hash={tx_hash}"
-    resp = requests.get(url)
-    resp.raise_for_status()
-    data = resp.json()
-
-    to_address = None
-    human_amount = None
-    symbol = "TRX"
-
-    # TRC20 token transfer
-    if "trc20TransferInfo" in data and data["trc20TransferInfo"]:
-        t = data["trc20TransferInfo"][0]
-        to_address = t.get("to_address")
-        raw_amount = int(t.get("amount_str", "0"))
-        decimals = int(t.get("decimals", 6))
-        symbol = t.get("symbol", "TRC20")
-        human_amount = raw_amount / (10 ** decimals)
-
-    # TRC10 or TRX transfer
-    elif "contractData" in data and "amount" in data["contractData"]:
-        c = data["contractData"]
-        to_address = c.get("to_address")
-        raw_amount = c.get("amount")
-        token_info = c.get("tokenInfo", {})
-        decimals = int(token_info.get("tokenDecimal", 6))
-        symbol = token_info.get("tokenAbbr", "TRX")
-        human_amount = raw_amount / (10 ** decimals)
-
-    return to_address, human_amount, symbol
+def get_ton_tx(tx_hash: str):
+    """
+    Verify TON transaction using TON API
+    Returns: (to_address, amount_in_ton)
+    """
+    try:
+        url = f"https://tonapi.io/v2/blockchain/transactions/{tx_hash}"
+        resp = requests.get(url)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        # Extract transaction details
+        to_address = data.get("out_msgs", [{}])[0].get("destination", {}).get("address")
+        amount_nano = int(data.get("out_msgs", [{}])[0].get("value", 0))
+        amount_ton = amount_nano / 1e9  # Convert nanotons to TON
+        
+        return to_address, amount_ton
+    except Exception as e:
+        logging.error(f"Error fetching TON transaction: {e}")
+        return None, None
 
 
 from hybrid.plugins.db import (
@@ -537,17 +527,17 @@ def export_numbers_csv(filename: str = "numbers_export.csv"):
 async def give_payment_option(client, msg: Message, user_id: int):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("@send", callback_data="set_payment_cryptobot")],
-        [InlineKeyboardButton("USDT TRC-20", callback_data="set_payment_tron")]
+        [InlineKeyboardButton("TON (Tonkeeper)", callback_data="set_payment_tonkeeper")]
     ])
     await msg.reply(
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
 
-async def send_tron_invoice(client: Client, user_id: int, amount: float, msg: Message):
-    tron_address = USDT_ADDRESS
+async def send_ton_invoice(client: Client, user_id: int, amount: float, msg: Message):
+    ton_address = TON_ADDRESS
     final_amount = add_random_fraction(amount)
-    await msg.edit(t(user_id, "pay_amount", amount=amount, address=tron_address), reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TRON_{final_amount}")]
+    await msg.edit(t(user_id, "pay_amount", amount=final_amount, address=ton_address), reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{final_amount}")]
     ]))
 
