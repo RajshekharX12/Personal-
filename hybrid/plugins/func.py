@@ -27,7 +27,7 @@ from pyrogram.errors import (
 )
 
 from hybrid.plugins.temp import temp
-from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH, TON_ADDRESS
+from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH, USDT_ADDRESS
 
 
 def get_current_datetime():
@@ -189,19 +189,39 @@ def t(user_id: int, key: str, **kwargs):
         return text.format(**kwargs)
     return text
 
-from hybrid.plugins.db import get_number_data, get_number_info, save_number_info
+from hybrid.plugins.db import get_number_data, get_number_info, save_number_info, get_7day_date
 
 NUMBERS_PER_PAGE = 8
 
-def build_rentnum_keyboard(user_id: int, page: int = 0):
-    filtered_numbers = temp.AVAILABLE_NUM
-    filtered_numbers = [num for num in filtered_numbers if num not in temp.UN_AV_NUMS]
-    seen = set()
-    filtered_numbers = [x for x in filtered_numbers if not (x in seen or seen.add(x))]
+def is_rental_expired(number: str) -> bool:
+    """True if number has rental data and expiry_date <= now (UTC)."""
+    rental = get_number_data(number)
+    if not rental:
+        return False
+    expiry = rental.get("expiry_date")
+    if not expiry:
+        return False
+    expiry = _ensure_utc(expiry)
+    now = get_current_datetime().replace(tzinfo=timezone.utc)
+    return expiry <= now
 
+def get_7day_days_left(number: str):
+    """Days until number is freed from 7-day deletion queue, or None if not in queue."""
+    d = get_7day_date(number)
+    if not d:
+        return None
+    d = _ensure_utc(d)
+    now = get_current_datetime().replace(tzinfo=timezone.utc)
+    delta = (d - now).days
+    return max(0, delta)
+
+def build_rentnum_keyboard(user_id: int, page: int = 0):
+    # Full pool: all numbers from Fragment so freed/deleted numbers show again (cycle)
+    pool = [n for n in temp.NUMBE_RS if n not in temp.UN_AV_NUMS]
+    seen = set()
+    filtered_numbers = [x for x in pool if not (x in seen or seen.add(x))]
     available_nums = [n for n in filtered_numbers if n not in temp.RENTED_NUMS]
     rented_nums = [n for n in filtered_numbers if n in temp.RENTED_NUMS]
-
     ordered_numbers = available_nums + rented_nums
 
     start = page * NUMBERS_PER_PAGE
@@ -212,12 +232,11 @@ def build_rentnum_keyboard(user_id: int, page: int = 0):
 
     for number in numbers_page:
         if number in temp.RENTED_NUMS:
-            status = " 🔴"  # rented/unavailable
+            status = f" {t(user_id, 'expired_tag')}" if is_rental_expired(number) else " 🔴"
         else:
-            status = " 🟢"  # available
-
+            status = " 🟢"
         keyboard.append([
-            InlineKeyboardButton(f"{number} {status}", callback_data=f"numinfo:{number}:{page}")
+            InlineKeyboardButton(f"{number}{status}", callback_data=f"numinfo:{number}:{page}")
         ])
 
     nav_row = []
@@ -441,26 +460,36 @@ def add_random_fraction(amount: float) -> float:
     fraction = random.uniform(0.01, 0.49)
     return round(amount + fraction, 2)
 
-def get_ton_tx(tx_hash: str):
-    """
-    Verify TON transaction using TON API
-    Returns: (to_address, amount_in_ton)
-    """
-    try:
-        url = f"https://tonapi.io/v2/blockchain/transactions/{tx_hash}"
-        resp = requests.get(url)
-        resp.raise_for_status()
-        data = resp.json()
-        
-        # Extract transaction details
-        to_address = data.get("out_msgs", [{}])[0].get("destination", {}).get("address")
-        amount_nano = int(data.get("out_msgs", [{}])[0].get("value", 0))
-        amount_ton = amount_nano / 1e9  # Convert nanotons to TON
-        
-        return to_address, amount_ton
-    except Exception as e:
-        logging.error(f"Error fetching TON transaction: {e}")
-        return None, None
+def get_tron_tx(tx_hash: str):
+    url = f"https://apilist.tronscanapi.com/api/transaction-info?hash={tx_hash}"
+    resp = requests.get(url)
+    resp.raise_for_status()
+    data = resp.json()
+
+    to_address = None
+    human_amount = None
+    symbol = "TRX"
+
+    # TRC20 token transfer
+    if "trc20TransferInfo" in data and data["trc20TransferInfo"]:
+        t = data["trc20TransferInfo"][0]
+        to_address = t.get("to_address")
+        raw_amount = int(t.get("amount_str", "0"))
+        decimals = int(t.get("decimals", 6))
+        symbol = t.get("symbol", "TRC20")
+        human_amount = raw_amount / (10 ** decimals)
+
+    # TRC10 or TRX transfer
+    elif "contractData" in data and "amount" in data["contractData"]:
+        c = data["contractData"]
+        to_address = c.get("to_address")
+        raw_amount = c.get("amount")
+        token_info = c.get("tokenInfo", {})
+        decimals = int(token_info.get("tokenDecimal", 6))
+        symbol = token_info.get("tokenAbbr", "TRX")
+        human_amount = raw_amount / (10 ** decimals)
+
+    return to_address, human_amount, symbol
 
 
 from hybrid.plugins.db import (
@@ -527,35 +556,16 @@ def export_numbers_csv(filename: str = "numbers_export.csv"):
 async def give_payment_option(client, msg: Message, user_id: int):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("@send", callback_data="set_payment_cryptobot")],
-        [InlineKeyboardButton("TON (Tonkeeper)", callback_data="set_payment_tonkeeper")]
+        [InlineKeyboardButton("USDT TRC-20", callback_data="set_payment_tron")]
     ])
     await msg.reply(
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
 
-async def send_ton_invoice(client: Client, user_id: int, amount: float, msg: Message):
-    ton_address = TON_ADDRESS
+async def send_tron_invoice(client: Client, user_id: int, amount: float, msg: Message):
+    tron_address = USDT_ADDRESS
     final_amount = add_random_fraction(amount)
-    
-    # Convert TON to nanotons (1 TON = 1,000,000,000 nanotons)
-    amount_nanotons = int(final_amount * 1_000_000_000)
-    
-    # Generate Tonkeeper deep link
-    comment = f"Payment_{final_amount}_TON"
-    tonkeeper_link = f"ton://transfer/{ton_address}?amount={amount_nanotons}&text={comment}"
-    
-    # Alternative universal link (works on all platforms)
-    tonkeeper_universal = f"https://app.tonkeeper.com/transfer/{ton_address}?amount={amount_nanotons}&text={comment}"
-    
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💎 Open Tonkeeper", url=tonkeeper_link)],
-        [InlineKeyboardButton("🌐 Open in Browser", url=tonkeeper_universal)],
-        [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{final_amount}")]
-    ])
-    
-    await msg.edit(
-        t(user_id, "pay_amount_tonkeeper", amount=final_amount, address=ton_address),
-        reply_markup=keyboard
-    )
-
+    await msg.edit(t(user_id, "pay_amount", amount=amount, address=tron_address), reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TRON_{final_amount}")]
+    ]))
