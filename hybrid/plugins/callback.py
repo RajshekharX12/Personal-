@@ -303,12 +303,23 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
             final_amount = add_random_fraction(amount)
             address = TON_ADDRESS
+            
+            # Convert TON to nanotons
+            amount_nanotons = int(final_amount * 1_000_000_000)
+            
+            # Generate Tonkeeper deep links
+            comment = f"Payment_{final_amount}_TON"
+            tonkeeper_link = f"ton://transfer/{address}?amount={amount_nanotons}&text={comment}"
+            tonkeeper_universal = f"https://app.tonkeeper.com/transfer/{address}?amount={amount_nanotons}&text={comment}"
+            
             keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💎 Open Tonkeeper", url=tonkeeper_link)],
+                [InlineKeyboardButton("🌐 Open in Browser", url=tonkeeper_universal)],
                 [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{final_amount}")],
             ])
 
             await query.message.edit_text(
-                t(user_id, "pay_amount", amount=final_amount, address=address),
+                t(user_id, "pay_amount_tonkeeper", amount=final_amount, address=address),
                 reply_markup=keyboard
             )
             await response.delete()

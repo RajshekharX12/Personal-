@@ -537,7 +537,25 @@ async def give_payment_option(client, msg: Message, user_id: int):
 async def send_ton_invoice(client: Client, user_id: int, amount: float, msg: Message):
     ton_address = TON_ADDRESS
     final_amount = add_random_fraction(amount)
-    await msg.edit(t(user_id, "pay_amount", amount=final_amount, address=ton_address), reply_markup=InlineKeyboardMarkup([
+    
+    # Convert TON to nanotons (1 TON = 1,000,000,000 nanotons)
+    amount_nanotons = int(final_amount * 1_000_000_000)
+    
+    # Generate Tonkeeper deep link
+    comment = f"Payment_{final_amount}_TON"
+    tonkeeper_link = f"ton://transfer/{ton_address}?amount={amount_nanotons}&text={comment}"
+    
+    # Alternative universal link (works on all platforms)
+    tonkeeper_universal = f"https://app.tonkeeper.com/transfer/{ton_address}?amount={amount_nanotons}&text={comment}"
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💎 Open Tonkeeper", url=tonkeeper_link)],
+        [InlineKeyboardButton("🌐 Open in Browser", url=tonkeeper_universal)],
         [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{final_amount}")]
-    ]))
+    ])
+    
+    await msg.edit(
+        t(user_id, "pay_amount_tonkeeper", amount=final_amount, address=ton_address),
+        reply_markup=keyboard
+    )
 
