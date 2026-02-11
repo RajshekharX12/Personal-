@@ -398,3 +398,4 @@ def delete_all_data():
     rest_toggle_col.delete_many({})
     payment_col.delete_many({})
     return True, "ALL DATA DELETED"
+
