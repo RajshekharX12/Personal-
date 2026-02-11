@@ -74,7 +74,11 @@ async def start_command(client: Client, message: Message):
     if user.id in ADMINS:
         rows.insert(0, [InlineKeyboardButton("🛠️ Admin Panel", callback_data="admin_panel")])
 
-    await message.reply(t["welcome"].format(name=user.mention), reply_markup=InlineKeyboardMarkup(rows))
+    # Add premium emoji to welcome message
+    welcome_text = t["welcome"].format(name=user.mention)
+    welcome_with_emoji = f"<emoji id='5377471691916978617'>🚀</emoji> {welcome_text}"
+    
+    await message.reply(welcome_with_emoji, reply_markup=InlineKeyboardMarkup(rows))
 
 @Bot.on_message(filters.command("update") & filters.user(ADMINS))
 async def update_restart(_, message):
