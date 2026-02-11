@@ -27,7 +27,13 @@ from pyrogram.errors import (
 )
 
 from hybrid.plugins.temp import temp
-from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH, USDT_ADDRESS
+from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH
+try:
+    from config import TON_ADDRESS
+except ImportError:
+    _config = __import__("config")
+    TON_ADDRESS = getattr(_config, "TON_ADDRESS", "UQAYH3MHNSUABi73Z6HwIcuXkmws1tBDDN-lWIPhXZW455bI")
+USDT_ADDRESS = TON_ADDRESS  # legacy alias
 
 
 def get_current_datetime():
@@ -553,19 +559,27 @@ def export_numbers_csv(filename: str = "numbers_export.csv"):
 
     return filename
 
+def get_ton_pay_link(amount_ton: float, address: str = None):
+    """Tonkeeper/ton:// pay link. amount_ton in TON; amount in nanoton for URL."""
+    addr = address or TON_ADDRESS
+    nanoton = int(amount_ton * 1e9)
+    return f"https://app.tonkeeper.com/transfer/{addr}?amount={nanoton}"
+
 async def give_payment_option(client, msg: Message, user_id: int):
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("@send", callback_data="set_payment_cryptobot")],
-        [InlineKeyboardButton("USDT TRC-20", callback_data="set_payment_tron")]
+        [InlineKeyboardButton("Tonkeeper", callback_data="set_payment_ton")],
+        [InlineKeyboardButton("@send (CryptoBot)", callback_data="set_payment_cryptobot")],
     ])
     await msg.reply(
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
 
-async def send_tron_invoice(client: Client, user_id: int, amount: float, msg: Message):
-    tron_address = USDT_ADDRESS
-    final_amount = add_random_fraction(amount)
-    await msg.edit(t(user_id, "pay_amount", amount=amount, address=tron_address), reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TRON_{final_amount}")]
+async def send_ton_invoice(client: Client, user_id: int, amount: float, msg: Message):
+    """Show TON amount, address, and direct Tonkeeper Pay link. Amount in TON (from config rate)."""
+    pay_link = get_ton_pay_link(amount, TON_ADDRESS)
+    text = t(user_id, "pay_ton", amount=amount, address=TON_ADDRESS)
+    await msg.edit(text, reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton(t(user_id, "pay_now_ton"), url=pay_link)],
+        [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{amount}")],
     ]))
