@@ -1,7 +1,7 @@
 {
   "en": {
     "choose_lang": "🌍 Please choose your language:",
-    "welcome": "{name} Welcome!\n\n📱 +888 Numbers — rent in one tap.\n\n✨ Pay with TON (Tonkeeper) or CryptoBot.\n♻️ Renew anytime.\n\n⬇️ Pick a number to start.",
+    "welcome": "👇 {name} Welcome to Rental Bot!\n\n📱 +888 Numbers — Instant, Private & Secure\n\n✨ What you get:\n  🔐 Anonymous & Secure rentals\n  📩 Get codes anytime – fast & reliable\n  💰 Pay with TON (Tonkeeper) or CryptoBot @send\n  ♻️ Instant Renewal – never lose your number\n\n💎 Your digital number, always online, always yours.\n⬇️ Pick a rent option & start now!",
     "rent": "📞 Rent",
     "my_rentals": "🛒 My Rentals",
     "profile": "👤 Profile",
@@ -21,7 +21,7 @@
     "payment_confirmed": "✅ **Payment confirmed! Your balance has been updated.**",
     "payment_not_found": "❌ Payment not found or not paid yet.",
     "language": "🌐 Language",
-    "choose_number": "Choose a number",
+    "choose_number": "👇 Choose a number",
     "next": "Next ➡️",
     "user": "User ID",
     "hours": "Hours",
@@ -65,6 +65,9 @@
     "transaction_id": "💳 Please enter your transaction ID (within 120s):",
     "tx_id_invalid": "❌ Invalid transaction ID or Transaction record does not match",
     "tx_id_already_used": "❌ This transaction ID has already been used.",
+    "tx_ton_ask": "💳 After paying, send your **TON transaction hash** here (within 120s).\n\nYou can copy it from Tonkeeper or tonviewer.com after the transfer.",
+    "ton_tx_invalid": "❌ Invalid or not found. Send the correct TON transaction hash after payment.",
+    "ton_tx_used": "❌ This TON transaction was already used.",
     "change_payment_method": "🔄 Change Payment Method"
   },
   "ru": {
@@ -89,7 +92,7 @@
     "payment_confirmed": "✅ **Оплата подтверждена! Баланс обновлен.**",
     "payment_not_found": "❌ Оплата не найдена или не завершена.",
     "language": "🌐 Язык",
-    "choose_number": "Выберите номер",
+    "choose_number": "👇 Выберите номер",
     "next": "Далее ➡️",
     "user": "Пользователь",
     "hours": "Часы",
@@ -133,6 +136,9 @@
     "transaction_id": "💳 Пожалуйста, введите ваш ID транзакции (в течение 120 секунд):",
     "tx_id_invalid": "❌ Неверный ID транзакции или запись транзакции не совпадает.",
     "tx_id_already_used": "❌ Этот ID транзакции уже был использован.",
+    "tx_ton_ask": "💳 После оплаты отправьте **хэш транзакции TON** сюда (120 сек).\n\nСкопируйте в Tonkeeper или tonviewer.com.",
+    "ton_tx_invalid": "❌ Неверный или не найден. Отправьте правильный хэш транзакции TON.",
+    "ton_tx_used": "❌ Эта транзакция TON уже использована.",
     "change_payment_method": "🔄 Изменить способ оплаты"
   },
   "ko": {
@@ -157,7 +163,7 @@
     "payment_confirmed": "✅ **결제가 확인되었습니다! 잔액이 업데이트되었습니다.**",
     "payment_not_found": "❌ 결제가 확인되지 않았습니다.",
     "language": "🌐 언어",
-    "choose_number": "번호 선택",
+    "choose_number": "👇 번호 선택",
     "next": "다음 ➡️",
     "user": "사용자 ID",
     "hours": "시간",
@@ -201,6 +207,9 @@
     "transaction_id": "💳 거래 ID를 입력하세요 (120초 이내):",
     "tx_id_invalid": "❌ 잘못된 거래 ID 또는 거래 기록이 일치하지 않습니다.",
     "tx_id_already_used": "❌ 이 거래 ID는 이미 사용되었습니다.",
+    "tx_ton_ask": "💳 결제 후 **TON 거래 해시**를 여기로 보내세요 (120초).\n\nTonkeeper 또는 tonviewer.com에서 복사하세요.",
+    "ton_tx_invalid": "❌ 잘못되었거나 찾을 수 없습니다. 결제 후 올바른 TON 거래 해시를 보내세요.",
+    "ton_tx_used": "❌ 이 TON 거래는 이미 사용되었습니다.",
     "change_payment_method": "🔄 결제 방법 변경"
   },
   "zh": {
@@ -225,7 +234,7 @@
     "payment_confirmed": "✅ **支付已确认！余额已更新。**",
     "payment_not_found": "❌ 未找到支付或未完成支付。",
     "language": "🌐 语言",
-    "choose_number": "选择号码",
+    "choose_number": "👇 选择号码",
     "next": "下一步 ➡️",
     "user": "用户ID",
     "hours": "小时",
@@ -269,6 +278,9 @@
     "transaction_id": "💳 请输入您的交易ID（120秒内）：",
     "tx_id_invalid": "❌ 无效的交易ID或交易记录不匹配。",
     "tx_id_already_used": "❌ 此交易ID已被使用。",
+    "tx_ton_ask": "💳 支付后在此发送您的 **TON 交易哈希**（120秒内）。\n\n可从 Tonkeeper 或 tonviewer.com 复制。",
+    "ton_tx_invalid": "❌ 无效或未找到。请发送支付后的正确 TON 交易哈希。",
+    "ton_tx_used": "❌ 该 TON 交易已被使用。",
     "change_payment_method": "🔄 更改支付方式"
   }
 }
