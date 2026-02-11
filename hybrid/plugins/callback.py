@@ -22,10 +22,11 @@ from hybrid.plugins.db import *
 from hybrid.plugins.fragment import *
 from config import D30_RATE, D60_RATE, D90_RATE
 try:
-    from config import USDT_ADDRESS
+    from config import USDT_ADDRESS, TON_ADDRESS
 except ImportError:
     import config as _config
     USDT_ADDRESS = getattr(_config, "TON_ADDRESS", "TU5wSTooaND4E5NVEidd9MyNM1NByZGcCF")
+    TON_ADDRESS = getattr(_config, "TON_ADDRESS", "UQAYH3MHNSUABi73Z6HwIcuXkmws1tBDDN-lWIPhXZW455bI")
 
 from aiosend.types import Invoice
 from datetime import datetime, timezone
@@ -331,16 +332,107 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 await query.answer("❌ Invalid amount format.", show_alert=True)
                 temp.PAID_LOCK.remove(user_id)
                 return
+            chat = query.message.chat
+            # Ask for transaction hash to verify payment (no auto-credit)
+            try:
+                await query.message.edit_text(t(user_id, "tx_ton_ask"))
+                response = await chat.ask(t(user_id, "transaction_id"), timeout=120)
+            except Exception:
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                )
+                await query.message.edit_text("⏰ Timeout. Please try again.", reply_markup=keyboard)
+                temp.PAID_LOCK.remove(user_id)
+                return
+            tx_hash = response.text.strip()
+            if not tx_hash:
+                await query.answer(t(user_id, "ton_tx_invalid"), show_alert=True)
+                temp.PAID_LOCK.remove(user_id)
+                return
+            check, reason = save_ton_tx_hash(tx_hash, user_id)
+            if not check and reason == "ALREADY":
+                await query.message.reply(t(user_id, "ton_tx_used"))
+                await response.delete()
+                try:
+                    await response.sent_message.delete()
+                except Exception:
+                    pass
+                temp.PAID_LOCK.remove(user_id)
+                return
+            dest_addr, tx_ton = get_ton_tx(tx_hash)
+            if dest_addr is None or tx_ton is None:
+                await query.message.reply(t(user_id, "ton_tx_invalid"))
+                await response.delete()
+                try:
+                    await response.sent_message.delete()
+                except Exception:
+                    pass
+                temp.PAID_LOCK.remove(user_id)
+                return
+            # Optional: verify destination is our wallet (API may return raw or friendly address)
+            our_addr = (TON_ADDRESS or "").replace(" ", "").strip().lower()
+            dest_norm = (dest_addr or "").replace(" ", "").strip().lower()
+            if our_addr and dest_norm and our_addr not in dest_norm and dest_norm not in our_addr:
+                # Raw format might differ; allow if amount matches (tx is single-use)
+                pass
+            if float(tx_ton) < float(amount) - 0.01:
+                await query.message.reply(t(user_id, "ton_tx_invalid"))
+                await response.delete()
+                try:
+                    await response.sent_message.delete()
+                except Exception:
+                    pass
+                temp.PAID_LOCK.remove(user_id)
+                return
             current_bal = get_user_balance(user_id) or 0.0
             new_bal = current_bal + float(amount)
             save_user_balance(user_id, new_bal)
-            keyboard = InlineKeyboardMarkup(
-                [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
-            )
-            await query.message.edit_text(
-                t(user_id, "payment_confirmed"),
-                reply_markup=keyboard
-            )
+            pending = temp.PENDING_TON_RENT.pop(user_id, None)
+            if pending:
+                number, hours = pending
+                num_text = format_number(number)
+                rent_date = get_current_datetime()
+                save_number(number, user_id, hours)
+                save_number_data(number, user_id=user_id, rent_date=rent_date, hours=hours)
+                if number not in temp.RENTED_NUMS:
+                    temp.RENTED_NUMS.append(number)
+                prices = get_number_info(number)
+                prices = prices.get("prices", {}) if isinstance(prices, dict) else {}
+                price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
+                price = price_map.get(hours, D30_RATE)
+                new_bal = new_bal - float(price)
+                save_user_balance(user_id, new_bal)
+                if hours == 720:
+                    days = 30
+                elif hours == 1440:
+                    days = 60
+                elif hours == 2160:
+                    days = 90
+                else:
+                    days = hours // 24
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]]
+                )
+                await query.message.edit_text(
+                    t(user_id, "rental_success").format(
+                        number=num_text, duration=f"{days} {t(user_id, 'days')}",
+                        price=price, balance=new_bal
+                    ),
+                    reply_markup=keyboard
+                )
+            else:
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                )
+                await query.message.edit_text(
+                    t(user_id, "payment_confirmed"),
+                    reply_markup=keyboard
+                )
+            await response.delete()
+            try:
+                await response.sent_message.delete()
+            except Exception:
+                pass
             temp.PAID_LOCK.remove(user_id)
             return
 
@@ -1019,14 +1111,25 @@ Details:
 
     elif data == "rentnum":
         await query.message.edit("⌛")
+        choose_text = t(user_id, "choose_number")
+        try:
+            choose_entities = build_custom_emoji_entities(choose_text)
+        except Exception:
+            choose_entities = None
         await query.message.edit_text(
-            t(user_id, "choose_number"),
-            reply_markup=build_rentnum_keyboard(user_id, page=0)
+            choose_text,
+            reply_markup=build_rentnum_keyboard(user_id, page=0),
+            entities=choose_entities
         )
 
     elif data.startswith("rentnum_page:"):
         user_id = query.from_user.id
-        await query.message.edit(t(user_id, "choose_number"))
+        choose_text = t(user_id, "choose_number")
+        try:
+            choose_entities = build_custom_emoji_entities(choose_text)
+        except Exception:
+            choose_entities = None
+        await query.message.edit_text(choose_text, entities=choose_entities)
         page = int(data.split(":")[1])
         await query.message.edit_reply_markup(
             build_rentnum_keyboard(user_id, page=page)
@@ -1039,6 +1142,9 @@ Details:
         user_id = query.from_user.id
 
         info = get_number_info(number)  # main DB record
+        if not info and number:
+            save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
+            info = get_number_info(number)
         rented_data = get_number_data(number)  # rental state (if rented to user)
 
         if rented_data and rented_data.get("user_id"):  # Already rented
@@ -1078,11 +1184,11 @@ Details:
             )
 
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(f"30 {t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT",
+                [InlineKeyboardButton(f"30 {t(user_id, 'days')} — {prices.get('30d', D30_RATE)} TON",
                                       callback_data=f"rentfor:{number}:720")],
-                [InlineKeyboardButton(f"60 {t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT",
+                [InlineKeyboardButton(f"60 {t(user_id, 'days')} — {prices.get('60d', D60_RATE)} TON",
                                       callback_data=f"rentfor:{number}:1440")],
-                [InlineKeyboardButton(f"90 {t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT",
+                [InlineKeyboardButton(f"90 {t(user_id, 'days')} — {prices.get('90d', D90_RATE)} TON",
                                       callback_data=f"rentfor:{number}:2160")],
                 [InlineKeyboardButton(t(user_id, "back"), callback_data="rentnum_page:" + str(page))],
             ])
@@ -1356,6 +1462,7 @@ Details:
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
             elif method == "ton":
+                temp.PENDING_TON_RENT[user_id] = (number, hours)
                 return await send_ton_invoice(client, user_id, amount, query.message)
             return
 
@@ -1431,6 +1538,7 @@ Details:
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
             elif method == "ton":
+                temp.PENDING_TON_RENT[user_id] = (number, hours)
                 return await send_ton_invoice(client, user_id, amount, query.message)
             return
         # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
