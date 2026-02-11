@@ -90,13 +90,13 @@ async def load_num_data():
 
 
 from hybrid.plugins.db import get_number_data, get_remaining_rent_days, is_restricted_del_enabled, remove_number, remove_number_data, save_restricted_number
-from hybrid.plugins.db import numbers_col, rental_col
+from hybrid.plugins.db import numbers_col
 from hybrid.plugins.func import get_current_datetime, check_number_conn, delete_account
 
 async def schedule_reminders(client):
     """Schedule reminders for numbers expiring within 3 days."""
     now = get_current_datetime().replace(tzinfo=timezone.utc)  # ✅ ensure aware
-    rented = rental_col.find({"user_id": {"$exists": True}})
+    rented = numbers_col.find({"user_id": {"$exists": True}})
 
     for doc in rented:
         number = doc["number"]
@@ -138,63 +138,65 @@ async def send_reminder_later(client, user_id, number, delay):
         logging.error(f"Failed to send reminder to {user_id} for {number}: {e}")
 
 async def check_expired_numbers(client):
-    """Hourly background checker to remove expired numbers."""
+    """Background checker: expire → delete immediately or request 7-day delete. Only free number when actually deleted."""
+    from hybrid.plugins.func import t
     while True:
-        now = get_current_datetime().replace(tzinfo=timezone.utc)  # ✅ ensure aware
-        rented = rental_col.find({"user_id": {"$exists": True}})
+        try:
+            now = get_current_datetime().replace(tzinfo=timezone.utc)
+            rented = list(numbers_col.find({"user_id": {"$exists": True}}))
+        except Exception as e:
+            logging.error(f"check_expired_numbers: DB error (will retry): {e}")
+            await asyncio.sleep(600)
+            continue
         for doc in rented:
             number = doc["number"]
             user_id = doc["user_id"]
             expiry = doc.get("expiry_date")
-            if expiry:
-                expiry = expiry.replace(tzinfo=timezone.utc)  # ✅ normalize
-                if expiry <= now:
+            if not expiry:
+                continue
+            expiry = expiry.replace(tzinfo=timezone.utc) if getattr(expiry, "tzinfo", None) is None else expiry
+            if expiry > now:
+                continue
+            freed = False
+            try:
+                try:
+                    from hybrid.plugins.fragment import terminate_all_sessions
+                    terminate_all_sessions(number)
+                except Exception:
+                    pass
+                stat, reason = await delete_account(number, client)
+                if stat and reason == "7Days":
+                    from hybrid.plugins.db import save_7day_deletion
+                    save_7day_deletion(number, now + timedelta(days=7))
+                    msg = t(user_id, "expired_notify_7days").format(number=number)
                     try:
-                        # Check if number is actually connected
-                        is_free = await check_number_conn(number)
-                        
-                        if is_free:
-                            # Already free, just clean up DB
-                            logging.info(f"Expired number {number} is already free (no account). Cleaning up.")
-                            remove_number_data(number)
-                            remove_number(number, user_id)
-                            # Notify user
-                            if number in temp.RENTED_NUMS:
-                                temp.RENTED_NUMS.remove(number)
-                            if number not in temp.AVAILABLE_NUM:
-                                temp.AVAILABLE_NUM.append(number)
-                            from hybrid.plugins.func import t
-                            text = t(user_id, "expired_notify").format(number=number)
-                            try:
-                                await client.send_message(user_id, text)
-                            except Exception as e:
-                                logging.error(f"Failed to notify user {user_id} about expired number {number}: {e}")
-                            continue
-
-                        # If not free, try to delete account
-                        try:
-                            from hybrid.plugins.fragment import terminate_all_sessions
-                            terminate_all_sessions(number)
-                        except:
-                            pass
-                        stat, reason = await delete_account(number, client)
-                        if stat:
-                            remove_number_data(number)
-                            remove_number(number, user_id)
-                        if reason == "7Days":
-                            from hybrid.plugins.db import save_7day_deletion
-                            save_7day_deletion(number, now + timedelta(days=7))
-                        if not stat and reason == "Banned":
-                            logging.info(f"Number {number} is banned.")
-                            if number not in temp.BLOCKED_NUMS:
-                                temp.BLOCKED_NUMS.append(number)
-                            continue
-                        logging.info(f"Expired number {number} cleaned up for user {user_id}")
+                        await client.send_message(user_id, msg)
                     except Exception as e:
-                        logging.error(f"Error handling expired number {number}: {e}")
-                    finally:
-                        # The cleanup block above handles list updates if successful
-                        pass
+                        logging.error(f"Failed to notify user {user_id} (7-day): {e}")
+                    logging.info(f"Expired number {number} scheduled for 7-day deletion (user {user_id}).")
+                    continue
+                if stat:
+                    remove_number_data(number)
+                    remove_number(number, user_id)
+                    freed = True
+                    logging.info(f"Expired number {number} cleaned up for user {user_id}")
+                if not stat and reason == "Banned":
+                    logging.info(f"Number {number} is banned.")
+                    if number not in temp.BLOCKED_NUMS:
+                        temp.BLOCKED_NUMS.append(number)
+            except Exception as e:
+                logging.error(f"Error handling expired number {number}: {e}")
+            finally:
+                if freed:
+                    if number in temp.RENTED_NUMS:
+                        temp.RENTED_NUMS.remove(number)
+                    if number not in temp.AVAILABLE_NUM:
+                        temp.AVAILABLE_NUM.append(number)
+                    text = t(user_id, "expired_notify").format(number=number)
+                    try:
+                        await client.send_message(user_id, text)
+                    except Exception as e:
+                        logging.error(f"Failed to notify user {user_id} about expired number {number}: {e}")
         await asyncio.sleep(600)
 
 async def check_7day_accs(client):
@@ -207,74 +209,49 @@ async def check_7day_accs(client):
             await asyncio.sleep(3600)
             continue
         for num in numbers:
-            # SAFETY CHECK: Ensure number is not actively rented (unexpired)
-            from hybrid.plugins.db import get_number_data
-            rent_info = get_number_data(num)
-            if rent_info and rent_info.get("expiry_date"):
-                exp_date = rent_info["expiry_date"]
-                if exp_date.tzinfo is None:
-                    exp_date = exp_date.replace(tzinfo=timezone.utc)
-                if exp_date > now:
-                    logging.warning(f"Skipping 7-day cleanup for {num} because it has an ACTIVE rental until {exp_date}.")
-                    # We should probably remove it from deletion list if it's active, 
-                    # but to be safe we just skip deciding its fate for now.
-                    continue
-
             date = get_7day_date(num)
             if date and date <= now:
-                # Check if number is free
-                is_free = await check_number_conn(num)
-                
-                if is_free:
-                    logging.info(f"7-day account {num} is already free. Cleaning up.")
-                    # Process success logic directly
-                    if num in temp.RENTED_NUMS:
-                        temp.RENTED_NUMS.remove(num)
-                    if num not in temp.AVAILABLE_NUM:
-                        temp.AVAILABLE_NUM.append(num)
-                    
-                    user_id, hour, date = get_user_by_number(num) or (None, None, None)
-                    remove_number_data(num)
-                    if user_id:
-                        remove_number(num, user_id)
-                    remove_7day_deletion(num)
-                    continue
-
-                # Not free, try to delete
+                # check = check_number_conn(num)
+                check = True # TEMP SKIP
                 try:
                     from hybrid.plugins.fragment import terminate_all_sessions
                     terminate_all_sessions(num)
                 except:
                     pass
-                
-                stat, reason = await delete_account(num, client)
-                if stat and reason == "7Day":
-                    logging.info(f"Deleted account {num} after 7 days (rescheduled?)")
-                    # Usually "7Days" reason means it forced a new 7 day wait? 
-                    # Or maybe it means "Approved for deletion"?
-                    # The delete_account returns "7Days" if it encounters 2FA wait error.
-                    # so we reschedule.
-                    save_7day_deletion(num, now + timedelta(days=7))
-                    continue
-                if stat:
+                if check:
+                    stat, reason = await delete_account(num, client)
+                    if stat and reason == "7Days":
+                        logging.info(f"Account {num} still has 2FA; deletion rescheduled for 7 days.")
+                        save_7day_deletion(num, now + timedelta(days=7))
+                        continue
+                    if stat:
+                        if num in temp.RENTED_NUMS:
+                            temp.RENTED_NUMS.remove(num)
+                        if num not in temp.AVAILABLE_NUM:
+                            temp.AVAILABLE_NUM.append(num)
+                        user_data = get_user_by_number(num)
+                        if user_data:
+                            user_id, _hour, _date = user_data
+                            remove_number_data(num)
+                            remove_number(num, user_id)
+                    if not stat:
+                        if reason == "Banned":
+                            logging.info(f"Number {num} is banned.")
+                            if num not in temp.BLOCKED_NUMS:
+                                temp.BLOCKED_NUMS.append(num)
+                            continue
+                        logging.error(f"Failed to delete account {num}: {reason}")
+                        continue
+                else:
                     if num in temp.RENTED_NUMS:
                         temp.RENTED_NUMS.remove(num)
                     if num not in temp.AVAILABLE_NUM:
                         temp.AVAILABLE_NUM.append(num)
-                    
-                    user_id, hour, date = get_user_by_number(num) or (None, None, None)
-                    remove_number_data(num)
-                    if user_id:
+                    user_data = get_user_by_number(num)
+                    if user_data:
+                        user_id, _hour, _date = user_data
+                        remove_number_data(num)
                         remove_number(num, user_id)
-                    remove_7day_deletion(num)
-                if not stat:
-                    if reason == "Banned":
-                        logging.info(f"Number {num} is banned.")
-                        if num not in temp.BLOCKED_NUMS:
-                            temp.BLOCKED_NUMS.append(num)
-                        continue
-                    logging.error(f"Failed to delete account {num}: {reason}")
-                    continue
         await asyncio.sleep(3600)
 
 async def check_restricted_numbers(client):
@@ -283,8 +260,9 @@ async def check_restricted_numbers(client):
         from hybrid.plugins.fragment import get_restricted_numbers
         restricted = get_restricted_numbers()
         if not restricted:
-            logging.error("No Restricted numbers found or failed to fetch.")
-            return
+            logging.warning("No restricted numbers found or fetch failed; retrying in 24h.")
+            await asyncio.sleep(86400)
+            continue
 
         for num in restricted:
             logging.info(f"Number {num} is restricted by Fragment.")
