@@ -20,7 +20,7 @@ from hybrid.plugins.temp import temp
 from hybrid.plugins.func import *
 from hybrid.plugins.db import *
 from hybrid.plugins.fragment import *
-from config import D30_RATE, D60_RATE, D90_RATE, TON_ADDRESS
+from config import D30_RATE, D60_RATE, D90_RATE, USDT_ADDRESS
 
 from aiosend.types import Invoice
 from datetime import datetime, timezone
@@ -50,13 +50,11 @@ async def callback_handler(client: Client, query: CallbackQuery):
                     [[InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")]]
                 ),
             )
-
-        keyboard = [
-            [InlineKeyboardButton(num, callback_data=f"num_{num}")]
-            for num in numbers
-        ]
+        keyboard = []
+        for num in numbers:
+            label = f"{num} {t(user_id, 'expired_tag')}" if is_rental_expired(num) else num
+            keyboard.append([InlineKeyboardButton(label, callback_data=f"num_{num}")])
         keyboard.append([InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")])
-
         await query.message.edit_text(
             t(user_id, "your_rentals"),
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -65,10 +63,23 @@ async def callback_handler(client: Client, query: CallbackQuery):
     elif data.startswith("num_"):
         number = data.replace("num_", "")
         num_text = format_number(number)
-        await query.message.edit_text(f"⏳ Loading details for **{num_text}**...")  # optional: can also translate
-        _, hours, date = get_user_by_number(number)
+        await query.message.edit_text(f"⏳ Loading details for **{num_text}**...")
+        user_data = get_user_by_number(number)
+        if not user_data:
+            return await query.message.edit_text(
+                t(user_id, "no_rentals"),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")]])
+            )
+        _, hours, date = user_data
         time_left = format_remaining_time(date, hours)
         date_str = format_date(str(date))
+        body = t(user_id, "number", num=num_text, time=time_left, date=date_str)
+        expired = is_rental_expired(number)
+        if expired:
+            body += f"\n\n🔴 **{t(user_id, 'expired_tag')}**"
+            days_left = get_7day_days_left(number)
+            if days_left is not None:
+                body += f"\n_{t(user_id, 'expired_pending', days=days_left)}_"
         keyboard = [
             [
                 InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{number}"),
@@ -76,10 +87,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             ],
             [InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")],
         ]
-        await query.message.edit_text(
-            t(user_id, "number", num=num_text, time=time_left, date=date_str),
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
+        await query.message.edit_text(body, reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data.startswith("getcode_"):
         number = data.replace("getcode_", "")
@@ -91,11 +99,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
             keyboard = [
                 [InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]
             ]
-            # Add premium emoji to code message
-            code_text = t(user_id, "here_is_code", code=code)
-            code_with_emoji = f"<emoji id='5359785904535774578'>⭐</emoji> {code_text}"
             await query.message.reply(
-                code_with_emoji,
+                t(user_id, "here_is_code", code=code),
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
@@ -112,8 +117,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
         user = query.from_user
         balance = get_user_balance(user.id) or 0.0
         method = get_user_payment_method(user.id)
-        if method == "tonkeeper":
-            payment_method = "TON (Tonkeeper)"
+        if method == "tron":
+            payment_method = "USDT TRC-20"
         elif method == "cryptobot":
             payment_method = "CryptoBot (@send)"
         else:
@@ -127,19 +132,17 @@ async def callback_handler(client: Client, query: CallbackQuery):
             bal=balance,
             payment_method=payment_method
         )
-        # Add premium emoji to profile
-        profile_with_emoji = f"<emoji id='5377457244938489129'>💰</emoji> {text}"
         keyboard = [
             [InlineKeyboardButton(t(user.id, "add_balance"), callback_data="add_balance")],
             [InlineKeyboardButton(t(user.id, "change_payment_method"), callback_data="change_payment_method")],
             [InlineKeyboardButton(t(user.id, "language"), callback_data="language")],
             [InlineKeyboardButton(t(user.id, "back"), callback_data="back_home")],
         ]
-        await query.message.edit_text(profile_with_emoji, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data == "change_payment_method":
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("TON (Tonkeeper)", callback_data="setpayment_tonkeeper")],
+            [InlineKeyboardButton("USDT TRC-20", callback_data="setpayment_tron")],
             [InlineKeyboardButton("CryptoBot (@send)", callback_data="setpayment_cryptobot")],
             [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]
         ])
@@ -168,11 +171,11 @@ async def callback_handler(client: Client, query: CallbackQuery):
             reply_markup=keyboard
         )
 
-    elif data == "setpayment_tonkeeper" or data == "setpayment_cryptobot" or data.startswith("setpayment_"):
+    elif data == "setpayment_tron" or data == "setpayment_cryptobot" or data.startswith("setpayment_"):
         method = data.replace("setpayment_", "")
-        if method == "tonkeeper":
-            save_user_payment_method(user_id, "tonkeeper")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="TON (Tonkeeper)"),
+        if method == "tron":
+            save_user_payment_method(user_id, "tron")
+            await query.message.edit_text(t(user_id, "selected_payment_method", method="USDT TRC-20"),
                                           reply_markup=InlineKeyboardMarkup(
                                               [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
                                           ))
@@ -188,9 +191,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
     
     elif data.startswith("set_payment_"):
         method = data.replace("set_payment_", "")
-        if method == "tonkeeper":
-            save_user_payment_method(user_id, "tonkeeper")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="TON (Tonkeeper)"),
+        if method == "tron":
+            save_user_payment_method(user_id, "tron")
+            await query.message.edit_text(t(user_id, "selected_payment_method", method="USDT TRC-20"),
                                           reply_markup=InlineKeyboardMarkup(
                                               [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
                                           ))
@@ -287,7 +290,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 await response.sent_message.delete()
                 return
 
-        elif method == "tonkeeper":
+        elif method == "tron":
             try:
                 response = await chat.ask(
                     t(user_id, "enter_amount"),
@@ -302,29 +305,18 @@ async def callback_handler(client: Client, query: CallbackQuery):
             try:
                 amount = float(response.text.strip())
                 if amount <= 0:
-                    return await query.message.reply("❌ Amount must be greater than 0.5 TON.")
+                    return await query.message.reply("❌ Amount must be greater than 0.5 USDT.")
             except ValueError:
                 return await query.message.reply("❌ Invalid input. Please enter a valid number.")
 
             final_amount = add_random_fraction(amount)
-            address = TON_ADDRESS
-            
-            # Convert TON to nanotons
-            amount_nanotons = int(final_amount * 1_000_000_000)
-            
-            # Generate Tonkeeper deep links
-            comment = f"Payment_{final_amount}_TON"
-            tonkeeper_link = f"ton://transfer/{address}?amount={amount_nanotons}&text={comment}"
-            tonkeeper_universal = f"https://app.tonkeeper.com/transfer/{address}?amount={amount_nanotons}&text={comment}"
-            
+            address = USDT_ADDRESS
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("💎 Open Tonkeeper", url=tonkeeper_link)],
-                [InlineKeyboardButton("🌐 Open in Browser", url=tonkeeper_universal)],
-                [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{final_amount}")],
+                [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TRON_{final_amount}")],
             ])
 
             await query.message.edit_text(
-                t(user_id, "pay_amount_tonkeeper", amount=final_amount, address=address),
+                t(user_id, "pay_amount", amount=final_amount, address=address),
                 reply_markup=keyboard
             )
             await response.delete()
@@ -337,9 +329,10 @@ async def callback_handler(client: Client, query: CallbackQuery):
         temp.PAID_LOCK.append(user_id)
 
         inv_id = data.replace("check_payment_", "")
-        if inv_id.startswith("TON_"):
+        if inv_id.startswith("TRON_"):
             try:
-                amount = float(inv_id.replace("TON_", ""))
+                amount = float(inv_id.replace("TRON_", ""))
+                # await query.message.reply(f"Amount: {amount}")
             except ValueError:
                 await query.answer("❌ Invalid amount format.", show_alert=True)
                 temp.PAID_LOCK.remove(user_id)
@@ -359,18 +352,26 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 temp.PAID_LOCK.remove(user_id)
                 return
             tx_id = response.text.strip()
-            check, reason = save_ton_tx_hash(tx_id, user_id)
+            check, reason = save_tron_tx_hash(tx_id, user_id)
             if not check and reason == "ALREADY":
                 await query.message.reply(t(user_id, "tx_id_already_used"))
                 await response.delete()
                 await response.sent_message.delete()
                 temp.PAID_LOCK.remove(user_id)
                 return
-            add_ress, tx_amount = get_ton_tx(tx_id)
-            if not add_ress or add_ress != TON_ADDRESS or float(tx_amount) < float(amount):
-                remove_ton_tx_hash(tx_id)
+            add_ress, tx_amount, symbol = get_tron_tx(tx_id)
+            if not add_ress or add_ress != USDT_ADDRESS or float(tx_amount) < float(amount):
+                remove_tron_tx_hash(tx_id)
                 await query.answer(t(user_id, "tx_id_invalid"), show_alert=True)
                 await query.message.reply(t(user_id, "tx_id_invalid"))
+                await response.delete()
+                await response.sent_message.delete()
+                temp.PAID_LOCK.remove(user_id)
+                return
+            if symbol != "USDT":
+                remove_tron_tx_hash(tx_id)
+                await query.answer("❌ Invalid token. Please send USDT TRC-20.", show_alert=True)
+                await query.message.reply("❌ Invalid token. Please send USDT TRC-20.")
                 await response.delete()
                 await response.sent_message.delete()
                 temp.PAID_LOCK.remove(user_id)
@@ -381,11 +382,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
             keyboard = InlineKeyboardMarkup(
                 [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
             )
-            # Add premium emoji to payment confirmation
-            confirmation_text = t(user_id, "payment_confirmed")
-            confirmation_with_emoji = f"<emoji id='5314250708508464081'>✅</emoji> {confirmation_text}"
             await query.message.edit_text(
-                confirmation_with_emoji,
+                t(user_id, "payment_confirmed"),
                 reply_markup=keyboard
             )
             temp.PAID_LOCK.remove(user_id)
@@ -413,11 +411,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
             new_bal = current_bal + float(invoice.amount)
             save_user_balance(user_id, new_bal)
 
-            # Add premium emoji to payment confirmation
-            confirmation_text = t(user_id, "payment_confirmed")
-            confirmation_with_emoji = f"<emoji id='5314250708508464081'>✅</emoji> {confirmation_text}"
             await query.message.edit_text(
-                confirmation_with_emoji,
+                t(user_id, "payment_confirmed"),
                 reply_markup=keyboard
             )
             temp.PAID_LOCK.remove(user_id)
@@ -1050,16 +1045,9 @@ Details:
         user = await client.get_users(user_id)
 
         # ========== Delete Account logic ========== #
-        is_free = await fragment_api.check_is_number_free(number)
-        if is_free:
-            # If free, there is no account to delete.
-            # We can treat this as "Deletion successful/already deleted".
-            # Or we can just error out? 
-            # The admin pressed "Delete Account", presumably to clean it up.
-            # So let's tell them it's already free.
-             return await query.message.edit_text("❌ Cannot delete account. The number is ALREADY free (no account connected).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
-        
-        # If not free, proceeded to delete
+        check = await fragment_api.check_is_number_free(number)
+        if check:
+            return await query.message.edit_text("❌ Cannot delete account. The number is currently in use in Fragment.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
         stat, reason = await delete_account(number, app=client, chat=query.message.chat)
         if stat:
             keyboard = [
@@ -1414,9 +1402,9 @@ Details:
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
-            elif method == "tonkeeper":
+            elif method == "tron":
                 amount = add_random_fraction(amount)
-                return await send_ton_invoice(client, user_id, amount, query.message)
+                return await send_tron_invoice(client, user_id, amount, query.message)
             return
         
         if hours == 720:
@@ -1490,9 +1478,9 @@ Details:
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
-            elif method == "tonkeeper":
+            elif method == "tron":
                 amount = add_random_fraction(amount)
-                return await send_ton_invoice(client, user_id, amount, query.message)
+                return await send_tron_invoice(client, user_id, amount, query.message)
             return
         # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
         rented_data = get_number_data(number)
@@ -1528,11 +1516,8 @@ Details:
             ],
             [InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")],
         ]
-        # Add premium emoji to rental success
-        success_text = t(user_id, "rental_success").format(number=num_text, duration=duration, price=price, balance=new_balance)
-        success_with_emoji = f"<emoji id='5377399456693011056'>💎</emoji> {success_text}"
         await query.message.edit_text(
-            success_with_emoji,
+            t(user_id, "rental_success").format(number=num_text, duration=duration, price=price, balance=new_balance),
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
@@ -1653,20 +1638,23 @@ Details:
         except Exception:
             await response.sent_message.delete()
             return await query.message.reply("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
-        hours = response.text.strip()
-        hours = hours.replace(" ", "").lower()
-        if hours.endswith("d") and hours[:-1].isdigit():
-            hours = int(hours[:-1]) * 24
-        elif hours.endswith("h") and hours[:-1].isdigit():
-            hours = int(hours[:-1])
+        raw = response.text.strip().replace(" ", "").lower()
         await response.delete()
         await response.sent_message.delete()
-        hours = int(hours)
+        if raw.endswith("d") and raw[:-1].isdigit():
+            hours = int(raw[:-1]) * 24
+        elif raw.endswith("h") and raw[:-1].isdigit():
+            hours = int(raw[:-1])
+        else:
+            return await query.message.reply("❌ Invalid format. Use e.g. 2h or 3d.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
         if hours <= 0:
             return await query.message.reply("❌ Invalid input. Please enter a positive number of hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
-        save_number(identifier, user.id, hours, extend=True)
-        save_number_data(identifier, user_id=user.id, rent_date=rented_date, hours=hours)
-        duration = format_remaining_time(rented_date, hours)
+        # Keep same rent start date; only change duration so DB + My Rentals reflect correctly
+        from hybrid.plugins.func import _ensure_utc
+        rent_date_utc = _ensure_utc(rented_date) if rented_date else get_current_datetime()
+        save_number(identifier, user.id, hours, date=rent_date_utc, extend=True)
+        save_number_data(identifier, user_id=user.id, rent_date=rent_date_utc, hours=hours)
+        duration = format_remaining_time(rent_date_utc, hours)
         keyboard = [
             [
                 InlineKeyboardButton("Back to Rental Management", callback_data="rental_management")
@@ -1680,13 +1668,16 @@ Details:
     elif data.startswith("changerental_date_") and query.from_user.id in ADMINS:
         identifier = data.replace("changerental_date_", "")
         rented_data = get_number_data(identifier)
+        if not rented_data:
+            return await query.message.reply("❌ No rental data for this number.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
         user_id = rented_data.get("user_id")
         rented_date = rented_data.get("rent_date")
-        hours = rented_data.get("hours", 0)
+        hours = int(rented_data.get("hours") or 0)
         user = await client.get_users(user_id)
+        date_preview = rented_date.strftime("%Y-%m-%d %H:%M:%S") if rented_date else "N/A"
         try:
             response = await query.message.chat.ask(
-                f"⚠️ Enter the new rental start date for **{identifier}** in format DD/MM/YYYY (currently rented on {rented_data.get('rent_date').strftime('%Y-%m-%d %H:%M:%S')}) (within 120s):",
+                f"⚠️ Enter the new rental start date for **{identifier}** in format DD/MM/YYYY (currently: {date_preview}) (within 120s):",
                 timeout=120
             )
         except Exception:
@@ -1699,13 +1690,13 @@ Details:
             new_rent_date = datetime.strptime(date_str, "%d/%m/%Y")
         except ValueError:
             return await query.message.reply("❌ Invalid date format. Please use DD/MM/YYYY.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
-        
         new_rent_date = new_rent_date.replace(tzinfo=timezone.utc)
         now = get_current_datetime()
-        now = now.replace(tzinfo=timezone.utc)
+        if getattr(now, "tzinfo", None) is None:
+            now = now.replace(tzinfo=timezone.utc)
         if new_rent_date > now:
             return await query.message.reply("❌ Rental date cannot be in the future.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
-
+        # Update both users_col and rental_col so My Rentals and number list reflect new date
         save_number(identifier, user.id, hours, date=new_rent_date, extend=True)
         save_number_data(identifier, user_id=user.id, rent_date=new_rent_date, hours=hours)
         duration = format_remaining_time(new_rent_date, hours)
@@ -1718,6 +1709,3 @@ Details:
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
-
-
