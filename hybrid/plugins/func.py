@@ -565,6 +565,79 @@ def get_ton_pay_link(amount_ton: float, address: str = None):
     nanoton = int(amount_ton * 1e9)
     return f"https://app.tonkeeper.com/transfer/{addr}?amount={nanoton}"
 
+
+def get_ton_tx(tx_hash: str):
+    """
+    Verify TON transaction by hash. Returns (destination_address, amount_ton) or (None, None).
+    Uses TonAPI v2. tx_hash can be hex or base64.
+    """
+    if not tx_hash or not tx_hash.strip():
+        return None, None
+    tx_hash = tx_hash.strip()
+    # Try TonAPI (no key required for public read)
+    url = f"https://tonapi.io/v2/blockchain/transactions/{tx_hash}"
+    try:
+        r = requests.get(url, timeout=15)
+        if r.status_code != 200:
+            return None, None
+        data = r.json()
+        # Transaction has in_msg for incoming transfer (TonAPI may nest under "transaction")
+        in_msg = data.get("in_msg") or (data.get("transaction") or {}).get("in_msg") or (data.get("result") or {}).get("in_msg")
+        if not in_msg:
+            return None, None
+        value_nano = int(in_msg.get("value", 0) or 0)
+        value_ton = value_nano / 1e9
+        dest = in_msg.get("destination")
+        if isinstance(dest, dict):
+            addr = dest.get("address") or dest.get("friendly_address") or ""
+        else:
+            addr = str(dest) if dest else ""
+        return addr, value_ton
+    except Exception:
+        return None, None
+
+
+# Premium custom emoji IDs (Telegram) – use in entities for premium clients
+PREMIUM_EMOJI = {
+    "👇": "5470177992950946662",
+    "👛": "5472363448404809929",
+    "🥂": "5372923951796198347",
+    "🏆": "5409008750893734809",
+    "💎": "5471952986970267163",
+    "🚀": "5445284980978621387",
+    "🔑": "5330115548900501467",
+    "🎀": "5375152498656961898",
+    "📆": "5431897022456145283",
+    "📥": "5433811242135331842",
+    "🆗": "5363850326577259091",
+    "💰": "5375296873982604963",
+    "💼": "5359785904535774578",
+    "✅": "5427009714745517609",
+    "❌": "5465665476971471368",
+    "💌": "5472019095106886003",
+}
+
+
+def build_custom_emoji_entities(text: str):
+    """Build list of MessageEntity for custom emoji in text. Use with same text when sending."""
+    from pyrogram.types import MessageEntity
+    from pyrogram.enums import MessageEntityType
+    entities = []
+    i = 0
+    while i < len(text):
+        found = False
+        for emoji, eid in PREMIUM_EMOJI.items():
+            if text[i:i + len(emoji)] == emoji:
+                entities.append(
+                    MessageEntity(type=MessageEntityType.CUSTOM_EMOJI, offset=i, length=len(emoji), custom_emoji_id=int(eid))
+                )
+                i += len(emoji)
+                found = True
+                break
+        if not found:
+            i += 1
+    return entities
+
 async def give_payment_option(client, msg: Message, user_id: int):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("Tonkeeper", callback_data="set_payment_ton")],
@@ -583,3 +656,4 @@ async def send_ton_invoice(client: Client, user_id: int, amount: float, msg: Mes
         [InlineKeyboardButton(t(user_id, "pay_now_ton"), url=pay_link)],
         [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{amount}")],
     ]))
+
