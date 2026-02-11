@@ -16,6 +16,7 @@ rules_col = db["rules"]
 rental_col = db["rentals"]
 delaccol = db["deletions"]
 troncol = db["tron_tx"]
+ton_tx_col = db["ton_tx_used"]
 restrictedcol = db["restricted_numbers"]
 rest_toggle_col = db["restricted_toggle"]
 payment_col = db["payment_methods"]
@@ -347,6 +348,18 @@ def remove_tron_tx_hash(tx_hash: str):
     result = troncol.delete_one({"tx_hash": tx_hash})
     return (True, "REMOVED") if result.deleted_count else (False, "NOT_FOUND")
 
+
+# ======== TON TRANSACTION (for payment verification) =========
+def save_ton_tx_hash(tx_hash: str, user_id: int):
+    if ton_tx_col.find_one({"tx_hash": tx_hash}):
+        return False, "ALREADY"
+    ton_tx_col.insert_one({"tx_hash": tx_hash, "user_id": user_id})
+    return True, "SAVED"
+
+def get_ton_tx_hash(tx_hash: str):
+    return ton_tx_col.find_one({"tx_hash": tx_hash}, {"_id": 0})
+
+
 # ========= RESTRICTED NOTIFY =========
 def save_restricted_number(number: str, date = get_current_datetime()):
     if restrictedcol.find_one({"number": number}):
@@ -394,6 +407,7 @@ def delete_all_data():
     rental_col.delete_many({})
     delaccol.delete_many({})
     troncol.delete_many({})
+    ton_tx_col.delete_many({})
     restrictedcol.delete_many({})
     rest_toggle_col.delete_many({})
     payment_col.delete_many({})
