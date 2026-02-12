@@ -27,13 +27,7 @@ from pyrogram.errors import (
 )
 
 from hybrid.plugins.temp import temp
-from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH
-try:
-    from config import TON_ADDRESS
-except ImportError:
-    _config = __import__("config")
-    TON_ADDRESS = getattr(_config, "TON_ADDRESS", "UQAYH3MHNSUABi73Z6HwIcuXkmws1tBDDN-lWIPhXZW455bI")
-USDT_ADDRESS = TON_ADDRESS  # legacy alias
+from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH, USDT_ADDRESS
 
 
 def get_current_datetime():
@@ -195,39 +189,19 @@ def t(user_id: int, key: str, **kwargs):
         return text.format(**kwargs)
     return text
 
-from hybrid.plugins.db import get_number_data, get_number_info, save_number_info, get_7day_date
+from hybrid.plugins.db import get_number_data, get_number_info, save_number_info
 
 NUMBERS_PER_PAGE = 8
 
-def is_rental_expired(number: str) -> bool:
-    """True if number has rental data and expiry_date <= now (UTC)."""
-    rental = get_number_data(number)
-    if not rental:
-        return False
-    expiry = rental.get("expiry_date")
-    if not expiry:
-        return False
-    expiry = _ensure_utc(expiry)
-    now = get_current_datetime().replace(tzinfo=timezone.utc)
-    return expiry <= now
-
-def get_7day_days_left(number: str):
-    """Days until number is freed from 7-day deletion queue, or None if not in queue."""
-    d = get_7day_date(number)
-    if not d:
-        return None
-    d = _ensure_utc(d)
-    now = get_current_datetime().replace(tzinfo=timezone.utc)
-    delta = (d - now).days
-    return max(0, delta)
-
 def build_rentnum_keyboard(user_id: int, page: int = 0):
-    # Full pool: all numbers from Fragment so freed/deleted numbers show again (cycle)
-    pool = [n for n in temp.NUMBE_RS if n not in temp.UN_AV_NUMS]
+    filtered_numbers = temp.AVAILABLE_NUM
+    filtered_numbers = [num for num in filtered_numbers if num not in temp.UN_AV_NUMS]
     seen = set()
-    filtered_numbers = [x for x in pool if not (x in seen or seen.add(x))]
+    filtered_numbers = [x for x in filtered_numbers if not (x in seen or seen.add(x))]
+
     available_nums = [n for n in filtered_numbers if n not in temp.RENTED_NUMS]
     rented_nums = [n for n in filtered_numbers if n in temp.RENTED_NUMS]
+
     ordered_numbers = available_nums + rented_nums
 
     start = page * NUMBERS_PER_PAGE
@@ -238,11 +212,12 @@ def build_rentnum_keyboard(user_id: int, page: int = 0):
 
     for number in numbers_page:
         if number in temp.RENTED_NUMS:
-            status = f" {t(user_id, 'expired_tag')}" if is_rental_expired(number) else " 🔴"
+            status = " 🔴"  # rented/unavailable
         else:
-            status = " 🟢"
+            status = " 🟢"  # available
+
         keyboard.append([
-            InlineKeyboardButton(f"{number}{status}", callback_data=f"numinfo:{number}:{page}")
+            InlineKeyboardButton(f"{number} {status}", callback_data=f"numinfo:{number}:{page}")
         ])
 
     nav_row = []
@@ -559,122 +534,20 @@ def export_numbers_csv(filename: str = "numbers_export.csv"):
 
     return filename
 
-def get_ton_pay_link(amount_ton: float, address: str = None):
-    """Tonkeeper/ton:// pay link. amount_ton in TON; amount in nanoton for URL."""
-    addr = address or TON_ADDRESS
-    nanoton = int(amount_ton * 1e9)
-    return f"https://app.tonkeeper.com/transfer/{addr}?amount={nanoton}"
-
-
-def get_ton_tx(tx_hash: str):
-    """
-    Verify TON transaction by hash. Returns (destination_address, amount_ton) or (None, None).
-    Uses TonAPI v2. tx_hash can be hex or base64.
-    """
-    if not tx_hash or not tx_hash.strip():
-        return None, None
-    tx_hash = tx_hash.strip()
-    # Try TonAPI (no key required for public read)
-    url = f"https://tonapi.io/v2/blockchain/transactions/{tx_hash}"
-    try:
-        r = requests.get(url, timeout=15)
-        if r.status_code != 200:
-            return None, None
-        data = r.json()
-        # Transaction has in_msg for incoming transfer (TonAPI may nest under "transaction")
-        in_msg = data.get("in_msg") or (data.get("transaction") or {}).get("in_msg") or (data.get("result") or {}).get("in_msg")
-        if not in_msg:
-            return None, None
-        value_nano = int(in_msg.get("value", 0) or 0)
-        value_ton = value_nano / 1e9
-        dest = in_msg.get("destination")
-        if isinstance(dest, dict):
-            addr = dest.get("address") or dest.get("friendly_address") or ""
-        else:
-            addr = str(dest) if dest else ""
-        return addr, value_ton
-    except Exception:
-        return None, None
-
-
-# Premium custom emoji IDs (Telegram) – use in entities for premium clients
-# Welcome message set (user-provided):
-PREMIUM_EMOJI = {
-    "💫": "5963036824585638279",
-    "📱": "5766905227458383300",
-    "✨": "5472164874886846699",
-    "🔐": "5807952667992920776",
-    "📩": "5472239203590888751",
-    "💵": "5431651023909320019",
-    "🤝": "5357080225463149588",
-    "🚀": "5940434198413184876",
-    "🦾": "5386766919154016047",
-    "👇": "5470177992950946662",
-    "👛": "5472363448404809929",
-    "🥂": "5372923951796198347",
-    "🏆": "5409008750893734809",
-    "💎": "5471952986970267163",
-    "🔑": "5330115548900501467",
-    "🎀": "5375152498656961898",
-    "📆": "5431897022456145283",
-    "📥": "5433811242135331842",
-    "🆗": "5363850326577259091",
-    "💰": "5375296873982604963",
-    "💼": "5359785904535774578",
-    "✅": "5427009714745517609",
-    "❌": "5465665476971471368",
-    "💌": "5472019095106886003",
-}
-
-
-def _utf16_len(s: str) -> int:
-    """Telegram entities use UTF-16 code units; emojis often need 2 units each."""
-    return len(s.encode("utf-16-le")) // 2
-
-
-def build_custom_emoji_entities(text: str):
-    """Build list of MessageEntity for custom emoji in text. Offsets/lengths in UTF-16 (Telegram requirement)."""
-    from pyrogram.types import MessageEntity
-    from pyrogram.enums import MessageEntityType
-    entities = []
-    i = 0
-    while i < len(text):
-        found = False
-        for emoji, eid in PREMIUM_EMOJI.items():
-            if text[i:i + len(emoji)] == emoji:
-                offset_utf16 = _utf16_len(text[:i])
-                length_utf16 = _utf16_len(emoji)
-                entities.append(
-                    MessageEntity(
-                        type=MessageEntityType.CUSTOM_EMOJI,
-                        offset=offset_utf16,
-                        length=length_utf16,
-                        custom_emoji_id=int(eid),
-                    )
-                )
-                i += len(emoji)
-                found = True
-                break
-        if not found:
-            i += 1
-    return entities
-
 async def give_payment_option(client, msg: Message, user_id: int):
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Tonkeeper", callback_data="set_payment_ton")],
-        [InlineKeyboardButton("@send (CryptoBot)", callback_data="set_payment_cryptobot")],
+        [InlineKeyboardButton("@send", callback_data="set_payment_cryptobot")],
+        [InlineKeyboardButton("USDT TRC-20", callback_data="set_payment_tron")]
     ])
     await msg.reply(
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
 
-async def send_ton_invoice(client: Client, user_id: int, amount: float, msg: Message):
-    """Show TON amount, address, and direct Tonkeeper Pay link. Amount in TON (from config rate)."""
-    pay_link = get_ton_pay_link(amount, TON_ADDRESS)
-    text = t(user_id, "pay_ton", amount=amount, address=TON_ADDRESS)
-    await msg.edit(text, reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton(t(user_id, "pay_now_ton"), url=pay_link)],
-        [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{amount}")],
+async def send_tron_invoice(client: Client, user_id: int, amount: float, msg: Message):
+    tron_address = USDT_ADDRESS
+    final_amount = add_random_fraction(amount)
+    await msg.edit(t(user_id, "pay_amount", amount=amount, address=tron_address), reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TRON_{final_amount}")]
     ]))
 
