@@ -2,7 +2,7 @@
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from hybrid import Bot, ADMINS
+from hybrid import Bot, ADMINS, logging
 
 @Bot.on_message(filters.command("getemoji") & filters.user(ADMINS))
 async def get_emoji_id_command(client: Client, message: Message):
@@ -13,13 +13,13 @@ async def get_emoji_id_command(client: Client, message: Message):
     await message.reply(
         "✅ **Emoji ID Getter Activated!**\n\n"
         "Now send me a message with custom/premium emojis.\n"
-        "I'll extract and show you their IDs!"
+        "I'll extract and show you their IDs in terminal and here!"
     )
 
 @Bot.on_message(filters.text & filters.user(ADMINS) & filters.private)
 async def extract_emoji_ids(client: Client, message: Message):
     """
-    Extract custom emoji IDs from any message
+    Extract custom emoji IDs from any message and print to terminal
     """
     if message.text and message.text.startswith("/"):
         return  # Ignore commands
@@ -35,6 +35,18 @@ async def extract_emoji_ids(client: Client, message: Message):
             emoji_char = message.text[entity.offset:entity.offset + entity.length]
             emoji_id = entity.custom_emoji_id
             custom_emojis.append((emoji_char, emoji_id))
+            
+            # Print to terminal/logs
+            print(f"\n{'='*60}")
+            print(f"🎯 CUSTOM EMOJI DETECTED!")
+            print(f"{'='*60}")
+            print(f"Emoji: {emoji_char}")
+            print(f"ID: {emoji_id}")
+            print(f"HTML: <tg-emoji emoji-id=\"{emoji_id}\">{emoji_char}</tg-emoji>")
+            print(f"{'='*60}\n")
+            
+            # Also log it
+            logging.info(f"Custom Emoji: {emoji_char} -> ID: {emoji_id}")
     
     if custom_emojis:
         response = "🎯 **Custom Emoji IDs Found:**\n\n"
@@ -43,4 +55,4 @@ async def extract_emoji_ids(client: Client, message: Message):
             response += f'`<tg-emoji emoji-id="{emoji_id}">{emoji}</tg-emoji>`\n\n'
         
         await message.reply(response)
-    # If no custom emojis, don't respond (to avoid spam)
+
