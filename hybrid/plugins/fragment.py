@@ -1,4 +1,4 @@
- (©) @Hybrid_Vamp - https://github.com/hybridvamp
+# (©) @Hybrid_Vamp - https://github.com/hybridvamp
 # Fragment.com interaction library by Hybrid_Vamp
 # Requires cookies exported from browser in Chromium JSON format (frag.json)
 
