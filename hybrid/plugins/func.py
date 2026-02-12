@@ -598,13 +598,22 @@ def get_ton_tx(tx_hash: str):
 
 
 # Premium custom emoji IDs (Telegram) – use in entities for premium clients
+# Welcome message set (user-provided):
 PREMIUM_EMOJI = {
+    "💫": "5963036824585638279",
+    "📱": "5766905227458383300",
+    "✨": "5472164874886846699",
+    "🔐": "5807952667992920776",
+    "📩": "5472239203590888751",
+    "💵": "5431651023909320019",
+    "🤝": "5357080225463149588",
+    "🚀": "5940434198413184876",
+    "🦾": "5386766919154016047",
     "👇": "5470177992950946662",
     "👛": "5472363448404809929",
     "🥂": "5372923951796198347",
     "🏆": "5409008750893734809",
     "💎": "5471952986970267163",
-    "🚀": "5445284980978621387",
     "🔑": "5330115548900501467",
     "🎀": "5375152498656961898",
     "📆": "5431897022456145283",
@@ -668,3 +677,4 @@ async def send_ton_invoice(client: Client, user_id: int, amount: float, msg: Mes
         [InlineKeyboardButton(t(user_id, "pay_now_ton"), url=pay_link)],
         [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TON_{amount}")],
     ]))
+
