@@ -350,7 +350,7 @@ class Bot(Client):
         self.start_timestamp = datetime.now()
 
         logging.info(f"{BANNER}")
-        self.set_parse_mode(ParseMode.MARKDOWN)
+        self.set_parse_mode(ParseMode.HTML)
         self.username = usr_bot_me.username
         temp.BOT_UN = self.username
         print(f"============  {temp.BOT_UN}  ============")
