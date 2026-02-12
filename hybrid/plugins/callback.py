@@ -91,11 +91,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
             keyboard = [
                 [InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]
             ]
-            # Add premium emoji to code message
-            code_text = t(user_id, "here_is_code", code=code)
-            code_with_emoji = f"<emoji id='5359785904535774578'>⭐</emoji> {code_text}"
             await query.message.reply(
-                code_with_emoji,
+                t(user_id, "here_is_code", code=code),
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
@@ -127,15 +124,13 @@ async def callback_handler(client: Client, query: CallbackQuery):
             bal=balance,
             payment_method=payment_method
         )
-        # Add premium emoji to profile
-        profile_with_emoji = f"<emoji id='5377457244938489129'>💰</emoji> {text}"
         keyboard = [
             [InlineKeyboardButton(t(user.id, "add_balance"), callback_data="add_balance")],
             [InlineKeyboardButton(t(user.id, "change_payment_method"), callback_data="change_payment_method")],
             [InlineKeyboardButton(t(user.id, "language"), callback_data="language")],
             [InlineKeyboardButton(t(user.id, "back"), callback_data="back_home")],
         ]
-        await query.message.edit_text(profile_with_emoji, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data == "change_payment_method":
         keyboard = InlineKeyboardMarkup([
@@ -381,11 +376,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
             keyboard = InlineKeyboardMarkup(
                 [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
             )
-            # Add premium emoji to payment confirmation
-            confirmation_text = t(user_id, "payment_confirmed")
-            confirmation_with_emoji = f"<emoji id='5314250708508464081'>✅</emoji> {confirmation_text}"
             await query.message.edit_text(
-                confirmation_with_emoji,
+                t(user_id, "payment_confirmed"),
                 reply_markup=keyboard
             )
             temp.PAID_LOCK.remove(user_id)
@@ -413,11 +405,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
             new_bal = current_bal + float(invoice.amount)
             save_user_balance(user_id, new_bal)
 
-            # Add premium emoji to payment confirmation
-            confirmation_text = t(user_id, "payment_confirmed")
-            confirmation_with_emoji = f"<emoji id='5314250708508464081'>✅</emoji> {confirmation_text}"
             await query.message.edit_text(
-                confirmation_with_emoji,
+                t(user_id, "payment_confirmed"),
                 reply_markup=keyboard
             )
             temp.PAID_LOCK.remove(user_id)
@@ -1528,11 +1517,8 @@ Details:
             ],
             [InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")],
         ]
-        # Add premium emoji to rental success
-        success_text = t(user_id, "rental_success").format(number=num_text, duration=duration, price=price, balance=new_balance)
-        success_with_emoji = f"<emoji id='5377399456693011056'>💎</emoji> {success_text}"
         await query.message.edit_text(
-            success_with_emoji,
+            t(user_id, "rental_success").format(number=num_text, duration=duration, price=price, balance=new_balance),
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 

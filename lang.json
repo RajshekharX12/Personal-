@@ -1,7 +1,7 @@
 {
   "en": {
     "choose_lang": "🌍 Please choose your language:",
-    "welcome": "{name} Welcome to Rental Bot!\n\n📱 +888 Numbers — Instant, Private & Secure\n\n✨ What you get:\n  • 🔐 Anonymous & Secure rentals\n  • 📩 Get codes anytime – fast & reliable\n  • 💵 Instant Payment in TON @send\n  • ♻️ Instant Renewal – never lose your number\n\n🚀 Your digital number, always online, always yours.\n⬇️ Pick a rent option & start now!",
+    "welcome": "<tg-emoji emoji-id=\"5377471691916978617\">🚀</tg-emoji> {name} Welcome to Rental Bot!\n\n<tg-emoji emoji-id=\"5370869711888194012\">📱</tg-emoji> +888 Numbers — Instant, Private & Secure\n\n<tg-emoji emoji-id=\"5359785904535774578\">✨</tg-emoji> What you get:\n  • <tg-emoji emoji-id=\"5377399456693011056\">🔐</tg-emoji> Anonymous & Secure rentals\n  • <tg-emoji emoji-id=\"5370869711888194012\">📩</tg-emoji> Get codes anytime – fast & reliable\n  • <tg-emoji emoji-id=\"5377457244938489129\">💵</tg-emoji> Instant Payment in TON @send\n  • <tg-emoji emoji-id=\"5359967122611353050\">♻️</tg-emoji> Instant Renewal – never lose your number\n\n<tg-emoji emoji-id=\"5377471691916978617\">🚀</tg-emoji> Your digital number, always online, always yours.\n<tg-emoji emoji-id=\"5377399456693011056\">⬇️</tg-emoji> Pick a rent option & start now!",
     "rent": "📞 Rent",
     "my_rentals": "🛒 My Rentals",
     "profile": "👤 Profile",
@@ -13,12 +13,12 @@
     "renew": "🔄 Renew",
     "get_code": "📨 Get Code",
     "back": "⬅️ Back",
-    "profile_text": "👤 **Your Profile**\n\n🆔 User ID: `{id}`\n👤 First Name: {fname}\n🔗 Username: {uname}\n💰 Balance: **{bal} TON**\n💳 Payment Method: {payment_method}",
+    "profile_text": "<tg-emoji emoji-id=\"5377457244938489129\">💰</tg-emoji> **Your Profile**\n\n🆔 User ID: `{id}`\n👤 First Name: {fname}\n🔗 Username: {uname}\n<tg-emoji emoji-id=\"5377457244938489129\">💰</tg-emoji> Balance: **{bal} TON**\n💳 Payment Method: {payment_method}",
     "add_balance": "➕ Add Balance",
     "pay_now": "💳 Pay Now",
     "i_paid": "✅ I've Paid",
     "payment_pending": "💳 Please pay **{amount} TON** via CryptoBot\n\n📌 Invoice ID: `{inv}`\n⚠️ Expires in 1 hour.\n\nAfter payment, click the button below",
-    "payment_confirmed": "✅ **Payment confirmed! Your balance has been updated.**",
+    "payment_confirmed": "<tg-emoji emoji-id=\"5314250708508464081\">✅</tg-emoji> **Payment confirmed! Your balance has been updated.**",
     "payment_not_found": "❌ Payment not found or not paid yet.",
     "language": "🌐 Language",
     "choose_number": "📞 Choose a number:\n🟢 - Available\n🔴 - Not Available",
@@ -35,9 +35,9 @@
     "30d_rate": "30 Days - {rate} TON",
     "60d_rate": "60 Days - {rate} TON",
     "90d_rate": "90 Days - {rate} TON",
-    "error_occurred": "❌ An error occurred. Please try again later.",
-    "insufficient_balance": "❌ Insufficient balance. Please add funds to your account.",
-    "rental_success": "✅ You have successfully rented the number \n\nNumber: `{number}` \nDuration: **{duration}** \nPrice: **{price} TON**.\n\n💰 Your new balance is **{balance} TON**.",
+    "error_occurred": "<tg-emoji emoji-id=\"5368324170671202286\">❌</tg-emoji> An error occurred. Please try again later.",
+    "insufficient_balance": "<tg-emoji emoji-id=\"5368324170671202286\">❌</tg-emoji> Insufficient balance. Please add funds to your account.",
+    "rental_success": "<tg-emoji emoji-id=\"5377399456693011056\">💎</tg-emoji> **You have successfully rented the number**\n\nNumber: `{number}`\nDuration: **{duration}**\nPrice: **{price} TON**\n\n<tg-emoji emoji-id=\"5377457244938489129\">💰</tg-emoji> Your new balance is **{balance} TON**.",
     "confirm_rent": "✅ Confirm Rent for `{number}` for {days} days at {price} TON?",
     "contact_support": "📞 Contact Support",
     "choose_renew": "📅 Choose Renewal Period for `{number}`:",
@@ -50,7 +50,7 @@
     "expired_notify": "⏰ Your rented number `{number}` has expired and been removed from your account.\n\nTo rent again, use /start -> Rent.",
     "expire_soon": "⚠️ Reminder: **Your rented number will expire soon.**\n\nNumber: `{number}`\nExpires in: **{remaining_days}**\n\n__Please renew or disconnect the number from your account on time to avoid deletion.__",
     "getting_code": "⏳ Getting code",
-    "here_is_code": "📨 Your code: `{code}`\n\n__👉 Click on Code It will be copied.__",
+    "here_is_code": "<tg-emoji emoji-id=\"5359785904535774578\">⭐</tg-emoji> **Your code:** `{code}`\n\n__👉 Click on Code It will be copied.__",
     "no_code": "❌ there is no code",
     "restricted_notify": "⚠️ Your rented number `{number}` has been restricted by Telegram and you have {days} days to fix it by contacting @SpamBot and following the instructions.\n\nIf not fixed within 3 days, the number will be removed from your account.",
     "choose_payment_method": "🌐 Please choose your preferred payment method:",
@@ -60,7 +60,8 @@
     "transaction_id": "💳 Please enter your transaction ID (within 120s):",
     "tx_id_invalid": "❌ Invalid transaction ID or Transaction record does not match",
     "tx_id_already_used": "❌ This transaction ID has already been used.",
-    "change_payment_method": "🔄 Change Payment Method"
+    "change_payment_method": "🔄 Change Payment Method",
+    "pay_amount_tonkeeper": "<tg-emoji emoji-id=\"5377399456693011056\">💎</tg-emoji> **Pay with Tonkeeper**\n\n<tg-emoji emoji-id=\"5377457244938489129\">💰</tg-emoji> Amount: **{amount} TON**\n📍 Address: `{address}`\n\n<tg-emoji emoji-id=\"5377471691916978617\">🚀</tg-emoji> **Quick Payment:**\n1️⃣ Click '<tg-emoji emoji-id=\"5377399456693011056\">💎</tg-emoji> Open Tonkeeper' button below\n2️⃣ Tonkeeper will open with pre-filled details\n3️⃣ Confirm the payment in Tonkeeper\n4️⃣ Copy the transaction hash\n5️⃣ Return here and click '<tg-emoji emoji-id=\"5314250708508464081\">✅</tg-emoji> I've Paid'\n6️⃣ Paste the transaction hash\n\n⚠️ Send exactly **{amount} TON** to avoid issues!"
   },
   "ru": {
     "choose_lang": "🌍 Пожалуйста, выберите язык:",
@@ -252,4 +253,3 @@
     "change_payment_method": "🔄 更改支付方式"
   }
 }
-
