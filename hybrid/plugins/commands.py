@@ -231,13 +231,13 @@ async def check_tx_cmd(_, message: Message):
         return await message.reply("⏰ Timeout! Please try again.")
 
     tx_hash = response.text
-    to, amount = get_ton_tx(tx_hash)
+    to, amount, symbol = get_tron_tx(tx_hash)
     if to and amount:
         text = (
             f"✅ Transaction found!\n\n"
             f"🔗 Hash: `{tx_hash}`\n"
             f"🏦 To: `{to}`\n"
-            f"💰 Amount: {amount} TON"
+            f"💰 Amount: {amount} {symbol}"
         )
         return await message.reply(text)
     else:
@@ -258,7 +258,7 @@ async def clear_tx_db_cmd(_, message: Message):
         return await message.reply("❌ Invalid transaction hash format.")
 
     # Clear the transaction from the database
-    if remove_ton_tx_hash(tx_hash):
+    if remove_tron_tx_hash(tx_hash):
         return await message.reply(f"✅ Transaction {tx_hash} has been cleared.")
     else:
         return await message.reply(f"❌ Failed to clear transaction {tx_hash}.")
@@ -280,3 +280,4 @@ async def create_button_cmd(_, message: Message):
 
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data=data)]])
     await message.reply("Here is your button:", reply_markup=keyboard)
+
