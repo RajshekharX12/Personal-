@@ -15,7 +15,7 @@ OWNER_ID = int(os.environ.get("OWNER_ID", "5770074932"))
 DB_URI = os.environ.get("DATABASE_URL", "mongodb+srv://walesavitabank_db_user:rNIU8qgA5Xm84FPg@rental.tqar0i.mongodb.net/?appName=rental")
 DB_NAME = os.environ.get("DATABASE_NAME", "rental")
 CRYPTO_API = os.environ.get("CRYPTO_API", "523718:AAEQO6x6qx2PXerElEVuIvBcuL5rdHgDR4Q")
-TON_ADDRESS = os.environ.get("TON_ADDRESS", "UQD_your_ton_address_here") # TON address for Tonkeeper
+TON_ADDRESS = os.environ.get("TON_ADDRESS", "UQAYH3MHNSUABi73Z6HwIcuXkmws1tBDDN-lWIPhXZW455bI")
 
 # ============== FRAGMENT data =============
 FRAGMENT_API_HASH = os.environ.get("FRAGMENT_API_HASH", "38f80e92d2dbe5065b")
@@ -38,6 +38,9 @@ except ValueError:
 
 
 ADMINS.append(OWNER_ID)
+
+
+
 
 
 
