@@ -1,3 +1,5 @@
+#(©) @Hybrid_Vamp - https://github.com/hybridvamp
+
 import json
 import math
 import asyncio
@@ -478,11 +480,13 @@ def get_tron_tx(tx_hash: str):
     return to_address, human_amount, symbol
 
 
-from hybrid.plugins.db import (
-    get_all_pool_numbers,
-    get_user_balance,
-    get_number_data,
-)
+from hybrid.plugins.db import get_user_balance, get_number_data
+
+try:
+    from hybrid.plugins.db import get_all_pool_numbers
+except ImportError:
+    get_all_pool_numbers = None
+
 
 def export_numbers_csv(filename: str = "numbers_export.csv"):
     """
@@ -490,7 +494,10 @@ def export_numbers_csv(filename: str = "numbers_export.csv"):
 
     Columns: Number, Rented, User ID, Balance, Rent Date, Expiry Date, Days Left, Hours Left, Rented Amount
     """
-    all_numbers = get_all_pool_numbers()
+    if get_all_pool_numbers is not None:
+        all_numbers = get_all_pool_numbers()
+    else:
+        all_numbers = list(temp.NUMBE_RS) if temp.NUMBE_RS else []
     rows = []
 
     now = datetime.now(timezone.utc)
