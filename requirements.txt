@@ -7,5 +7,6 @@ requests
 aiosend
 psutil
 redis
+pymongo
 tgcrypto-pyroblack
 beautifulsoup4
