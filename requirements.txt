@@ -6,6 +6,6 @@ python-dotenv
 requests
 aiosend
 psutil
-pymongo[srv]
+redis
 tgcrypto-pyroblack
 beautifulsoup4
