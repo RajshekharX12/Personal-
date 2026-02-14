@@ -848,24 +848,158 @@ Details:
                     temp.BLOCKED_NUMS.append(identifier)
         return
         
-    elif data == "admin_help" and query.from_user.id in ADMINS:
-        text = (
-            "❓ **Admin Help & Commands**\n\n"
-            "1. **Numbers**: View and manage all numbers in the system.\n"
-            "2. **Cancel Rent**: Cancel a user's rental by User ID or Number.\n"
-            "3. **Extend Rent**: Extend a user's rental duration by User ID or Number.\n"
-            "4. **User Info**: Get detailed information about a user by User ID.\n"
-            "5. **User Balances**: View total user balances and add balance to a user.\n"
-            "6. **Delete Accounts**: Delete a Telegram account associated with a number.\n"
-            "7. **Change Rules**: Update the rental rules text in multiple languages.\n"
-            "8. **Check Tx**: Manually check and process pending transactions (if applicable).\n"
-            "9. **Restricted Auto-Deletion**: Toggle automatic deletion of restricted numbers.\n\n"
-            "For further assistance, contact the bot developer."
-        )
-        keyboard = [
-            [InlineKeyboardButton("⬅️ Back", callback_data="admin_panel")]
+    elif data == "admin_help" or (data.startswith("admin_help_page_") and query.from_user.id in ADMINS):
+        if not (query.from_user.id in ADMINS):
+            return
+        page = 0
+        if data.startswith("admin_help_page_"):
+            try:
+                page = int(data.replace("admin_help_page_", ""))
+            except ValueError:
+                page = 0
+        ADMIN_HELP_PAGES = [
+            """📘 **Admin Help — Page 1/4: Overview & User Management**
+
+**🛠️ Admin Panel structure**
+• **User Management** — User info, balances, add balance
+• **Rental Management** — Numbers, assign/cancel/extend rent, export CSV
+• **Number Control** — Enable/disable numbers, delete accounts, banned list
+• **Admin Tools** — Check Tx, Change Rules, this Help
+
+━━━━━━━━━━━━━━━━━━━━
+**👤 USER MANAGEMENT**
+
+**1️⃣ User Info**
+• Path: Admin Panel → User Management → User Info
+• Bot asks: *Enter the User ID*
+• Enter a Telegram User ID (e.g. `1412909688`)
+• You get: name, username, balance (USDT), count of active rentals, list of rented numbers (e.g. +88801497213)
+• User must have started the bot at least once.
+
+**2️⃣ User Balances**
+• Path: Admin Panel → User Management → User Balances
+• Shows: **Total balance** (all users) in USDT, **Total users** with balance
+• Button **➕ Add Balance**: then enter User ID (e.g. `1412909688`), then amount in USDT (e.g. `50`). User gets a notification. Minimum 0.5 USDT.
+
+**Example (Add Balance):**
+`User ID:` 1412909688  
+`Amount (USDT):` 25  
+→ User balance increases by 25 USDT."""",
+            """📘 **Admin Help — Page 2/4: Rental Management**
+
+**🛒 RENTAL MANAGEMENT**
+
+**1️⃣ Numbers**
+• Path: Admin Panel → Rental Management → Numbers
+• Paginated list of all numbers (e.g. +88801497213, +88801547639)
+• Click a number → see: status (🟢 Available / 🔴 Rented), 30/60/90 day prices (USDT), availability, last updated
+• **💵 Change Price**: enter new prices as `30d,60d,90d` (e.g. `80,152,224`)
+• **🟢 Toggle Availability**: hide/show number from rent list
+
+**2️⃣ Assign Number**
+• Path: Rental Management → Assign Number
+• Step 1: Enter **User ID** (e.g. `1412909688`)
+• Step 2: Enter **Number** (e.g. `+88801497213` or `88801497213`)
+• Step 3: Enter **Hours**: `720` (30 days), `1440` (60 days), `2160` (90 days)
+• User receives a message that the number was assigned.
+
+**3️⃣ Cancel Rent**
+• Path: Rental Management → Cancel Rent
+• Enter **number** to cancel (e.g. `+88801497213` or `88801497213`)
+• Rental is removed; user is notified. Option **🗑️ Delete Account** appears to delete the Telegram account linked to that number.
+
+**4️⃣ Extend Rent**
+• Path: Rental Management → Extend Rent
+• Enter **number** (e.g. `+88801497213`)
+• Then enter **duration**: `6h` (6 hours) or `2d` (2 days). User is notified.
+
+**5️⃣ Change Rental Date**
+• Path: Rental Management → Change Rental Date
+• Enter **number** (e.g. `+88801497213`)
+• Then choose: **Change Rental Duration** (e.g. `3d` or `72h`) or **Change Rented date** (DD/MM/YYYY, e.g. `14/02/2026`). Date cannot be in the future.
+
+**6️⃣ Export CSV**
+• Path: Rental Management → 📑 Export CSV
+• Downloads a CSV with: Number, Rented (Yes/No), User ID, Balance, Rent Date, Expiry, Days/Hours Left.""",
+            """📘 **Admin Help — Page 3/4: Number Control**
+
+**🔢 NUMBER CONTROL**
+
+**1️⃣ Enable Numbers**
+• Path: Admin Panel → Number Control → Enable Numbers
+• Enter one or more numbers, comma-separated: `+88801497213` or `88801497213` or `1497213`
+• Example: `+88801497213, +88801547639` — makes them visible for rent.
+
+**2️⃣ Disable Numbers**
+• Path: Number Control → Disable Numbers
+• Same input format; numbers are hidden from the rent list (not deleted).
+
+**3️⃣ Enable All**
+• Path: Number Control → Enable All
+• Makes **all** numbers from Fragment available for rent in one go.
+
+**4️⃣ Delete Accounts**
+• Path: Number Control → Delete Accounts
+• Enter **number** (e.g. `+88801497213`)
+• Bot sends login code via Fragment SMS → you get OTP (e.g. in Fragment helper) → account is deleted or 7-day deletion starts if 2FA is on. If number is **Banned**, it is added to Banned list.
+
+**5️⃣ Banned Numbers**
+• Path: Number Control → Banned Numbers
+• Shows list of numbers that are banned (e.g. after failed delete). No input needed.
+
+**6️⃣ Restricted Auto-Deletion**
+• Path: Number Control → toggle (Enable/Disable Restricted Auto-Deletion)
+• When **enabled**: numbers that become “restricted” on Fragment are auto-deleted after 3 days. When **disabled**: no auto-deletion.
+• Users are notified when their number is restricted.""",
+            """📘 **Admin Help — Page 4/4: Admin Tools & Commands**
+
+**🛠️ ADMIN TOOLS**
+
+**1️⃣ Check Tx**
+• Path: Admin Panel → Admin Tools → Check Tx
+• Enter a **transaction hash** (e.g. from CryptoBot) to verify. Bot replies with: found or not, amount, recipient.
+
+**2️⃣ Change Rules**
+• Path: Admin Tools → Change Rules
+• Bot asks for new rules text **four times** (one per language): English → Russian → Korean → Chinese. You have 300 seconds each. Rules are shown to users when they accept before renting.
+
+**3️⃣ Admin Help**
+• You are here. Full guide with examples (numbers like +88801497213, User ID 1412909688, etc.).
+
+━━━━━━━━━━━━━━━━━━━━
+**📌 USEFUL COMMANDS** (send in chat)
+
+• `/addadmin <user_id>` — Add admin (e.g. `/addadmin 1412909688`)
+• `/remadmin <user_id>` — Remove admin
+• `/cleardb` — Clear all DB (bot asks confirmation; type `YES`)
+• `/broadcast` — Reply to a message to send it to all users
+• `/checknum` — Bot asks for number; checks if available on Fragment (e.g. +88801497213)
+• `/exportcsv` — Export rental data as CSV (same as panel button)
+• `/logs` — Get bot log file
+• `/update` — Git pull and restart
+• `/restart` — Restart bot
+• `/sysinfo` — CPU, memory, disk usage
+• `/banned` — List banned numbers
+
+For support, contact the bot developer."""
         ]
+        total_pages = len(ADMIN_HELP_PAGES)
+        page = max(0, min(page, total_pages - 1))
+        text = ADMIN_HELP_PAGES[page]
+        keyboard = []
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_help_page_{page - 1}"))
+        nav.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="admin_help_pageno"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton("Next ➡️", callback_data=f"admin_help_page_{page + 1}"))
+        if nav:
+            keyboard.append(nav)
+        keyboard.append([InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")])
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "admin_help_pageno" and query.from_user.id in ADMINS:
+        await query.answer("Use Prev / Next to change page.", show_alert=False)
 
     elif data == "admin_change_rules" and query.from_user.id in ADMINS:
         try:
