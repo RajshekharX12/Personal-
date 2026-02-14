@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 from email.mime import message
 import re
 import os
@@ -858,128 +856,123 @@ Details:
             except ValueError:
                 page = 0
         ADMIN_HELP_PAGES = [
-            """📘 **Admin Help — Page 1/4: Overview & User Management**
+            """📘 **Admin Help — Page 1/5: Overview & User Management**
 
-**🛠️ Admin Panel structure**
-• **User Management** — User info, balances, add balance
-• **Rental Management** — Numbers, assign/cancel/extend rent, export CSV
-• **Number Control** — Enable/disable numbers, delete accounts, banned list
-• **Admin Tools** — Check Tx, Change Rules, this Help
+**🛠️ Admin Panel**
+▎ User Management — User info, add balance
+▎ Rental Management — Numbers, assign/cancel/extend, change date, export CSV
+▎ Number Control — Enable/disable numbers, delete accounts, banned list, restricted auto-deletion
+▎ Admin Tools — Check Tx, Change Rules, this Help
 
 ━━━━━━━━━━━━━━━━━━━━
-**👤 USER MANAGEMENT**
+**👤 1. User Info**
+▎ **Path:** Admin Panel → User Management → User Info
+▎ **How to use:** Click the button → bot asks *Enter the User ID* → send a Telegram User ID.
+▎ **Example:** You send `1412909688`
+▎ **What happens:** Bot shows: name, username, balance (USDT), count of active rentals, list of rented numbers (e.g. +88801497213). User must have started the bot at least once; otherwise you get "User not found".
 
-**1️⃣ User Info**
-• Path: Admin Panel → User Management → User Info
-• Bot asks: *Enter the User ID*
-• Enter a Telegram User ID (e.g. `1412909688`)
-• You get: name, username, balance (USDT), count of active rentals, list of rented numbers (e.g. +88801497213)
-• User must have started the bot at least once.
+**👤 2. User Balances**
+▎ **Path:** Admin Panel → User Management → User Balances
+▎ **How to use:** Opens a screen with total balance (all users) in USDT and total users with balance. Use **➕ Add Balance** to credit a user.
+▎ **Example:** Click Add Balance → send `1412909688` → then send `25` (USDT). Minimum 0.5 USDT.
+▎ **What happens:** That user's balance increases by 25 USDT; they get a notification. Bot confirms the new balance.""",
+            """📘 **Admin Help — Page 2/5: Rental Management (1/2)**
 
-**2️⃣ User Balances**
-• Path: Admin Panel → User Management → User Balances
-• Shows: **Total balance** (all users) in USDT, **Total users** with balance
-• Button **➕ Add Balance**: then enter User ID (e.g. `1412909688`), then amount in USDT (e.g. `50`). User gets a notification. Minimum 0.5 USDT.
+**🛒 1. Numbers**
+▎ **Path:** Admin Panel → Rental Management → Numbers
+▎ **How to use:** Browse paginated list of all numbers (e.g. +88801497213). Click a number for details.
+▎ **On number screen:** Status (🟢 Available / 🔴 Rented), 30/60/90 day prices (USDT), availability. **💵 Change Price** → send `30d,60d,90d` (e.g. `80,152,224`). **🟢 Toggle Availability** → hide/show from rent list.
+▎ **What happens:** Price or visibility updates immediately; users see new prices when renting.
 
-**Example (Add Balance):**
-`User ID:` 1412909688  
-`Amount (USDT):` 25  
-→ User balance increases by 25 USDT."""",
-            """📘 **Admin Help — Page 2/4: Rental Management**
+**🛒 2. Assign Number**
+▎ **Path:** Rental Management → Assign Number
+▎ **How to use:** Step 1 — enter **User ID** (e.g. `1412909688`). Step 2 — enter **Number** (e.g. `+88801497213` or `88801497213`). Step 3 — enter **Hours**: `720` (30d), `1440` (60d), `2160` (90d).
+▎ **Example:** User ID `1412909688`, Number `+88801497213`, Hours `720` → 30 days rental.
+▎ **What happens:** Number is assigned to that user; they receive a message with rental details. Number disappears from public rent list.
 
-**🛒 RENTAL MANAGEMENT**
+**🛒 3. Cancel Rent**
+▎ **Path:** Rental Management → Cancel Rent
+▎ **How to use:** Send the **number** to cancel (e.g. `+88801497213` or `88801497213`).
+▎ **What happens:** Rental is removed; user is notified. A **🗑️ Delete Account** button appears — use it to delete the Telegram account linked to that number (SMS code and optional 2FA required).""",
+            """📘 **Admin Help — Page 3/5: Rental Management (2/2)**
 
-**1️⃣ Numbers**
-• Path: Admin Panel → Rental Management → Numbers
-• Paginated list of all numbers (e.g. +88801497213, +88801547639)
-• Click a number → see: status (🟢 Available / 🔴 Rented), 30/60/90 day prices (USDT), availability, last updated
-• **💵 Change Price**: enter new prices as `30d,60d,90d` (e.g. `80,152,224`)
-• **🟢 Toggle Availability**: hide/show number from rent list
+**🛒 4. Extend Rent**
+▎ **Path:** Rental Management → Extend Rent
+▎ **How to use:** Send **number** (e.g. `+88801497213`) → then **duration** in `6h` or `2d` format (e.g. `6h`, `2d`).
+▎ **Example:** Number `+88801497213`, duration `2d` → adds 2 days to current expiry.
+▎ **What happens:** Remaining time is extended; user gets a notification with new time left.
 
-**2️⃣ Assign Number**
-• Path: Rental Management → Assign Number
-• Step 1: Enter **User ID** (e.g. `1412909688`)
-• Step 2: Enter **Number** (e.g. `+88801497213` or `88801497213`)
-• Step 3: Enter **Hours**: `720` (30 days), `1440` (60 days), `2160` (90 days)
-• User receives a message that the number was assigned.
+**🛒 5. Change Rental Date**
+▎ **Path:** Rental Management → Change Rental Date
+▎ **How to use:** Send **number** (e.g. `+88801497213`) → choose **Change Rental Duration** or **Change Rented date**.
+▎ **Duration:** Enter e.g. `3d` or `72h` — total rental length from the original rent date is set to this.
+▎ **Date:** Enter DD/MM/YYYY (e.g. `14/02/2026`) — rent start date is changed; cannot be in the future.
+▎ **What happens:** Rental data is updated; expiry recalculates accordingly.
 
-**3️⃣ Cancel Rent**
-• Path: Rental Management → Cancel Rent
-• Enter **number** to cancel (e.g. `+88801497213` or `88801497213`)
-• Rental is removed; user is notified. Option **🗑️ Delete Account** appears to delete the Telegram account linked to that number.
+**🛒 6. Export CSV**
+▎ **Path:** Rental Management → 📑 Export CSV (or command `/exportcsv`)
+▎ **How to use:** Click once; no input.
+▎ **What happens:** Bot sends a CSV file with: Number, Rented (Yes/No), User ID, Balance, Rent Date, Expiry, Days/Hours Left.""",
+            """📘 **Admin Help — Page 4/5: Number Control**
 
-**4️⃣ Extend Rent**
-• Path: Rental Management → Extend Rent
-• Enter **number** (e.g. `+88801497213`)
-• Then enter **duration**: `6h` (6 hours) or `2d` (2 days). User is notified.
+**🔢 1. Enable Numbers**
+▎ **Path:** Number Control → Enable Numbers
+▎ **How to use:** Send one or more numbers, comma-separated: `+88801497213` or `88801497213` or `1497213`. Example: `+88801497213, +88801547639`.
+▎ **What happens:** Those numbers become visible in the rent list (if they exist in DB).
 
-**5️⃣ Change Rental Date**
-• Path: Rental Management → Change Rental Date
-• Enter **number** (e.g. `+88801497213`)
-• Then choose: **Change Rental Duration** (e.g. `3d` or `72h`) or **Change Rented date** (DD/MM/YYYY, e.g. `14/02/2026`). Date cannot be in the future.
+**🔢 2. Disable Numbers**
+▎ **Path:** Number Control → Disable Numbers
+▎ **How to use:** Same format as Enable; send number(s) to hide.
+▎ **What happens:** Numbers are hidden from the rent list (not deleted from DB).
 
-**6️⃣ Export CSV**
-• Path: Rental Management → 📑 Export CSV
-• Downloads a CSV with: Number, Rented (Yes/No), User ID, Balance, Rent Date, Expiry, Days/Hours Left.""",
-            """📘 **Admin Help — Page 3/4: Number Control**
+**🔢 3. Enable All**
+▎ **Path:** Number Control → Enable All
+▎ **What happens:** Every number in the system is set to available for rent in one action.
 
-**🔢 NUMBER CONTROL**
+**🔢 4. Delete Accounts**
+▎ **Path:** Number Control → Delete Accounts → send **number** (e.g. `+88801497213`).
+▎ **How to use:** Bot asks for number → Fragment sends login code via SMS → you enter OTP (e.g. in Fragment helper) → then 2FA if enabled. Account is deleted or 7-day deletion starts.
+▎ **What happens:** Telegram account on that number is deleted. If number becomes Banned, it is added to the Banned list.
 
-**1️⃣ Enable Numbers**
-• Path: Admin Panel → Number Control → Enable Numbers
-• Enter one or more numbers, comma-separated: `+88801497213` or `88801497213` or `1497213`
-• Example: `+88801497213, +88801547639` — makes them visible for rent.
+**🔢 5. Banned Numbers**
+▎ **Path:** Number Control → Banned Numbers (or `/banned`)
+▎ **What happens:** Lists all numbers that are banned (e.g. after failed delete). No input.
 
-**2️⃣ Disable Numbers**
-• Path: Number Control → Disable Numbers
-• Same input format; numbers are hidden from the rent list (not deleted).
-
-**3️⃣ Enable All**
-• Path: Number Control → Enable All
-• Makes **all** numbers from Fragment available for rent in one go.
-
-**4️⃣ Delete Accounts**
-• Path: Number Control → Delete Accounts
-• Enter **number** (e.g. `+88801497213`)
-• Bot sends login code via Fragment SMS → you get OTP (e.g. in Fragment helper) → account is deleted or 7-day deletion starts if 2FA is on. If number is **Banned**, it is added to Banned list.
-
-**5️⃣ Banned Numbers**
-• Path: Number Control → Banned Numbers
-• Shows list of numbers that are banned (e.g. after failed delete). No input needed.
-
-**6️⃣ Restricted Auto-Deletion**
-• Path: Number Control → toggle (Enable/Disable Restricted Auto-Deletion)
-• When **enabled**: numbers that become “restricted” on Fragment are auto-deleted after 3 days. When **disabled**: no auto-deletion.
-• Users are notified when their number is restricted.""",
-            """📘 **Admin Help — Page 4/4: Admin Tools & Commands**
+**🔢 6. Restricted Auto-Deletion**
+▎ **Path:** Number Control → toggle (Enable/Disable Restricted Auto-Deletion)
+▎ **When ON:** Numbers that become restricted on Fragment are auto-deleted after 3 days; users are notified.
+▎ **When OFF:** No auto-deletion.""",
+            """📘 **Admin Help — Page 5/5: Admin Tools & Commands**
 
 **🛠️ ADMIN TOOLS**
 
-**1️⃣ Check Tx**
-• Path: Admin Panel → Admin Tools → Check Tx
-• Enter a **transaction hash** (e.g. from CryptoBot) to verify. Bot replies with: found or not, amount, recipient.
+**1. Check Tx**
+▎ **Path:** Admin Panel → Admin Tools → Check Tx
+▎ **How to use:** Enter a transaction hash (e.g. from CryptoBot) to verify.
+▎ **What happens:** Bot replies whether the tx was found and shows amount/recipient (if supported).
 
-**2️⃣ Change Rules**
-• Path: Admin Tools → Change Rules
-• Bot asks for new rules text **four times** (one per language): English → Russian → Korean → Chinese. You have 300 seconds each. Rules are shown to users when they accept before renting.
+**2. Change Rules**
+▎ **Path:** Admin Tools → Change Rules
+▎ **How to use:** Bot asks for new rules text **four times**: English → Russian → Korean → Chinese (300s each).
+▎ **What happens:** Rules are saved; users see them when they tap Accept before renting.
 
-**3️⃣ Admin Help**
-• You are here. Full guide with examples (numbers like +88801497213, User ID 1412909688, etc.).
+**3. Admin Help**
+▎ You are here. Use Prev/Next to move between pages.
 
 ━━━━━━━━━━━━━━━━━━━━
-**📌 USEFUL COMMANDS** (send in chat)
+**📌 COMMANDS** (send in chat)
 
-• `/addadmin <user_id>` — Add admin (e.g. `/addadmin 1412909688`)
-• `/remadmin <user_id>` — Remove admin
-• `/cleardb` — Clear all DB (bot asks confirmation; type `YES`)
-• `/broadcast` — Reply to a message to send it to all users
-• `/checknum` — Bot asks for number; checks if available on Fragment (e.g. +88801497213)
-• `/exportcsv` — Export rental data as CSV (same as panel button)
-• `/logs` — Get bot log file
-• `/update` — Git pull and restart
-• `/restart` — Restart bot
-• `/sysinfo` — CPU, memory, disk usage
-• `/banned` — List banned numbers
+▎ `/addadmin 1412909688` — Add that user as admin.
+▎ `/remadmin 1412909688` — Remove admin.
+▎ `/cleardb` — Asks confirmation; type `YES` to clear all DB.
+▎ `/broadcast` — Reply to a message → that message is sent to all users (with success/fail count).
+▎ `/checknum` — Bot asks for number (e.g. +88801497213); replies if available on Fragment.
+▎ `/exportcsv` — Same as Export CSV button; sends CSV file.
+▎ `/logs` — Bot sends the log file.
+▎ `/update` — Git pull then restart.
+▎ `/restart` — Restart bot.
+▎ `/sysinfo` — CPU, memory, disk usage.
+▎ `/banned` — List banned numbers.
 
 For support, contact the bot developer."""
         ]
