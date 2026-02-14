@@ -1,14 +1,27 @@
+# (©) @Hybrid_Vamp - https://github.com/hybridvamp
+
 import json
+import ssl
 import redis
 import config
 from datetime import datetime, timezone, timedelta
 from hybrid.plugins.func import get_current_datetime
 
-# Redis client
-client = redis.Redis.from_url(
-    config.REDIS_URI,
-    decode_responses=True,
-)
+# Redis client (Redis Labs / Azure require SSL: use rediss:// in REDIS_URL)
+_redis_uri = config.REDIS_URI
+if "redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri:
+    if _redis_uri.startswith("redis://"):
+        _redis_uri = "rediss://" + _redis_uri[8:]
+    client = redis.Redis.from_url(
+        _redis_uri,
+        decode_responses=True,
+        ssl_cert_reqs=ssl.CERT_NONE,
+    )
+else:
+    client = redis.Redis.from_url(
+        _redis_uri,
+        decode_responses=True,
+    )
 
 # --- Helpers ---
 def _parse_dt(s):
