@@ -166,18 +166,17 @@ async def broadcast_cmd(_, message):
     broadcast_message = message.reply_to_message
     if not broadcast_message:
         return await message.reply("❌ Please reply to a text message to broadcast.")
-    users = users_col.find({}, {"user_id": 1})
+    user_ids = get_all_user_ids()
     success_count = 0
     fail_count = 0
 
-    for user in users:
-        user_id = int(user["user_id"])
+    for user_id in user_ids:
         try:
             await broadcast_message.copy(chat_id=user_id)
             success_count += 1
             await asyncio.sleep(0.1)  # slight delay to avoid hitting rate limits
         except FloodWait as e:
-            await asyncio.sleep(e.x)
+            await asyncio.sleep(e.value)
             try:
                 await broadcast_message.copy(chat_id=user_id)
                 success_count += 1
@@ -220,49 +219,6 @@ async def export_csv_cmd(_, message: Message):
     except Exception as e:
         await message.reply_text(f"❌ Failed to export: {e}")
 
-@Bot.on_message(filters.command("checktx") & filters.user(ADMINS))
-async def check_tx_cmd(_, message: Message):
-    try:
-        response = await message.chat.ask(
-            "⚠️ send the transaction hash you wanna check",
-            timeout=300
-        )
-    except Exception:
-        return await message.reply("⏰ Timeout! Please try again.")
-
-    tx_hash = response.text
-    to, amount, symbol = get_tron_tx(tx_hash)
-    if to and amount:
-        text = (
-            f"✅ Transaction found!\n\n"
-            f"🔗 Hash: `{tx_hash}`\n"
-            f"🏦 To: `{to}`\n"
-            f"💰 Amount: {amount} {symbol}"
-        )
-        return await message.reply(text)
-    else:
-        return await message.reply(f"❌ Transaction {tx_hash} is not found or unconfirmed.")
-
-@Bot.on_message(filters.command("cleartxdb") & filters.user(ADMINS))
-async def clear_tx_db_cmd(_, message: Message):
-    try:
-        response = await message.chat.ask(
-            "⚠️ Send the transaction hash you want to clear",
-            timeout=300
-        )
-    except Exception:
-        return await message.reply("⏰ Timeout! Please try again.")
-
-    tx_hash = response.text
-    if not tx_hash:
-        return await message.reply("❌ Invalid transaction hash format.")
-
-    # Clear the transaction from the database
-    if remove_tron_tx_hash(tx_hash):
-        return await message.reply(f"✅ Transaction {tx_hash} has been cleared.")
-    else:
-        return await message.reply(f"❌ Failed to clear transaction {tx_hash}.")
-
 @Bot.on_message(filters.command("banned") & filters.private)
 async def banned_cmd(_, message: Message):
     BANNED = temp.BLOCKED_NUMS
@@ -280,3 +236,4 @@ async def create_button_cmd(_, message: Message):
 
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data=data)]])
     await message.reply("Here is your button:", reply_markup=keyboard)
+
