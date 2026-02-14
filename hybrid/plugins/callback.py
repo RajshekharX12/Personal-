@@ -20,7 +20,7 @@ from hybrid.plugins.temp import temp
 from hybrid.plugins.func import *
 from hybrid.plugins.db import *
 from hybrid.plugins.fragment import *
-from config import D30_RATE, D60_RATE, D90_RATE, USDT_ADDRESS
+from config import D30_RATE, D60_RATE, D90_RATE
 
 from aiosend.types import Invoice
 from datetime import datetime, timezone
@@ -109,9 +109,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         user = query.from_user
         balance = get_user_balance(user.id) or 0.0
         method = get_user_payment_method(user.id)
-        if method == "tron":
-            payment_method = "USDT TRC-20"
-        elif method == "cryptobot":
+        if method == "cryptobot":
             payment_method = "CryptoBot (@send)"
         else:
             payment_method = "Not set"
@@ -134,7 +132,6 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
     elif data == "change_payment_method":
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("USDT TRC-20", callback_data="setpayment_tron")],
             [InlineKeyboardButton("CryptoBot (@send)", callback_data="setpayment_cryptobot")],
             [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]
         ])
@@ -165,14 +162,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
     elif data == "setpayment_tron" or data == "setpayment_cryptobot" or data.startswith("setpayment_"):
         method = data.replace("setpayment_", "")
-        if method == "tron":
-            save_user_payment_method(user_id, "tron")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="USDT TRC-20"),
-                                          reply_markup=InlineKeyboardMarkup(
-                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
-                                          ))
-    
-        elif method == "cryptobot":
+        if method == "cryptobot":
             save_user_payment_method(user_id, "cryptobot")
             await query.message.edit_text(t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
                                           reply_markup=InlineKeyboardMarkup(
@@ -183,15 +173,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
     
     elif data.startswith("set_payment_"):
         method = data.replace("set_payment_", "")
-        if method == "tron":
-            save_user_payment_method(user_id, "tron")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="USDT TRC-20"),
-                                          reply_markup=InlineKeyboardMarkup(
-                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
-                                          ))
-            await asyncio.sleep(3)
-            await query.message.delete()
-        elif method == "cryptobot":
+        if method == "cryptobot":
             save_user_payment_method(user_id, "cryptobot")
             await query.message.edit_text(t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
                                           reply_markup=InlineKeyboardMarkup(
@@ -282,38 +264,6 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 await response.sent_message.delete()
                 return
 
-        elif method == "tron":
-            try:
-                response = await chat.ask(
-                    t(user_id, "enter_amount"),
-                    timeout=120
-                )
-            except Exception:
-                keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
-                )
-                return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=keyboard)
-
-            try:
-                amount = float(response.text.strip())
-                if amount <= 0:
-                    return await query.message.reply("❌ Amount must be greater than 0.5 USDT.")
-            except ValueError:
-                return await query.message.reply("❌ Invalid input. Please enter a valid number.")
-
-            final_amount = add_random_fraction(amount)
-            address = USDT_ADDRESS
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_TRON_{final_amount}")],
-            ])
-
-            await query.message.edit_text(
-                t(user_id, "pay_amount", amount=final_amount, address=address),
-                reply_markup=keyboard
-            )
-            await response.delete()
-            await response.sent_message.delete()
-
     elif data == "check_payment_" or data.startswith("check_payment_"):
         user_id = query.from_user.id
         if user_id in temp.PAID_LOCK:
@@ -321,68 +271,6 @@ async def callback_handler(client: Client, query: CallbackQuery):
         temp.PAID_LOCK.append(user_id)
 
         inv_id = data.replace("check_payment_", "")
-        if inv_id.startswith("TRON_"):
-            try:
-                amount = float(inv_id.replace("TRON_", ""))
-                # await query.message.reply(f"Amount: {amount}")
-            except ValueError:
-                await query.answer("❌ Invalid amount format.", show_alert=True)
-                temp.PAID_LOCK.remove(user_id)
-                return
-            chat = query.message.chat
-            # ask transaction ID or hash
-            try:
-                response = await chat.ask(
-                    t(user_id, "transaction_id"),
-                    timeout=120
-                )
-            except Exception:
-                keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
-                )
-                await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=keyboard)
-                temp.PAID_LOCK.remove(user_id)
-                return
-            tx_id = response.text.strip()
-            check, reason = save_tron_tx_hash(tx_id, user_id)
-            if not check and reason == "ALREADY":
-                await query.message.reply(t(user_id, "tx_id_already_used"))
-                await response.delete()
-                await response.sent_message.delete()
-                temp.PAID_LOCK.remove(user_id)
-                return
-            add_ress, tx_amount, symbol = get_tron_tx(tx_id)
-            if not add_ress or add_ress != USDT_ADDRESS or float(tx_amount) < float(amount):
-                remove_tron_tx_hash(tx_id)
-                await query.answer(t(user_id, "tx_id_invalid"), show_alert=True)
-                await query.message.reply(t(user_id, "tx_id_invalid"))
-                await response.delete()
-                await response.sent_message.delete()
-                temp.PAID_LOCK.remove(user_id)
-                return
-            if symbol != "USDT":
-                remove_tron_tx_hash(tx_id)
-                await query.answer("❌ Invalid token. Please send USDT TRC-20.", show_alert=True)
-                await query.message.reply("❌ Invalid token. Please send USDT TRC-20.")
-                await response.delete()
-                await response.sent_message.delete()
-                temp.PAID_LOCK.remove(user_id)
-                return
-            current_bal = get_user_balance(user_id) or 0.0
-            new_bal = current_bal + float(tx_amount)
-            save_user_balance(user_id, new_bal)
-            keyboard = InlineKeyboardMarkup(
-                [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
-            )
-            await query.message.edit_text(
-                t(user_id, "payment_confirmed"),
-                reply_markup=keyboard
-            )
-            temp.PAID_LOCK.remove(user_id)
-            await response.delete()
-            await response.sent_message.delete()
-            return
-        
         invoice = await cp.get_invoice(inv_id)
         if not invoice or inv_id not in temp.PENDING_INV:
             await query.answer(t(user_id, "payment_not_found"), show_alert=True)
@@ -1394,9 +1282,6 @@ Details:
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
-            elif method == "tron":
-                amount = add_random_fraction(amount)
-                return await send_tron_invoice(client, user_id, amount, query.message)
             return
         
         if hours == 720:
@@ -1470,9 +1355,6 @@ Details:
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
-            elif method == "tron":
-                amount = add_random_fraction(amount)
-                return await send_tron_invoice(client, user_id, amount, query.message)
             return
         # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
         rented_data = get_number_data(number)
@@ -1549,28 +1431,6 @@ Details:
             await msg.delete()
         except Exception as e:
             await message.reply_text(f"❌ Failed to export: {e}")
-
-    elif data == "checktx" and query.from_user.id in ADMINS:
-        try:
-            response = await query.message.chat.ask(
-                "⚠️ send the transaction hash you wanna check in tron network (within 300s):",
-                timeout=300
-            )
-        except Exception:
-            return await query.message.reply("⏰ Timeout! Please try again.")
-
-        tx_hash = response.text
-        to, amount, symbol = get_tron_tx(tx_hash)
-        if to and amount:
-            text = (
-                f"✅ Transaction found!\n\n"
-                f"🔗 Hash: `{tx_hash}`\n"
-                f"🏦 To: `{to}`\n"
-                f"💰 Amount: {amount} {symbol}"
-            )
-            return await query.message.reply(text)
-        else:
-            return await query.message.reply(f"❌ Transaction {tx_hash} is not found or unconfirmed.")
 
     elif data == "banned_numbers" and query.from_user.id in ADMINS:
         banned_numbers = temp.BLOCKED_NUMS
@@ -1695,3 +1555,6 @@ Details:
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+
+
