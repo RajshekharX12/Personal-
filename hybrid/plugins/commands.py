@@ -280,4 +280,3 @@ async def create_button_cmd(_, message: Message):
 
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data=data)]])
     await message.reply("Here is your button:", reply_markup=keyboard)
-
