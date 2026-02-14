@@ -1,98 +1,111 @@
 # (©) @Hybrid_Vamp - https://github.com/hybridvamp
 
-from pymongo import MongoClient
+import json
+import redis
 import config
 from datetime import datetime, timezone, timedelta
 from hybrid.plugins.func import get_current_datetime
 
-client = MongoClient(config.DB_URI)
-db = client["userdb"]
-users_col = db["users"]
-admins_col = db["admins"]
-number_col = db["numbers"]
-lang_col = db["languages"]
-numbers_col = db["numbers"]
-rules_col = db["rules"]
-rental_col = db["rentals"]
-delaccol = db["deletions"]
-troncol = db["tron_tx"]
-restrictedcol = db["restricted_numbers"]
-rest_toggle_col = db["restricted_toggle"]
-payment_col = db["payment_methods"]
+# Redis client
+client = redis.Redis.from_url(
+    config.REDIS_URI,
+    decode_responses=True,
+)
+
+# --- Helpers ---
+def _parse_dt(s):
+    if s is None:
+        return None
+    if isinstance(s, datetime):
+        return s.replace(tzinfo=timezone.utc) if s.tzinfo is None else s
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
 
 
 # ========= USER NUMBERS =========
-def save_number(number: str, user_id: int, hours: int, date: datetime =  get_current_datetime(), extend: bool = False):
-    """Save or extend a number for a user.
-
-    - If the number exists and extend=False → return False, "ALREADY"
-    - If the number exists and extend=True → update hours → return True, "UPDATED"
-    - If the number doesn't exist → insert → return True, "SAVED"
-    """
+def save_number(number: str, user_id: int, hours: int, date: datetime = None, extend: bool = False):
+    if date is None:
+        date = get_current_datetime()
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
 
-    existing = users_col.find_one(
-        {"user_id": user_id, "numbers.number": number}
-    )
+    key = f"user:{user_id}"
+    numbers_raw = client.hget(key, "numbers")
+    numbers = json.loads(numbers_raw) if numbers_raw else []
 
-    if existing:
-        if not extend:
-            return False, "ALREADY"
-        # ✅ update existing hours
-        users_col.update_one(
-            {"user_id": user_id, "numbers.number": number},
-            {"$set": {"numbers.$.hours": hours, "numbers.$.date": date}}
-        )
-        return True, "UPDATED"
+    for i, n in enumerate(numbers):
+        if n.get("number") == number:
+            if not extend:
+                return False, "ALREADY"
+            numbers[i]["hours"] = hours
+            numbers[i]["date"] = date.isoformat()
+            client.hset(key, "numbers", json.dumps(numbers))
+            return True, "UPDATED"
 
-    now = date
-    users_col.update_one(
-        {"user_id": user_id},
-        {"$push": {"numbers": {"number": number, "hours": hours, "date": now}}},
-        upsert=True
-    )
+    numbers.append({"number": number, "hours": hours, "date": date.isoformat()})
+    if not client.exists(key):
+        client.hset(key, mapping={"user_id": user_id, "balance": 0, "numbers": json.dumps(numbers)})
+        client.sadd("users:all", user_id)
+    else:
+        client.hset(key, "numbers", json.dumps(numbers))
     return True, "SAVED"
 
+
 def get_user_by_number(number: str):
-    """Get user_id, hours, date by number."""
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
 
-    record = users_col.find_one(
-        {"numbers.number": number},
-        {"user_id": 1, "numbers.$": 1}
-    )
-    if record and "numbers" in record:
-        num = record["numbers"][0]
-        return record["user_id"], num["hours"], num["date"]
+    for uid in client.smembers("users:all"):
+        key = f"user:{uid}"
+        numbers_raw = client.hget(key, "numbers")
+        if not numbers_raw:
+            continue
+        numbers = json.loads(numbers_raw)
+        for n in numbers:
+            if n.get("number") == number:
+                hours = n.get("hours", 0)
+                date_s = n.get("date")
+                date = _parse_dt(date_s) if date_s else None
+                return int(uid), hours, date
     return False
 
+
 def get_numbers_by_user(user_id: int):
-    record = users_col.find_one({"user_id": user_id}, {"numbers": 1})
-    if not record:
+    key = f"user:{user_id}"
+    numbers_raw = client.hget(key, "numbers")
+    if not numbers_raw:
         return []
-    return [n["number"] if isinstance(n, dict) and "number" in n else str(n) for n in record.get("numbers", [])]
+    numbers = json.loads(numbers_raw)
+    return [n.get("number", str(n)) for n in numbers if isinstance(n, dict) and "number" in n]
+
 
 def remove_number(number: str, user_id: int):
-    """Remove a number from a user's list."""
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
 
-    result = users_col.update_one(
-        {"user_id": user_id},
-        {"$pull": {"numbers": {"number": number}}}
-    )
-    return (True, "REMOVED") if result.modified_count else (False, "NOT_FOUND")
+    key = f"user:{user_id}"
+    numbers_raw = client.hget(key, "numbers")
+    if not numbers_raw:
+        return False, "NOT_FOUND"
+    numbers = json.loads(numbers_raw)
+    new_numbers = [n for n in numbers if n.get("number") != number]
+    if len(new_numbers) == len(numbers):
+        return False, "NOT_FOUND"
+    client.hset(key, "numbers", json.dumps(new_numbers))
+    return True, "REMOVED"
+
 
 def get_remaining_rent_days(number: str):
-    """Return remaining rent days for a number, or None if not found."""
     user_data = get_user_by_number(number)
     if not user_data:
         return None
-
     user_id, hours, rented_date = user_data
     now = get_current_datetime()
+    if rented_date and rented_date.tzinfo is None:
+        rented_date = rented_date.replace(tzinfo=timezone.utc)
     elapsed = now - rented_date
     elapsed_hours = elapsed.total_seconds() / 3600
     remaining_hours = hours - elapsed_hours
@@ -101,301 +114,339 @@ def get_remaining_rent_days(number: str):
 
 # =========== Number Rent Data ============
 def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int):
-    """
-    Save or update rental data for a number.
-    """
     hours = int(hours)
     expiry_date = rent_date + timedelta(hours=hours)
-    rental_col.update_one(
-        {"number": number},
-        {"$set": {
-            "user_id": user_id,
-            "rent_date": rent_date,
-            "hours": hours,
-            "expiry_date": expiry_date
-        }},
-        upsert=True
-    )
+    key = f"rental:{number}"
+    client.hset(key, mapping={
+        "number": number,
+        "user_id": user_id,
+        "rent_date": rent_date.isoformat(),
+        "hours": hours,
+        "expiry_date": expiry_date.isoformat(),
+    })
+    client.zadd("rentals:expiry", {number: expiry_date.timestamp()})
+    client.sadd("rentals:all", number)
+    client.sadd(f"rentals:user:{user_id}", number)
+    client.expire(key, int(hours * 3600) + 86400)
+
 
 def get_number_data(number: str):
-    """
-    Get saved data for a number.
-    Returns None if not rented.
-    """
-    return rental_col.find_one({"number": number})
+    key = f"rental:{number}"
+    data = client.hgetall(key)
+    if not data:
+        return None
+    out = {
+        "number": data.get("number"),
+        "user_id": int(data["user_id"]) if data.get("user_id") else None,
+        "hours": int(data["hours"]) if data.get("hours") else None,
+    }
+    if data.get("rent_date"):
+        out["rent_date"] = _parse_dt(data["rent_date"])
+    if data.get("expiry_date"):
+        out["expiry_date"] = _parse_dt(data["expiry_date"])
+    return out
+
 
 def get_user_numbers(user_id: int):
-    """
-    Returns list of numbers rented by a user.
-    """
-    rented = rental_col.find({"user_id": user_id})
-    return [doc["number"] for doc in rented if "number" in doc]
+    members = client.smembers(f"rentals:user:{user_id}")
+    return list(members) if members else []
+
 
 def remove_number_data(number: str):
-    """
-    Remove rental data for a number.
-    """
-    result = rental_col.delete_one({"number": number})
-    return (True, "REMOVED") if result.deleted_count else (False, "NOT_FOUND")
+    key = f"rental:{number}"
+    data = client.hgetall(key) if client.exists(key) else {}
+    user_id = data.get("user_id")
+    pipe = client.pipeline()
+    pipe.delete(key)
+    pipe.zrem("rentals:expiry", number)
+    pipe.srem("rentals:all", number)
+    if user_id:
+        pipe.srem(f"rentals:user:{user_id}", number)
+    pipe.execute()
+    return (True, "REMOVED") if data else (False, "NOT_FOUND")
+
+
+def get_expired_numbers():
+    now = datetime.now(timezone.utc).timestamp()
+    return list(client.zrangebyscore("rentals:expiry", 0, now))
+
+
+def get_all_rentals():
+    """Return list of rental dicts (number, user_id, expiry_date, hours, rent_date) for all current rentals."""
+    numbers = client.smembers("rentals:all")
+    out = []
+    for number in numbers or []:
+        key = f"rental:{number}"
+        data = client.hgetall(key)
+        if not data:
+            continue
+        doc = {
+            "number": data.get("number"),
+            "user_id": int(data["user_id"]) if data.get("user_id") else None,
+        }
+        if data.get("rent_date"):
+            doc["rent_date"] = _parse_dt(data["rent_date"])
+        if data.get("expiry_date"):
+            doc["expiry_date"] = _parse_dt(data["expiry_date"])
+        doc["hours"] = int(data["hours"]) if data.get("hours") else 0
+        out.append(doc)
+    return out
 
 
 # ========= USER IDS =========
 def save_user_id(user_id: int):
-    if users_col.find_one({"user_id": user_id}):
+    key = f"user:{user_id}"
+    if client.exists(key):
         return False, "EXISTS"
-    users_col.insert_one({"user_id": user_id, "numbers": [], "balance": 0})
+    client.hset(key, mapping={"user_id": user_id, "numbers": "[]", "balance": 0})
+    client.sadd("users:all", user_id)
     return True, "SAVED"
 
+
 def get_all_user_ids():
-    """Return all user IDs in DB."""
-    return users_col.distinct("user_id")
+    members = client.smembers("users:all")
+    return [int(x) for x in (members or [])]
 
 
 # ========= BALANCES =========
 def save_user_balance(user_id: int, balance: float | int):
-    """
-    Replace the user's balance with a new value.
-    Always overwrites the old balance.
-    """
-    result = users_col.update_one(
-        {"user_id": user_id},
-        {"$set": {"balance": balance}},
-        upsert=True
-    )
-    return "CREATED" if result.matched_count == 0 else "UPDATED"
+    key = f"user:{user_id}"
+    if not client.exists(key):
+        client.hset(key, mapping={"user_id": user_id, "balance": balance, "numbers": "[]"})
+        client.sadd("users:all", user_id)
+        return "CREATED"
+    client.hset(key, "balance", balance)
+    return "UPDATED"
+
 
 def get_user_balance(user_id: int):
-    """Get a user's balance."""
-    record = users_col.find_one({"user_id": user_id}, {"balance": 1})
-    return record.get("balance") if record else None
+    balance = client.hget(f"user:{user_id}", "balance")
+    return float(balance) if balance is not None else None
+
 
 def get_total_balance():
-    """
-    Return the total balance of all users combined
-    and the number of users who have a balance field.
-    """
-    pipeline = [
-        {"$match": {"balance": {"$exists": True}}},
-        {"$group": {"_id": None, "total_balance": {"$sum": "$balance"}, "user_count": {"$sum": 1}}}
-    ]
-
-    result = list(users_col.aggregate(pipeline))
-    if result:
-        return result[0]["total_balance"], result[0]["user_count"]
-    return 0.0, 0
+    total = 0.0
+    count = 0
+    for uid in client.smembers("users:all") or []:
+        b = client.hget(f"user:{uid}", "balance")
+        if b is not None:
+            total += float(b)
+            count += 1
+    return total, count
 
 
 # ========= ADMINS =========
 def add_admin(user_id: int):
-    if admins_col.find_one({"user_id": user_id}):
-        return False, "ALREADY"
-    admins_col.insert_one({"user_id": user_id})
-    return True, "ADDED"
+    added = client.sadd("admins:all", user_id)
+    return (True, "ADDED") if added else (False, "ALREADY")
+
 
 def remove_admin(user_id: int):
-    result = admins_col.delete_one({"user_id": user_id})
-    return (True, "REMOVED") if result.deleted_count else (False, "NOT_FOUND")
+    removed = client.srem("admins:all", user_id)
+    return (True, "REMOVED") if removed else (False, "NOT_FOUND")
+
 
 def is_admin(user_id: int):
-    return admins_col.find_one({"user_id": user_id}) is not None
+    return client.sismember("admins:all", user_id)
+
 
 def get_all_admins():
-    admins = admins_col.find({}, {"_id": 0, "user_id": 1})
-    return [a["user_id"] for a in admins]
+    members = client.smembers("admins:all")
+    return [int(x) for x in (members or [])]
 
 
 # ========= NUMBERS POOL =========
 def save_number_info(number: str, price_30: float, price_60: float, price_90: float, available: bool = True):
-    """Create or update number details with rates & hours for 30/60/90 days."""
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
 
+    now = get_current_datetime()
     data = {
         "number": number,
-        "prices": {
-            "30d": price_30,
-            "60d": price_60,
-            "90d": price_90
-        },
-        "hours": {
-            "30d": 30 * 24,
-            "60d": 60 * 24,
-            "90d": 90 * 24
-        },
+        "prices": {"30d": price_30, "60d": price_60, "90d": price_90},
+        "hours": {"30d": 30 * 24, "60d": 60 * 24, "90d": 90 * 24},
         "available": available,
-        "updated_at": get_current_datetime()
+        "updated_at": now.isoformat(),
     }
+    key = f"number:{number}"
+    existed = client.exists(key)
+    client.hset(key, mapping={
+        "number": number,
+        "prices": json.dumps(data["prices"]),
+        "hours": json.dumps(data["hours"]),
+        "available": str(available).lower(),
+        "updated_at": data["updated_at"],
+    })
+    return "UPDATED" if existed else "CREATED"
 
-    result = number_col.update_one(
-        {"number": number},
-        {"$set": data},
-        upsert=True
-    )
-    return "CREATED" if result.matched_count == 0 else "UPDATED"
 
 def edit_number_info(number: str, **kwargs):
-    """
-    Edit specific details of a number.
-    Example: edit_number_info("+88812345", price_30=120, available=False)
-    """
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
 
+    key = f"number:{number}"
+    if not client.exists(key):
+        return False, "NO_CHANGES"
+
     updates = {}
-    if "price_30" in kwargs:
-        updates["prices.30d"] = kwargs["price_30"]
-    if "price_60" in kwargs:
-        updates["prices.60d"] = kwargs["price_60"]
-    if "price_90" in kwargs:
-        updates["prices.90d"] = kwargs["price_90"]
+    price_keys = ("price_30", "price_60", "price_90")
+    if any(k in kwargs for k in price_keys):
+        prices = json.loads(client.hget(key, "prices") or "{}")
+        if "price_30" in kwargs:
+            prices["30d"] = kwargs["price_30"]
+        if "price_60" in kwargs:
+            prices["60d"] = kwargs["price_60"]
+        if "price_90" in kwargs:
+            prices["90d"] = kwargs["price_90"]
+        updates["prices"] = json.dumps(prices)
     if "available" in kwargs:
-        updates["available"] = kwargs["available"]
+        updates["available"] = str(kwargs["available"]).lower()
 
     if not updates:
         return False, "NO_CHANGES"
-
-    updates["updated_at"] = get_current_datetime()
-
-    number_col.update_one({"number": number}, {"$set": updates})
+    updates["updated_at"] = get_current_datetime().isoformat()
+    client.hset(key, mapping=updates)
     return True, "UPDATED"
 
+
 def get_number_info(number: str) -> dict | bool:
-    """Return all data for a given number, or False if not found."""
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
 
-    record = number_col.find_one({"number": number}, {"_id": 0})  # exclude _id
-    return record if record else False
+    key = f"number:{number}"
+    data = client.hgetall(key)
+    if not data:
+        return False
+    out = {
+        "number": data.get("number"),
+        "prices": json.loads(data.get("prices") or "{}"),
+        "hours": json.loads(data.get("hours") or "{}"),
+        "available": data.get("available", "true").lower() == "true",
+        "updated_at": _parse_dt(data.get("updated_at")),
+    }
+    return out
 
 
-# ===================== language db ===================== #
+# ===================== language db =====================
 def save_user_language(user_id: int, lang: str):
-    lang_col.update_one({"user_id": user_id}, {"$set": {"language": lang}}, upsert=True)
+    client.hset(f"lang:{user_id}", "language", lang)
+
 
 def get_user_language(user_id: int):
-    user = lang_col.find_one({"user_id": user_id})
-    return user.get("language") if user else None
+    return client.hget(f"lang:{user_id}", "language")
 
 
 # ========= User Payment Method =========
 def save_user_payment_method(user_id: int, method: str):
-    payment_col.update_one({"user_id": user_id}, {"$set": {"payment_method": method}}, upsert=True)
+    client.set(f"payment:{user_id}", method)
+
 
 def get_user_payment_method(user_id: int):
-    user = payment_col.find_one({"user_id": user_id})
-    return user.get("payment_method") if user else "cryptobot"
+    return client.get(f"payment:{user_id}") or "cryptobot"
+
 
 # ========= RULES =========
 def save_rules(rules: str, lang: str = "en"):
-    """Save or update the rules text for a specific language."""
-    rules_col.update_one(
-        {"_id": f"rules_{lang}"},
-        {"$set": {"text": rules, "language": lang}},
-        upsert=True
-    )
+    client.hset(f"rules:{lang}", mapping={"text": rules, "language": lang})
+
 
 def get_rules(lang: str = "en") -> str:
-    """Get the saved rules text for a specific language."""
-    record = rules_col.find_one({"_id": f"rules_{lang}"})
-    return record.get("text") if record else "No rules set."
+    text = client.hget(f"rules:{lang}", "text")
+    return text if text else "No rules set."
 
 
 # ========= DELETE ACCOUNT DB =========
 def save_7day_deletion(number: str, date: datetime):
-    """Mark a number as scheduled for deletion in 7 days."""
-    delaccol.update_one(
-        {"number": number},
-        {"$set": {"deletion_date": date}},
-        upsert=True
-    )
+    client.hset(f"deletion:{number}", "deletion_date", date.isoformat())
+    client.zadd("deletions:expiry", {number: date.timestamp()})
+
 
 def get_7day_deletions():
-    """Return list of numbers scheduled for deletion."""
-    now = get_current_datetime()
-    deletions = delaccol.find({"deletion_date": {"$lte": now}})
-    return [doc["number"] for doc in deletions if "number" in doc]
+    now = get_current_datetime().timestamp()
+    return list(client.zrangebyscore("deletions:expiry", 0, now))
+
 
 def remove_7day_deletion(number: str):
-    """Remove the deletion_date field for a number."""
-    result = delaccol.update_one(
-        {"number": number},
-        {"$unset": {"deletion_date": ""}}
-    )
-    return result.modified_count > 0
+    key = f"deletion:{number}"
+    if not client.exists(key):
+        return False
+    client.delete(key)
+    client.zrem("deletions:expiry", number)
+    return True
+
 
 def get_7day_date(number: str):
-    """Get the scheduled deletion date for a number."""
-    record = delaccol.find_one({"number": number}, {"deletion_date": 1})
-    return record.get("deletion_date") if record and "deletion_date" in record else None
+    raw = client.hget(f"deletion:{number}", "deletion_date")
+    return _parse_dt(raw) if raw else None
 
 
 # ======== TRON TRANSACTION HASH DB ===========
 def save_tron_tx_hash(tx_hash: str, user_id: int):
-    if troncol.find_one({"tx_hash": tx_hash}):
+    key = f"tron:tx:{tx_hash}"
+    if client.exists(key):
         return False, "ALREADY"
-    troncol.insert_one({
-        "tx_hash": tx_hash,
-        "user_id": user_id,
-    })
+    client.hset(key, mapping={"tx_hash": tx_hash, "user_id": user_id})
     return True, "SAVED"
+
 
 def get_tron_tx_hash(tx_hash: str) -> dict | bool:
-    """Get a Tron transaction hash."""
-    return troncol.find_one({"tx_hash": tx_hash}, {"_id": 0})
+    data = client.hgetall(f"tron:tx:{tx_hash}")
+    return data if data else False
+
 
 def remove_tron_tx_hash(tx_hash: str):
-    result = troncol.delete_one({"tx_hash": tx_hash})
-    return (True, "REMOVED") if result.deleted_count else (False, "NOT_FOUND")
+    key = f"tron:tx:{tx_hash}"
+    if not client.exists(key):
+        return False, "NOT_FOUND"
+    client.delete(key)
+    return True, "REMOVED"
+
 
 # ========= RESTRICTED NOTIFY =========
-def save_restricted_number(number: str, date = get_current_datetime()):
-    if restrictedcol.find_one({"number": number}):
+def save_restricted_number(number: str, date=None):
+    if date is None:
+        date = get_current_datetime()
+    if client.sismember("restricted:all", number):
         return False, "ALREADY"
-    restrictedcol.insert_one({"number": number, "date": date})
+    client.sadd("restricted:all", number)
+    client.set(f"restricted:{number}", date.isoformat())
     return True, "SAVED"
 
+
 def get_restricted_numbers():
-    restricted = restrictedcol.find({}, {"_id": 0, "number": 1})
-    return [r["number"] for r in restricted if "number" in r]
+    return list(client.smembers("restricted:all") or [])
+
 
 def remove_restricted_number(number: str):
-    result = restrictedcol.delete_one({"number": number})
-    return (True, "REMOVED") if result.deleted_count else (False, "NOT_FOUND")
+    if not client.sismember("restricted:all", number):
+        return False, "NOT_FOUND"
+    client.srem("restricted:all", number)
+    client.delete(f"restricted:{number}")
+    return True, "REMOVED"
+
 
 def get_rest_num_date(number: str):
-    record = restrictedcol.find_one({"number": number}, {"date": 1})
-    return record.get("date") if record and "date" in record else None
+    raw = client.get(f"restricted:{number}")
+    return _parse_dt(raw) if raw else None
+
 
 def restricted_del_toggle():
-    """Toggle for Delete restricted numbers older than 3 days."""
-    toggle = rest_toggle_col.find_one({"_id": "rest_del_toggle"})
-    if toggle:
-        new_state = not toggle.get("enabled", False)
-        rest_toggle_col.update_one({"_id": "rest_del_toggle"}, {"$set": {"enabled": new_state}})
+    key = "rest_toggle"
+    raw = client.get(key)
+    if raw is not None:
+        new_state = not (raw == "1")
+        client.set(key, "1" if new_state else "0")
         return new_state
-    else:
-        rest_toggle_col.insert_one({"_id": "rest_del_toggle", "enabled": True})
-        return True
+    client.set(key, "1")
+    return True
+
 
 def is_restricted_del_enabled():
-    toggle = rest_toggle_col.find_one({"_id": "rest_del_toggle"})
-    return toggle.get("enabled", False) if toggle else False
-    
+    return client.get("rest_toggle") == "1"
 
 
 # ========= MAINTENANCE =========
 def delete_all_data():
-    users_col.delete_many({})
-    admins_col.delete_many({})
-    number_col.delete_many({})
-    lang_col.delete_many({})
-    numbers_col.delete_many({})
-    rules_col.delete_many({})
-    rental_col.delete_many({})
-    delaccol.delete_many({})
-    troncol.delete_many({})
-    restrictedcol.delete_many({})
-    rest_toggle_col.delete_many({})
-    payment_col.delete_many({})
+    for key in client.scan_iter("*"):
+        client.delete(key)
     return True, "ALL DATA DELETED"
-
