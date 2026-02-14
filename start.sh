@@ -1,3 +1,4 @@
-git config --global user.email "youremail@gmail.com" && git config --global user.name "githubusername"
+#!/bin/bash
+cd "$(dirname "$0")"
+pip install -r requirements.txt
 python3 -m hybrid
-
