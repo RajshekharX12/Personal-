@@ -42,7 +42,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
     data = query.data
 
     if data == "my_rentals":
-        numbers = get_numbers_by_user(user_id)
+        numbers = get_user_numbers(user_id)
         if not numbers:
             return await query.message.edit_text(
                 t(user_id, "no_rentals"),
@@ -65,10 +65,16 @@ async def callback_handler(client: Client, query: CallbackQuery):
     elif data.startswith("num_"):
         number = data.replace("num_", "")
         num_text = format_number(number)
-        await query.message.edit_text(f"⏳ Loading details for **{num_text}**...")  # optional: can also translate
-        _, hours, date = get_user_by_number(number)
-        time_left = format_remaining_time(date, hours)
-        date_str = format_date(str(date))
+        rented_data = get_number_data(number)
+        if not rented_data or rented_data.get("user_id") != user_id:
+            return await query.message.edit_text(
+                t(user_id, "no_rentals"),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
+            )
+        hours = rented_data.get("hours", 0)
+        rent_date = rented_data.get("rent_date")
+        time_left = format_remaining_time(rent_date, hours)
+        date_str = format_date(str(rent_date)) if rent_date else "N/A"
         keyboard = [
             [
                 InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{number}"),
@@ -794,7 +800,7 @@ Details:
         if not user:
             return await query.message.edit_text("❌ User not found/invalid User ID. (User must start this bot first)", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
         balance = get_user_balance(user.id) or 0.0
-        numbers = get_numbers_by_user(user.id)
+        numbers = get_user_numbers(user.id)
         text = (
             f"👤 **User Info**\n\n"
             f"🆔 User ID: `{user.id}`\n"
@@ -1555,6 +1561,3 @@ Details:
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
-
-
