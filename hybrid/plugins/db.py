@@ -9,12 +9,17 @@ from datetime import datetime, timezone, timedelta
 from hybrid.plugins.func import get_current_datetime
 
 # Redis client
-# Redis Labs: use rediss:// with password. If you get SSL WRONG_VERSION_NUMBER,
-# your plan may use a non-TLS port — try redis:// instead (set REDIS_URL=redis://...).
+# Redis Labs (Azure) port is usually plain TCP; SSL causes WRONG_VERSION_NUMBER. Use redis:// (no TLS).
 _redis_uri = (getattr(config, "REDIS_URI", None) or os.environ.get("REDIS_URL", "redis://localhost:6379/0")).strip()
-_use_tls = os.environ.get("REDIS_USE_TLS", "").lower() not in ("0", "false", "no")
+_use_tls_env = os.environ.get("REDIS_USE_TLS", "").lower()
+# Default to no TLS for Redis Labs/Azure to avoid SSL errors; set REDIS_USE_TLS=1 to force SSL
+_is_redislabs = "redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri
+_use_tls = _use_tls_env in ("1", "true", "yes") if _use_tls_env else (not _is_redislabs)
 
-if ("redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri) and _use_tls:
+if not _use_tls and _redis_uri.startswith("rediss://"):
+    _redis_uri = "redis://" + _redis_uri[9:]
+
+if _is_redislabs and _use_tls:
     if _redis_uri.startswith("redis://"):
         _redis_uri = "rediss://" + _redis_uri[8:]
     try:
@@ -26,11 +31,6 @@ if ("redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri) and _use_tls:
         _kwargs["ssl_min_version"] = _tls_v12
     client = redis.Redis.from_url(_redis_uri, **_kwargs)
 else:
-    if _redis_uri.startswith("rediss://"):
-        pass  # keep as-is
-    elif "redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri:
-        if _redis_uri.startswith("redis://"):
-            pass  # user chose non-TLS
     client = redis.Redis.from_url(_redis_uri, decode_responses=True)
 
 # --- Helpers ---
