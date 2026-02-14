@@ -12,7 +12,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8228954627:AAHHD6OOPgLklPfKPYuzxlgwhhnb
 API_ID = int(os.environ.get("API_ID", "15631044"))
 API_HASH = os.environ.get("API_HASH", "52b1b075a9996c304a2c938ffb7073c4")
 OWNER_ID = int(os.environ.get("OWNER_ID", "5770074932"))
-DB_URI = os.environ.get("DATABASE_URL", "mongodb+srv://walesavitabank_db_user:rNIU8qgA5Xm84FPg@rental.tqar0i.mongodb.net/?appName=rental")
+REDIS_URI = os.environ.get("REDIS_URL", "redis-18639.c56.east-us.azure.cloud.redislabs.com:18639")
 DB_NAME = os.environ.get("DATABASE_NAME", "rental")
 CRYPTO_API = os.environ.get("CRYPTO_API", "523718:AAEQO6x6qx2PXerElEVuIvBcuL5rdHgDR4Q")
 USDT_ADDRESS = os.environ.get("TON_ADDRESS", "UQAYH3MHNSUABi73Z6HwIcuXkmws1tBDDN-lWIPhXZW455bI")
@@ -38,6 +38,7 @@ except ValueError:
 
 
 ADMINS.append(OWNER_ID)
+
 
 
 
