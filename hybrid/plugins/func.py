@@ -367,7 +367,8 @@ async def delete_account(number: str, app: Client, two_fa_password: str = None) 
                     logging.error("2FA password failed: %s", e)
                     return False, "Invalid2FAPassword"
             else:
-                logging.info("2FA enabled but no password given → deletion will be scheduled (7 days).")
+                # CRITICAL: Don't return early. Still attempt deletion to trigger Telegram's 7-day period.
+                logging.info("2FA enabled, no password. Attempting deletion anyway to trigger 7-day wait...")
         except PhoneNumberBanned:
             logging.error("Number banned.")
             return False, "Banned"
@@ -379,14 +380,20 @@ async def delete_account(number: str, app: Client, two_fa_password: str = None) 
             logging.error("Unexpected sign_in error: %s", e)
             return False, "SignInError"
 
-        # Step 5: Delete account
+        # Step 5: Delete account (ALWAYS attempt, even with 2FA — triggers 7-day period if needed)
         try:
             await client.invoke(functions.account.DeleteAccount(reason="Cleanup"))
             logging.info("Account deleted immediately.")
             return True, "Deleted"
         except RPCError as e:
-            if "2FA_CONFIRM_WAIT" in str(e).upper():
-                logging.info("Account scheduled for deletion in 7 days.")
+            error_text = str(e).upper()
+            # 2FA without password = 7 day waiting period
+            if "2FA_CONFIRM_WAIT" in error_text or "SESSION_PASSWORD_NEEDED" in error_text:
+                logging.info("2FA detected - Telegram scheduled deletion in 7 days.")
+                return True, "7Days"
+            # Account already scheduled for deletion
+            if "ACCOUNT_DELETE_SCHEDULED" in error_text:
+                logging.info("Account deletion already scheduled.")
                 return True, "7Days"
             logging.error("DeleteAccount RPCError: %s", e)
             return False, "DeleteError"
