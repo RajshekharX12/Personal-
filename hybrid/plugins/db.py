@@ -1,27 +1,37 @@
 # (©) @Hybrid_Vamp - https://github.com/hybridvamp
 
 import json
+import os
 import ssl
 import redis
 import config
 from datetime import datetime, timezone, timedelta
 from hybrid.plugins.func import get_current_datetime
 
-# Redis client (Redis Labs / Azure require SSL: use rediss:// in REDIS_URL)
-_redis_uri = config.REDIS_URI
-if "redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri:
+# Redis client
+# Redis Labs: use rediss:// with password. If you get SSL WRONG_VERSION_NUMBER,
+# your plan may use a non-TLS port — try redis:// instead (set REDIS_URL=redis://...).
+_redis_uri = (getattr(config, "REDIS_URI", None) or os.environ.get("REDIS_URL", "redis://localhost:6379/0")).strip()
+_use_tls = os.environ.get("REDIS_USE_TLS", "").lower() not in ("0", "false", "no")
+
+if ("redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri) and _use_tls:
     if _redis_uri.startswith("redis://"):
         _redis_uri = "rediss://" + _redis_uri[8:]
-    client = redis.Redis.from_url(
-        _redis_uri,
-        decode_responses=True,
-        ssl_cert_reqs=ssl.CERT_NONE,
-    )
+    try:
+        _tls_v12 = ssl.TLSVersion.TLSv1_2
+    except AttributeError:
+        _tls_v12 = None
+    _kwargs = {"decode_responses": True, "ssl_cert_reqs": ssl.CERT_NONE, "ssl_check_hostname": False}
+    if _tls_v12 is not None:
+        _kwargs["ssl_min_version"] = _tls_v12
+    client = redis.Redis.from_url(_redis_uri, **_kwargs)
 else:
-    client = redis.Redis.from_url(
-        _redis_uri,
-        decode_responses=True,
-    )
+    if _redis_uri.startswith("rediss://"):
+        pass  # keep as-is
+    elif "redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri:
+        if _redis_uri.startswith("redis://"):
+            pass  # user chose non-TLS
+    client = redis.Redis.from_url(_redis_uri, decode_responses=True)
 
 # --- Helpers ---
 def _parse_dt(s):
