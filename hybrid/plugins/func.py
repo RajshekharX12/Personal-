@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 import json
 import math
 import asyncio
@@ -481,7 +479,9 @@ def get_tron_tx(tx_hash: str):
 
 
 from hybrid.plugins.db import (
-    number_col, rental_col, get_user_balance, get_number_data
+    get_all_pool_numbers,
+    get_user_balance,
+    get_number_data,
 )
 
 def export_numbers_csv(filename: str = "numbers_export.csv"):
@@ -490,11 +490,11 @@ def export_numbers_csv(filename: str = "numbers_export.csv"):
 
     Columns: Number, Rented, User ID, Balance, Rent Date, Expiry Date, Days Left, Hours Left, Rented Amount
     """
-    all_numbers = number_col.find({}, {"_id": 0, "number": 1})
+    all_numbers = get_all_pool_numbers()
     rows = []
 
-    for num_doc in all_numbers:
-        number = num_doc["number"]
+    now = datetime.now(timezone.utc)
+    for number in all_numbers:
         rented_data = get_number_data(number)
 
         if rented_data and rented_data.get("user_id"):
@@ -503,19 +503,22 @@ def export_numbers_csv(filename: str = "numbers_export.csv"):
             rent_date = rented_data.get("rent_date")
             expiry_date = rented_data.get("expiry_date")
             hours = rented_data.get("hours", 0)
-
-            now = datetime.utcnow()
-            remaining = expiry_date - now
-            days_left = max(0, remaining.days)
-            hours_left = max(0, remaining.seconds // 3600)
+            rent_date_str = rent_date.strftime("%Y-%m-%d %H:%M:%S") if rent_date else ""
+            expiry_date_str = expiry_date.strftime("%Y-%m-%d %H:%M:%S") if expiry_date else ""
+            if expiry_date and rent_date:
+                remaining = expiry_date - now
+                days_left = max(0, remaining.days)
+                hours_left = max(0, remaining.seconds // 3600)
+            else:
+                days_left = hours_left = 0
 
             rows.append({
                 "Number": number,
                 "Rented": "Yes",
                 "User ID": user_id,
                 "Balance": balance,
-                "Rent Date": rent_date.strftime("%Y-%m-%d %H:%M:%S"),
-                "Expiry Date": expiry_date.strftime("%Y-%m-%d %H:%M:%S"),
+                "Rent Date": rent_date_str,
+                "Expiry Date": expiry_date_str,
                 "Days Left": days_left,
                 "Hours Left": hours_left,
                 "Rented Amount (Hours)": hours
@@ -533,9 +536,9 @@ def export_numbers_csv(filename: str = "numbers_export.csv"):
                 "Rented Amount (Hours)": ""
             })
 
-    # Write to CSV
+    fieldnames = ["Number", "Rented", "User ID", "Balance", "Rent Date", "Expiry Date", "Days Left", "Hours Left", "Rented Amount (Hours)"]
     with open(filename, mode="w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=rows[0].keys())
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
