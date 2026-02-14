@@ -1,5 +1,3 @@
-# (©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 import json
 import redis
 import config
@@ -325,6 +323,12 @@ def get_number_info(number: str) -> dict | bool:
         "updated_at": _parse_dt(data.get("updated_at")),
     }
     return out
+
+
+def get_all_pool_numbers():
+    """Return list of all number strings in the pool (Redis keys number:*)."""
+    keys = client.keys("number:*")
+    return [k.replace("number:", "", 1) for k in (keys or [])]
 
 
 # ===================== language db =====================
