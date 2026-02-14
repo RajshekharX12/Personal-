@@ -11,6 +11,9 @@ from hybrid.plugins.func import get_current_datetime
 # Redis client
 # Redis Labs (Azure) port is usually plain TCP; SSL causes WRONG_VERSION_NUMBER. Use redis:// (no TLS).
 _redis_uri = (getattr(config, "REDIS_URI", None) or os.environ.get("REDIS_URL", "redis://localhost:6379/0")).strip()
+# Ensure a valid scheme (redis-py requires redis://, rediss://, or unix://)
+if not (_redis_uri.startswith("redis://") or _redis_uri.startswith("rediss://") or _redis_uri.startswith("unix://")):
+    _redis_uri = "redis://" + _redis_uri.lstrip("/")
 _use_tls_env = os.environ.get("REDIS_USE_TLS", "").lower()
 # Default to no TLS for Redis Labs/Azure to avoid SSL errors; set REDIS_USE_TLS=1 to force SSL
 _is_redislabs = "redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri
