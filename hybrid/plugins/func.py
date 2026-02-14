@@ -436,12 +436,15 @@ def format_number(number) -> str:
 
 def format_date(date_str: str) -> str:
     try:
-        dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S.%f")
-    except ValueError:
+        dt = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
         try:
-            dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+            dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S.%f")
         except ValueError:
-            dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S %Z")
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S %Z")
     return dt.strftime("%d/%m/%y")
 
 from hybrid.plugins.db import get_user_balance, get_number_data
@@ -523,4 +526,3 @@ async def give_payment_option(client, msg: Message, user_id: int):
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
-
