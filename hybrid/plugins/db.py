@@ -375,15 +375,20 @@ def get_user_payment_method(user_id: int):
 USDT_JETTON_MASTER = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"  # USDT on TON mainnet
 
 
-def get_next_ton_order_id() -> int:
-    """Increment and return next order ID (e.g. 22673)."""
-    key = "ton_order_counter"
-    n = client.incr(key)
-    return n
+def _gen_order_ref() -> str:
+    """Generate unique alphanumeric order ref (e.g. PayEFoT3YAg). No # to avoid URL encoding issues."""
+    import random
+    import string
+    chars = string.ascii_letters + string.digits
+    for _ in range(10):
+        ref = "Pay" + "".join(random.choices(chars, k=8))
+        if not client.exists(f"ton_order:{ref}"):
+            return ref
+    return "Pay" + "".join(random.choices(chars, k=8)) + str(_now().timestamp())[-4:]
 
 
-def save_ton_order(order_id: int, user_id: int, amount_usdt: float, amount_ton: float, payload: str, msg_id: int, chat_id: int, created_at=None):
-    """amount_usdt: for crediting balance. amount_ton: expected TON for verification."""
+def save_ton_order(order_ref: str, user_id: int, amount_usdt: float, amount_ton: float, payload: str, msg_id: int, chat_id: int, created_at=None):
+    """order_ref: unique alphanumeric (e.g. PayEFoT3YAg). No # in memo for Tonkeeper compatibility."""
     if created_at is None:
         created_at = _now()
     data = {
@@ -395,18 +400,18 @@ def save_ton_order(order_id: int, user_id: int, amount_usdt: float, amount_ton: 
         "chat_id": chat_id,
         "created_at": created_at.isoformat(),
     }
-    client.hset(f"ton_order:{order_id}", mapping=data)
-    client.zadd("ton_orders:pending", {str(order_id): created_at.timestamp()})
+    client.hset(f"ton_order:{order_ref}", mapping=data)
+    client.zadd("ton_orders:pending", {order_ref: created_at.timestamp()})
 
 
-def get_ton_order(order_id: int):
-    data = client.hgetall(f"ton_order:{order_id}")
+def get_ton_order(order_ref: str):
+    data = client.hgetall(f"ton_order:{order_ref}")
     if not data:
         return None
     return {
         "user_id": int(data["user_id"]),
         "amount": float(data["amount"]),
-        "amount_ton": float(data.get("amount_ton") or data["amount"]),  # fallback for old orders
+        "amount_ton": float(data.get("amount_ton") or data["amount"]),
         "payload": data["payload"],
         "msg_id": int(data["msg_id"]),
         "chat_id": int(data["chat_id"]),
@@ -417,27 +422,27 @@ def get_ton_order(order_id: int):
 def get_all_pending_ton_orders(max_age_seconds=1800):
     """Return pending orders. Expired ones (>max_age_seconds) are removed."""
     now = _now().timestamp()
-    ids = client.zrange("ton_orders:pending", 0, -1)
+    refs = client.zrange("ton_orders:pending", 0, -1)
     orders = []
-    for oid in ids:
+    for ref in refs:
         try:
-            o = get_ton_order(int(oid))
+            o = get_ton_order(ref)
             if not o:
-                delete_ton_order(int(oid))
+                delete_ton_order(ref)
                 continue
             created = o.get("created_at")
             if created and (now - created.timestamp()) > max_age_seconds:
-                delete_ton_order(int(oid))
+                delete_ton_order(ref)
                 continue
-            orders.append((int(oid), o))
+            orders.append((ref, o))
         except (ValueError, TypeError):
             pass
     return orders
 
 
-def delete_ton_order(order_id: int):
-    client.delete(f"ton_order:{order_id}")
-    client.zrem("ton_orders:pending", str(order_id))
+def delete_ton_order(order_ref: str):
+    client.delete(f"ton_order:{order_ref}")
+    client.zrem("ton_orders:pending", order_ref)
 
 
 # ========= RULES =========
