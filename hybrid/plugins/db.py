@@ -382,12 +382,14 @@ def get_next_ton_order_id() -> int:
     return n
 
 
-def save_ton_order(order_id: int, user_id: int, amount: float, payload: str, msg_id: int, chat_id: int, created_at=None):
+def save_ton_order(order_id: int, user_id: int, amount_usdt: float, amount_ton: float, payload: str, msg_id: int, chat_id: int, created_at=None):
+    """amount_usdt: for crediting balance. amount_ton: expected TON for verification."""
     if created_at is None:
         created_at = _now()
     data = {
         "user_id": user_id,
-        "amount": str(amount),
+        "amount": str(amount_usdt),
+        "amount_ton": str(amount_ton),
         "payload": payload,
         "msg_id": msg_id,
         "chat_id": chat_id,
@@ -404,6 +406,7 @@ def get_ton_order(order_id: int):
     return {
         "user_id": int(data["user_id"]),
         "amount": float(data["amount"]),
+        "amount_ton": float(data.get("amount_ton") or data["amount"]),  # fallback for old orders
         "payload": data["payload"],
         "msg_id": int(data["msg_id"]),
         "chat_id": int(data["chat_id"]),
