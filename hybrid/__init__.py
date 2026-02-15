@@ -364,6 +364,13 @@ async def check_payments(client):
 
     while True:
         try:
+            pending_ton = get_all_pending_ton_orders() if TON_WALLET else []
+            if TON_WALLET and pending_ton:
+                from hybrid.plugins.func import check_tonkeeper_payments
+                await check_tonkeeper_payments(
+                    client, get_user_balance, save_user_balance, delete_ton_order,
+                    get_all_pending_ton_orders, t, TON_WALLET
+                )
             # 1. CryptoBot pending invoices
             if CRYPTO_STAT:
                 try:
@@ -377,6 +384,10 @@ async def check_payments(client):
                     try:
                         inv = await cp_client.get_invoice(inv_id)
                         if inv and getattr(inv, "status", None) == "paid":
+                            try:
+                                await client.edit_message_text(user_id, msg_id, "⌛")
+                            except Exception:
+                                pass
                             payload = (getattr(inv, "payload", "") or "").strip()
                             current_bal = get_user_balance(user_id) or 0.0
                             new_bal = current_bal + float(inv.amount)
@@ -408,8 +419,8 @@ async def check_payments(client):
                     except Exception as e:
                         logging.debug(f"CryptoBot check invoice {inv_id}: {e}")
 
-            # 2. Tonkeeper pending orders (TonCenter)
-            if TON_WALLET:
+            # 2. Tonkeeper (if not already run this loop)
+            if TON_WALLET and not pending_ton:
                 from hybrid.plugins.func import check_tonkeeper_payments
                 await check_tonkeeper_payments(
                     client, get_user_balance, save_user_balance, delete_ton_order,
@@ -417,7 +428,8 @@ async def check_payments(client):
                 )
         except Exception as e:
             logging.error(f"Payment checker error: {e}")
-        await asyncio.sleep(20)
+        pending_ton = get_all_pending_ton_orders() if TON_WALLET else []
+        await asyncio.sleep(6 if pending_ton else 12)
 
 
 class Bot(Client):
