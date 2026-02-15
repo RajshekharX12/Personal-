@@ -1135,6 +1135,68 @@ For support, contact the bot developer."""
             build_rentnum_keyboard(user_id, page=page)
         )
 
+    elif data.startswith("rentpay:"):
+        await query.answer()
+        parts = data.split(":")
+        user_id = query.from_user.id
+        if len(parts) >= 2:
+            number = parts[1]
+            query.data = f"numinfo:{number}:0"
+        else:
+            query.data = "back_home"
+        if query.data.startswith("numinfo:"):
+            number = query.data.split(":")[1]
+            num_text = format_number(number)
+            page = 0
+            info = get_number_info(number)
+            if not info:
+                await query.answer(t(user_id, "no_info"), show_alert=True)
+                return
+            rented_data = get_number_data(number)
+            if rented_data and rented_data.get("user_id"):
+                rent_date = rented_data.get("rent_date")
+                remaining_days = format_remaining_time(rent_date, rented_data.get("hours", 0))
+                date_str = format_date(str(rent_date))
+                txt = (
+                    f"📞: `{num_text}`\n"
+                    f"🔴: {t(user_id, 'unavailable')}\n\n"
+                    f"⏰ {t(user_id, 'days')}: {remaining_days}\n"
+                    f"📅 {t(user_id, 'date')}: {date_str}"
+                )
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
+                )
+                await query.message.edit_text(txt, reply_markup=keyboard)
+            elif info and info.get("available", True):
+                prices = info.get("prices", {})
+                txt = (
+                    f"📞: `{num_text}`\n"
+                    f"🟢: {t(user_id, 'available')}\n"
+                    f"💰: {t(user_id, 'rent_now')}"
+                )
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"30 {t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT", callback_data=f"rentfor:{number}:720")],
+                    [InlineKeyboardButton(f"60 {t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT", callback_data=f"rentfor:{number}:1440")],
+                    [InlineKeyboardButton(f"90 {t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT", callback_data=f"rentfor:{number}:2160")],
+                    [InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")],
+                ])
+                await query.message.edit_text(txt, reply_markup=keyboard)
+            else:
+                txt = f"📞: `{num_text}`\n🔴: {t(user_id, 'unavailable')}"
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
+                )
+                await query.message.edit_text(txt, reply_markup=keyboard)
+        else:
+            user = query.from_user
+            rows = [
+                [InlineKeyboardButton(t(user.id, "rent"), callback_data="rentnum"), InlineKeyboardButton(t(user.id, "my_rentals"), callback_data="my_rentals")],
+                [InlineKeyboardButton(t(user.id, "profile"), callback_data="profile"), InlineKeyboardButton(t(user.id, "help"), callback_data="help")],
+            ]
+            if user.id in ADMINS:
+                rows.insert(0, [InlineKeyboardButton("🛠️ Admin Panel", callback_data="admin_panel")])
+            await query.message.edit_text(t(user.id, "welcome", name=user.first_name or ""), reply_markup=InlineKeyboardMarkup(rows))
+
     elif data.startswith("numinfo:"):
         number = data.split(":")[1]
         num_text = format_number(number)
