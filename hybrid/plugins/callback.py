@@ -1148,11 +1148,25 @@ For support, contact the bot developer."""
             number = query.data.split(":")[1]
             num_text = format_number(number)
             page = 0
+            rented_data = get_number_data(number)
+            if rented_data and rented_data.get("user_id") == user_id:
+                rent_date = rented_data.get("rent_date")
+                hours = rented_data.get("hours", 0)
+                time_left = format_remaining_time(rent_date, hours)
+                date_str = format_date(str(rent_date)) if rent_date else "N/A"
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{number}"), InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{number}")],
+                    [InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")],
+                ])
+                await query.message.edit_text(
+                    t(user_id, "number", num=num_text, time=time_left, date=date_str),
+                    reply_markup=keyboard,
+                )
+                return
             info = get_number_info(number)
             if not info:
                 await query.answer(t(user_id, "no_info"), show_alert=True)
                 return
-            rented_data = get_number_data(number)
             if rented_data and rented_data.get("user_id"):
                 rent_date = rented_data.get("rent_date")
                 remaining_days = format_remaining_time(rent_date, rented_data.get("hours", 0))
@@ -1797,4 +1811,6 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+
 
