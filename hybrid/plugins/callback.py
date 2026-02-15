@@ -1,4 +1,4 @@
-(©) @Hybrid_Vamp - https://github.com/hybridvamp
+#(©) @Hybrid_Vamp - https://github.com/hybridvamp
 
 from email.mime import message
 import re
