@@ -377,16 +377,28 @@ async def check_payments(client):
                     try:
                         inv = await cp_client.get_invoice(inv_id)
                         if inv and getattr(inv, "status", None) == "paid":
-                            payload = getattr(inv, "payload", "") or ""
+                            payload = (getattr(inv, "payload", "") or "").strip()
                             current_bal = get_user_balance(user_id) or 0.0
                             new_bal = current_bal + float(inv.amount)
                             save_user_balance(user_id, new_bal)
-                            back_cb = payload if payload and payload.startswith("numinfo:") else "profile"
+                            if payload.startswith("rentpay:"):
+                                parts = payload.split(":")
+                                if len(parts) >= 3:
+                                    _, number, hours = parts[0], parts[1], parts[2]
+                                    keyboard = InlineKeyboardMarkup([[
+                                        InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
+                                    ]])
+                                else:
+                                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+                            elif payload.startswith("numinfo:"):
+                                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]])
+                            else:
+                                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
                             try:
                                 await client.edit_message_text(
                                     user_id, msg_id,
                                     t(user_id, "payment_confirmed"),
-                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=back_cb)]])
+                                    reply_markup=keyboard
                                 )
                             except Exception:
                                 pass
