@@ -260,27 +260,49 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
     )
 
 
-def create_tonkeeper_link(amount: float, order_id: int) -> str:
-    """Build Tonkeeper USDT payment link. Amount in USDT, order_id for memo."""
+async def get_ton_price_usd() -> float:
+    """Fetch current TON price in USD. Returns 0 on failure."""
+    import requests
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        r = await loop.run_in_executor(
+            None,
+            lambda: requests.get("https://tonapi.io/v2/rates?tokens=ton&currencies=usd", timeout=10)
+        )
+        if r.status_code != 200:
+            return 0.0
+        data = r.json()
+        return float(data.get("rates", {}).get("TON", {}).get("prices", {}).get("USD", 0) or 0)
+    except Exception:
+        return 0.0
+
+
+def create_tonkeeper_link(amount_ton: float, order_id: int) -> str:
+    """Build Tonkeeper TON payment link. Memo auto-filled via text param."""
     from urllib.parse import quote
-    from hybrid.plugins.db import USDT_JETTON_MASTER
     if not TON_WALLET:
         return ""
-    amount_nano = int(float(amount) * 1_000_000)  # USDT 6 decimals
+    amount_nano = int(float(amount_ton) * 1_000_000_000)  # 1 TON = 1e9 nanotons
     memo = f"#{order_id}"
     base = f"https://app.tonkeeper.com/transfer/{TON_WALLET}"
-    return f"{base}?jetton={USDT_JETTON_MASTER}&amount={amount_nano}&text={quote(memo)}"
+    return f"{base}?amount={amount_nano}&text={quote(memo)}"
 
 
-async def send_tonkeeper_invoice(client: Client, user_id: int, amount: float, description: str, msg: Message, payload: str):
-    """Create Tonkeeper payment screen with order ID in memo. Pay + Back only."""
+async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: float, description: str, msg: Message, payload: str):
+    """Create Tonkeeper payment screen. Converts USDT to TON, memo auto-filled in Pay link."""
     from hybrid.plugins.db import get_next_ton_order_id, save_ton_order
     if not TON_WALLET:
         await msg.edit("❌ Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
+    ton_price = await get_ton_price_usd()
+    if not ton_price or ton_price <= 0:
+        await msg.edit("❌ Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
+        return
+    amount_ton = amount_usdt / ton_price
     order_id = get_next_ton_order_id()
-    save_ton_order(order_id, user_id, amount, payload, msg.id, msg.chat.id)
-    pay_url = create_tonkeeper_link(amount, order_id)
+    save_ton_order(order_id, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
+    pay_url = create_tonkeeper_link(amount_ton, order_id)
     if not pay_url:
         await msg.edit("❌ Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
@@ -290,10 +312,10 @@ async def send_tonkeeper_invoice(client: Client, user_id: int, amount: float, de
     ]
     await msg.edit(
         f"💸 **Tonkeeper Payment**\n\n"
-        f"Amount: `{amount}` USDT\n"
-        f"Description: `{description}`\n"
-        f"**Order ID (memo):** `#{order_id}`\n\n"
-        f"⚠️ Add memo `#{order_id}` when paying. Payment is checked automatically.",
+        f"• Amount: {amount_usdt} USDT (~{amount_ton:.4f} TON)\n"
+        f"• Description: {description}\n"
+        f"• Order ID (memo): `#{order_id}`\n\n"
+        f"Memo is pre-filled when you tap Pay. Payment is checked automatically.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -565,4 +587,3 @@ async def give_payment_option(client, msg: Message, user_id: int):
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
-
