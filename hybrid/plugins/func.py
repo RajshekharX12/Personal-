@@ -319,12 +319,19 @@ async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: floa
     )
 
 
-def _normalize_ton_address(addr: str) -> str:
-    """Normalize TON address for comparison (handles base64, base64url, raw)."""
-    if not addr:
-        return ""
-    s = str(addr).replace("-", "").replace("_", "").replace(" ", "").lower()
-    return s
+def _ton_addresses_match(addr1: str, addr2: str) -> bool:
+    """Compare TON addresses - EQ vs UQ same wallet have different checksums, must decode to raw."""
+    if not addr1 or not addr2:
+        return False
+    try:
+        from pytoniq_core import Address
+        a1 = Address(addr1.strip())
+        a2 = Address(addr2.strip())
+        return a1 == a2 or str(a1) == str(a2)
+    except Exception:
+        s1 = str(addr1).replace("-", "").replace("_", "").replace(" ", "").lower()
+        s2 = str(addr2).replace("-", "").replace("_", "").replace(" ", "").lower()
+        return s1 == s2
 
 
 def _extract_comment(in_msg: dict) -> str:
@@ -373,10 +380,9 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
     pending = get_all_pending_ton_orders()
     if not pending:
         return
-    wallet_norm = _normalize_ton_address(TON_WALLET)
     try:
         from urllib.parse import quote
-        addr_param = quote(TON_WALLET, safe="")
+        addr_param = quote(TON_WALLET.strip(), safe="")
         url = f"https://toncenter.com/api/v2/getTransactions?address={addr_param}&limit=50"
         loop = asyncio.get_event_loop()
         r = await loop.run_in_executor(None, lambda: requests.get(url, timeout=15))
@@ -395,7 +401,7 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
                 if not in_msg:
                     continue
                 dest = in_msg.get("destination") or ""
-                if wallet_norm and _normalize_ton_address(dest) != wallet_norm:
+                if not _ton_addresses_match(TON_WALLET, dest):
                     continue
                 try:
                     amt = int(in_msg.get("value") or 0)
@@ -706,3 +712,4 @@ async def give_payment_option(client, msg: Message, user_id: int):
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
+
