@@ -208,7 +208,15 @@ async def check_7day_accs(client):
                 if me is not None:
                     try:
                         await temp_client.invoke(functions.account.DeleteAccount(reason="Cleanup"))
-                        logging.info(f"✅ Completed 7-day deletion for {num}")
+                        try:
+                            from hybrid.plugins.fragment import fragment_api
+                            is_free = await fragment_api.check_is_number_free(num)
+                            if is_free:
+                                logging.info(f"✅ Account {num} deleted (verified via Fragment).")
+                            else:
+                                logging.info(f"❌ Account {num} not deleted — 7-day step two verification activated.")
+                        except Exception as e:
+                            logging.info(f"✅ Completed 7-day deletion for {num} (Fragment verify: {e})")
                     except Exception as e:
                         err_upper = str(e).upper()
                         if "ACCOUNT_DELETED" in err_upper or "USER_DEACTIVATED" in err_upper:
