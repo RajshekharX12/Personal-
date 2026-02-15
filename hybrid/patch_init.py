@@ -49,7 +49,7 @@ old_block = """                pending = get_all_pending_ton_orders()
                     except Exception as e:
                         logging.debug(f"Tonkeeper check order {order_ref}: {e}")"""
 
-new_block = """                from hybrid.plugins.ton_checker import check_tonkeeper_payments
+new_block = """                from hybrid.plugins.func import check_tonkeeper_payments
                 await check_tonkeeper_payments(
                     client, get_user_balance, save_user_balance, delete_ton_order,
                     get_all_pending_ton_orders, t, TON_WALLET
