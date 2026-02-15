@@ -15,7 +15,9 @@ OWNER_ID = int(os.environ.get("OWNER_ID", "5770074932"))
 REDIS_URI = os.environ.get("REDIS_URL", "REDIS_URL=rediss://:Vu9yPldfEJJo3N9IvoVFw1NPRvTofWAi@redis-18639.c56.east-us.azure.cloud.redislabs.com:18639/0")
 DB_NAME = os.environ.get("DATABASE_NAME", "rental")
 CRYPTO_API = os.environ.get("CRYPTO_API", "523718:AAEQO6x6qx2PXerElEVuIvBcuL5rdHgDR4Q")
-USDT_ADDRESS = os.environ.get("TON_ADDRESS", "UQAYH3MHNSUABi73Z6HwIcuXkmws1tBDDN-lWIPhXZW455bI")
+TON_WALLET = os.environ.get("TON_WALLET", "")  # TON wallet address for Tonkeeper payments
+TON_API_TOKEN = os.environ.get("TON_API_TOKEN", "")  # Optional: for payment checker (get from @tonapibot)
+
 
 # ============== FRAGMENT data =============
 FRAGMENT_API_HASH = os.environ.get("FRAGMENT_API_HASH", "38f80e92d2dbe5065b")
@@ -38,6 +40,7 @@ except ValueError:
 
 
 ADMINS.append(OWNER_ID)
+
 
 
 
