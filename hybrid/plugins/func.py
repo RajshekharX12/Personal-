@@ -248,15 +248,17 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
         payload=payload
     )
     inv_id = invoice.invoice_id
+    keyboard = [
+        [InlineKeyboardButton("💳 Pay Now", url=invoice.bot_invoice_url)],
+        [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_{inv_id}")],
+        [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
+    ]
     await msg.edit(
         f"💸 **Invoice Created**\n\n"
         f"Amount: `{amount}` USDT\n"
         f"Description: `{description}`\n"
         f"Pay using the button below.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("💳 Pay Now", url=invoice.bot_invoice_url)],
-            [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_{inv_id}")],
-        ])
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
