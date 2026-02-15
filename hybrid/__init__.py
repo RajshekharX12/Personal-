@@ -399,7 +399,7 @@ async def check_payments(client):
             # 2. Tonkeeper pending orders (TON API)
             if TON_WALLET and TON_API_TOKEN:
                 pending = get_all_pending_ton_orders()
-                for order_id, order in pending:
+                for order_ref, order in pending:
                     try:
                         url = f"https://tonapi.io/v2/accounts/{TON_WALLET}/events?limit=30"
                         headers = {"Authorization": f"Bearer {TON_API_TOKEN}"}
@@ -409,7 +409,7 @@ async def check_payments(client):
                             continue
                         data = r.json()
                         events = data.get("events") or []
-                        memo_needle = f"#{order_id}"
+                        memo_needle = order_ref  # e.g. PayEFoT3YAg (no #)
                         amount_ton = order.get("amount_ton") or (float(order["amount"]) / 5.0)  # fallback
                         amount_nano_min = int(float(amount_ton) * 1_000_000_000 * 0.99)
                         for ev in events:
@@ -422,7 +422,7 @@ async def check_payments(client):
                                 dest = (recip.get("address") if isinstance(recip, dict) else None) or (str(recip) if recip else "") or ""
                                 comment = str(tt.get("comment") or tt.get("payload") or "").strip()
                                 amt = int(tt.get("amount", 0) or tt.get("amount_nano", 0) or 0)
-                                if memo_needle in comment or comment == memo_needle:
+                                if memo_needle in comment or comment == memo_needle or comment.strip() == memo_needle:
                                     if TON_WALLET in str(dest) or (dest and dest.replace("-", "").replace("_", "") in TON_WALLET.replace("-", "").replace("_", "")):
                                         if amt >= amount_nano_min:
                                             user_id = order["user_id"]
@@ -439,10 +439,10 @@ async def check_payments(client):
                                                 )
                                             except Exception:
                                                 pass
-                                            delete_ton_order(order_id)
+                                            delete_ton_order(order_ref)
                                             break
                     except Exception as e:
-                        logging.debug(f"Tonkeeper check order {order_id}: {e}")
+                        logging.debug(f"Tonkeeper check order {order_ref}: {e}")
         except Exception as e:
             logging.error(f"Payment checker error: {e}")
         await asyncio.sleep(20)
@@ -509,4 +509,5 @@ class Bot(Client):
     async def stop(self, *args):
         await super().stop()
         logging.info("Bot stopped.")
+
 
