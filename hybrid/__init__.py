@@ -396,9 +396,9 @@ async def check_payments(client):
                     except Exception as e:
                         logging.debug(f"CryptoBot check invoice {inv_id}: {e}")
 
-                 # 2. Tonkeeper pending orders (TonCenter API v2 - TON asset processing)
+            # 2. Tonkeeper pending orders (TonCenter)
             if TON_WALLET:
-              from hybrid.plugins.func import check_tonkeeper_payments
+                from hybrid.plugins.func import check_tonkeeper_payments
                 await check_tonkeeper_payments(
                     client, get_user_balance, save_user_balance, delete_ton_order,
                     get_all_pending_ton_orders, t, TON_WALLET
