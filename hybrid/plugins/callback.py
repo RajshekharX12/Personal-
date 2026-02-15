@@ -316,8 +316,17 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return
 
         if invoice.status == "paid":
-            payload = invoice.payload
-            if payload and payload.startswith("numinfo:"):
+            payload = (invoice.payload or "").strip()
+            if payload.startswith("rentpay:"):
+                parts = payload.split(":")
+                if len(parts) >= 3:
+                    _, number, hours = parts[0], parts[1], parts[2]
+                    keyboard = InlineKeyboardMarkup([[
+                        InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
+                    ]])
+                else:
+                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+            elif payload.startswith("numinfo:"):
                 keyboard = InlineKeyboardMarkup(
                     [[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]
                 )
@@ -1448,9 +1457,9 @@ For support, contact the bot developer."""
             if not method:
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
-                return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
+                return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             if method == "tonkeeper":
-                return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
+                return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             return
         
         if hours == 720:
@@ -1523,9 +1532,9 @@ For support, contact the bot developer."""
             if not method:
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
-                return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
+                return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             if method == "tonkeeper":
-                return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
+                return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             return
         # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
         rented_data = get_number_data(number)
@@ -1726,6 +1735,4 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
-
 
