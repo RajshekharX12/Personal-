@@ -410,18 +410,21 @@ async def check_payments(client):
                         data = r.json()
                         events = data.get("events") or []
                         memo_needle = f"#{order_id}"
-                        amount_needle = int(float(order["amount"]) * 1_000_000)
+                        amount_ton = order.get("amount_ton") or (float(order["amount"]) / 5.0)  # fallback
+                        amount_nano_min = int(float(amount_ton) * 1_000_000_000 * 0.99)
                         for ev in events:
                             for act in ev.get("actions") or []:
-                                if act.get("type") != "JettonTransfer":
+                                atype = act.get("type", "")
+                                if atype not in ("TonTransfer", "ton_transfer"):
                                     continue
-                                jt = act.get("jetton_transfer") or act
-                                dest = (jt.get("destination") or {}).get("address") or jt.get("destination_address") or ""
-                                comment = (jt.get("payload") or "").strip() or (jt.get("comment") or "").strip()
-                                amt = int(jt.get("amount", 0) or 0)
-                                if memo_needle in comment or comment == memo_needle or comment.endswith(memo_needle):
-                                    if TON_WALLET in dest or dest and dest.replace("-", "").replace("_", "") in TON_WALLET.replace("-", "").replace("_", ""):
-                                        if amt >= int(amount_needle * 0.99):
+                                tt = act.get("TonTransfer") or act.get("ton_transfer") or act
+                                recip = tt.get("recipient") or tt.get("destination")
+                                dest = (recip.get("address") if isinstance(recip, dict) else None) or (str(recip) if recip else "") or ""
+                                comment = str(tt.get("comment") or tt.get("payload") or "").strip()
+                                amt = int(tt.get("amount", 0) or tt.get("amount_nano", 0) or 0)
+                                if memo_needle in comment or comment == memo_needle:
+                                    if TON_WALLET in str(dest) or (dest and dest.replace("-", "").replace("_", "") in TON_WALLET.replace("-", "").replace("_", "")):
+                                        if amt >= amount_nano_min:
                                             user_id = order["user_id"]
                                             payload = order["payload"]
                                             current_bal = get_user_balance(user_id) or 0.0
@@ -506,5 +509,4 @@ class Bot(Client):
     async def stop(self, *args):
         await super().stop()
         logging.info("Bot stopped.")
-
 
