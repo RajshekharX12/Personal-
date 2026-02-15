@@ -1,3 +1,5 @@
+#(©) @Hybrid_Vamp - https://github.com/hybridvamp
+
 from email.mime import message
 import re
 import os
@@ -258,6 +260,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton(t(user_id, "pay_now"), url=pay_url)],
                     [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_{inv_id}")],
+                    [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
                 ])
 
                 await query.message.edit_text(
