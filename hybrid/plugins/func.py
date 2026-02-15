@@ -385,7 +385,7 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
         addr_param = quote(TON_WALLET.strip(), safe="")
         url = f"https://toncenter.com/api/v2/getTransactions?address={addr_param}&limit=50"
         loop = asyncio.get_event_loop()
-        r = await loop.run_in_executor(None, lambda: requests.get(url, timeout=15))
+        r = await loop.run_in_executor(None, lambda: requests.get(url, timeout=8))
         if r.status_code != 200:
             return
         data = r.json()
@@ -414,6 +414,10 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
                     continue
                 user_id = order["user_id"]
                 payload = (order.get("payload") or "").strip()
+                try:
+                    await client.edit_message_text(order["chat_id"], order["msg_id"], "⌛")
+                except Exception:
+                    pass
                 current_bal = get_user_balance(user_id) or 0.0
                 new_bal = current_bal + float(order["amount"])
                 save_user_balance(user_id, new_bal)
@@ -712,4 +716,3 @@ async def give_payment_option(client, msg: Message, user_id: int):
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
-
