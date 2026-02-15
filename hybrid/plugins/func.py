@@ -27,7 +27,7 @@ from pyrogram.errors import (
 )
 
 from hybrid.plugins.temp import temp
-from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH
+from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH, TON_WALLET
 
 
 def get_current_datetime():
@@ -247,10 +247,8 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
         expires_in=1800,
         payload=payload
     )
-    inv_id = invoice.invoice_id
     keyboard = [
-        [InlineKeyboardButton("💳 Pay Now", url=invoice.bot_invoice_url)],
-        [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_{inv_id}")],
+        [InlineKeyboardButton("💳 Pay", url=invoice.bot_invoice_url)],
         [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
@@ -258,6 +256,44 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
         f"Amount: `{amount}` USDT\n"
         f"Description: `{description}`\n"
         f"Pay using the button below.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+def create_tonkeeper_link(amount: float, order_id: int) -> str:
+    """Build Tonkeeper USDT payment link. Amount in USDT, order_id for memo."""
+    from urllib.parse import quote
+    from hybrid.plugins.db import USDT_JETTON_MASTER
+    if not TON_WALLET:
+        return ""
+    amount_nano = int(float(amount) * 1_000_000)  # USDT 6 decimals
+    memo = f"#{order_id}"
+    base = f"https://app.tonkeeper.com/transfer/{TON_WALLET}"
+    return f"{base}?jetton={USDT_JETTON_MASTER}&amount={amount_nano}&text={quote(memo)}"
+
+
+async def send_tonkeeper_invoice(client: Client, user_id: int, amount: float, description: str, msg: Message, payload: str):
+    """Create Tonkeeper payment screen with order ID in memo. Pay + Back only."""
+    from hybrid.plugins.db import get_next_ton_order_id, save_ton_order
+    if not TON_WALLET:
+        await msg.edit("❌ Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
+        return
+    order_id = get_next_ton_order_id()
+    save_ton_order(order_id, user_id, amount, payload, msg.id, msg.chat.id)
+    pay_url = create_tonkeeper_link(amount, order_id)
+    if not pay_url:
+        await msg.edit("❌ Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
+        return
+    keyboard = [
+        [InlineKeyboardButton("💳 Pay", url=pay_url)],
+        [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
+    ]
+    await msg.edit(
+        f"💸 **Tonkeeper Payment**\n\n"
+        f"Amount: `{amount}` USDT\n"
+        f"Description: `{description}`\n"
+        f"**Order ID (memo):** `#{order_id}`\n\n"
+        f"⚠️ Add memo `#{order_id}` when paying. Payment is checked automatically.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -521,10 +557,12 @@ def export_numbers_csv(filename: str = "numbers_export.csv"):
     return filename
 
 async def give_payment_option(client, msg: Message, user_id: int):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("@send", callback_data="set_payment_cryptobot")]
-    ])
+    rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="set_payment_cryptobot")]]
+    if TON_WALLET:
+        rows.append([InlineKeyboardButton("Tonkeeper", callback_data="set_payment_tonkeeper")])
+    keyboard = InlineKeyboardMarkup(rows)
     await msg.reply(
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
+
