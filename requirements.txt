@@ -1,12 +1,12 @@
 # pyrotgfork[fast]
 # TgCrypto
 pyroblack
+pytoniq-core
 # pyromod
 python-dotenv
 requests
 aiosend
 psutil
 redis
-pymongo
 tgcrypto-pyroblack
 beautifulsoup4
