@@ -1,4 +1,4 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
+(©) @Hybrid_Vamp - https://github.com/hybridvamp
 
 from email.mime import message
 import re
@@ -874,10 +874,16 @@ Details:
         chat = query.message.chat
         stat, reason = await delete_account(identifier, app=client)
         if stat:
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
-            ]
-            await query.message.edit_text(f"✅ Account associated with number **{identifier}** has been deleted/deletion counter for one week started successfully.", reply_markup=InlineKeyboardMarkup(keyboard))
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
+            try:
+                is_free = await fragment_api.check_is_number_free(identifier)
+                if is_free:
+                    msg = f"✅ Account associated with number **{identifier}** has been deleted."
+                else:
+                    msg = f"❌ Account is not deleted. 7-day step two verification activated for **{identifier}**."
+            except Exception:
+                msg = f"✅ Account associated with number **{identifier}** has been deleted/deletion counter for one week started successfully."
+            await query.message.edit_text(msg, reply_markup=keyboard)
         else:
             keyboard = [
                 [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
@@ -1106,10 +1112,16 @@ For support, contact the bot developer."""
             return await query.message.edit_text("❌ Cannot delete account. The number is currently in use in Fragment.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
         stat, reason = await delete_account(number, app=client, chat=query.message.chat)
         if stat:
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
-            ]
-            await query.message.edit_text(f"✅ Account associated with number **{number}** has been deleted/deletion counter for one week started successfully.", reply_markup=InlineKeyboardMarkup(keyboard))
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
+            try:
+                is_free = await fragment_api.check_is_number_free(number)
+                if is_free:
+                    msg = f"✅ Account associated with number **{number}** has been deleted."
+                else:
+                    msg = f"❌ Account is not deleted. 7-day step two verification activated for **{number}**."
+            except Exception:
+                msg = f"✅ Account associated with number **{number}** has been deleted/deletion counter for one week started successfully."
+            await query.message.edit_text(msg, reply_markup=keyboard)
             return
         else:
             if reason == "Banned":
@@ -1811,6 +1823,5 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
 
 
