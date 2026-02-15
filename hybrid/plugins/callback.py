@@ -20,7 +20,7 @@ from hybrid.plugins.temp import temp
 from hybrid.plugins.func import *
 from hybrid.plugins.db import *
 from hybrid.plugins.fragment import *
-from config import D30_RATE, D60_RATE, D90_RATE
+from config import D30_RATE, D60_RATE, D90_RATE, TON_WALLET
 
 from aiosend.types import Invoice
 from datetime import datetime, timezone
@@ -117,6 +117,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
         method = get_user_payment_method(user.id)
         if method == "cryptobot":
             payment_method = "CryptoBot (@send)"
+        elif method == "tonkeeper":
+            payment_method = "Tonkeeper"
         else:
             payment_method = "Not set"
         text = t(
@@ -137,10 +139,11 @@ async def callback_handler(client: Client, query: CallbackQuery):
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data == "change_payment_method":
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("CryptoBot (@send)", callback_data="setpayment_cryptobot")],
-            [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]
-        ])
+        rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="setpayment_cryptobot")]]
+        if TON_WALLET:
+            rows.append([InlineKeyboardButton("Tonkeeper", callback_data="setpayment_tonkeeper")])
+        rows.append([InlineKeyboardButton(t(user_id, "back"), callback_data="profile")])
+        keyboard = InlineKeyboardMarkup(rows)
         await query.message.edit_text(t(user_id, "choose_payment_method"), reply_markup=keyboard)
 
     elif data == "back_home":
@@ -166,11 +169,17 @@ async def callback_handler(client: Client, query: CallbackQuery):
             reply_markup=keyboard
         )
 
-    elif data == "setpayment_tron" or data == "setpayment_cryptobot" or data.startswith("setpayment_"):
+    elif data == "setpayment_tron" or data == "setpayment_cryptobot" or data == "setpayment_tonkeeper" or data.startswith("setpayment_"):
         method = data.replace("setpayment_", "")
         if method == "cryptobot":
             save_user_payment_method(user_id, "cryptobot")
             await query.message.edit_text(t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
+                                          reply_markup=InlineKeyboardMarkup(
+                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                                          ))
+        elif method == "tonkeeper":
+            save_user_payment_method(user_id, "tonkeeper")
+            await query.message.edit_text(t(user_id, "selected_payment_method", method="Tonkeeper"),
                                           reply_markup=InlineKeyboardMarkup(
                                               [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
                                           ))
@@ -187,6 +196,14 @@ async def callback_handler(client: Client, query: CallbackQuery):
                                           ))
             await asyncio.sleep(3)
             await query.message.delete()
+        elif method == "tonkeeper":
+            save_user_payment_method(user_id, "tonkeeper")
+            await query.message.edit_text(t(user_id, "selected_payment_method", method="Tonkeeper"),
+                                          reply_markup=InlineKeyboardMarkup(
+                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                                          ))
+            await asyncio.sleep(3)
+            await query.message.delete()
         else:
             await query.answer("❌ Invalid payment method selected.", show_alert=True)
             await asyncio.sleep(3)
@@ -198,7 +215,23 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return await give_payment_option(client, query.message, user_id)
         chat = query.message.chat
 
-        if method == "cryptobot":
+        if method == "tonkeeper":
+            try:
+                response = await chat.ask(t(user_id, "enter_amount"), timeout=120)
+            except Exception:
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+                return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=keyboard)
+            try:
+                amount = float(response.text.strip())
+                if amount < 0.5:
+                    return await query.message.reply("❌ Amount must be at least 0.5 USDT.")
+            except ValueError:
+                return await query.message.reply("❌ Invalid input. Please enter a valid number.")
+            await response.delete()
+            await response.sent_message.delete()
+            await send_tonkeeper_invoice(client, user_id, amount, f"Top-up for {user_id}", query.message, "profile")
+
+        elif method == "cryptobot":
             if not CRYPTO_STAT:
                 keyboard = InlineKeyboardMarkup(
                     [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
@@ -256,10 +289,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 temp.PENDING_INV.append(invoice.invoice_id)
 
                 pay_url = invoice.bot_invoice_url
-                inv_id = invoice.invoice_id
                 keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(t(user_id, "pay_now"), url=pay_url)],
-                    [InlineKeyboardButton(t(user_id, "i_paid"), callback_data=f"check_payment_{inv_id}")],
+                    [InlineKeyboardButton("💳 Pay", url=pay_url)],
                     [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
                 ])
 
@@ -1418,6 +1449,8 @@ For support, contact the bot developer."""
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
+            if method == "tonkeeper":
+                return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
             return
         
         if hours == 720:
@@ -1491,6 +1524,8 @@ For support, contact the bot developer."""
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
+            if method == "tonkeeper":
+                return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"numinfo:{number}:0")
             return
         # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
         rented_data = get_number_data(number)
@@ -1691,3 +1726,6 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+
+
