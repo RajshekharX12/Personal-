@@ -351,7 +351,98 @@ async def check_restricted_numbers(client):
                 logging.error(f"Failed to notify user {user_id} about restricted number {num}: {e}")
 
         await asyncio.sleep(86400)
-                
+
+
+async def check_payments(client):
+    """Background: verify CryptoBot invoices and Tonkeeper orders. Update messages when paid."""
+    import requests
+    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from hybrid.plugins.temp import temp
+    from hybrid.plugins.db import get_user_balance, save_user_balance, get_ton_order, delete_ton_order, get_all_pending_ton_orders
+    from hybrid.plugins.func import t
+    from config import TON_WALLET, TON_API_TOKEN
+
+    while True:
+        try:
+            # 1. CryptoBot pending invoices
+            if CRYPTO_STAT:
+                try:
+                    cp_client = cp
+                except NameError:
+                    cp_client = None
+            else:
+                cp_client = None
+            if cp_client and hasattr(cp_client, "get_invoice"):
+                for user_id, (inv_id, msg_id) in list(temp.INV_DICT.items()):
+                    try:
+                        inv = await cp_client.get_invoice(inv_id)
+                        if inv and getattr(inv, "status", None) == "paid":
+                            payload = getattr(inv, "payload", "") or ""
+                            current_bal = get_user_balance(user_id) or 0.0
+                            new_bal = current_bal + float(inv.amount)
+                            save_user_balance(user_id, new_bal)
+                            back_cb = payload if payload and payload.startswith("numinfo:") else "profile"
+                            try:
+                                await client.edit_message_text(
+                                    user_id, msg_id,
+                                    t(user_id, "payment_confirmed"),
+                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=back_cb)]])
+                                )
+                            except Exception:
+                                pass
+                            temp.INV_DICT.pop(user_id, None)
+                            if inv_id in temp.PENDING_INV:
+                                temp.PENDING_INV.remove(inv_id)
+                    except Exception as e:
+                        logging.debug(f"CryptoBot check invoice {inv_id}: {e}")
+
+            # 2. Tonkeeper pending orders (TON API)
+            if TON_WALLET and TON_API_TOKEN:
+                pending = get_all_pending_ton_orders()
+                for order_id, order in pending:
+                    try:
+                        url = f"https://tonapi.io/v2/accounts/{TON_WALLET}/events?limit=30"
+                        headers = {"Authorization": f"Bearer {TON_API_TOKEN}"}
+                        loop = asyncio.get_event_loop()
+                        r = await loop.run_in_executor(None, lambda: requests.get(url, headers=headers, timeout=15))
+                        if r.status_code != 200:
+                            continue
+                        data = r.json()
+                        events = data.get("events") or []
+                        memo_needle = f"#{order_id}"
+                        amount_needle = int(float(order["amount"]) * 1_000_000)
+                        for ev in events:
+                            for act in ev.get("actions") or []:
+                                if act.get("type") != "JettonTransfer":
+                                    continue
+                                jt = act.get("jetton_transfer") or act
+                                dest = (jt.get("destination") or {}).get("address") or jt.get("destination_address") or ""
+                                comment = (jt.get("payload") or "").strip() or (jt.get("comment") or "").strip()
+                                amt = int(jt.get("amount", 0) or 0)
+                                if memo_needle in comment or comment == memo_needle or comment.endswith(memo_needle):
+                                    if TON_WALLET in dest or dest and dest.replace("-", "").replace("_", "") in TON_WALLET.replace("-", "").replace("_", ""):
+                                        if amt >= int(amount_needle * 0.99):
+                                            user_id = order["user_id"]
+                                            payload = order["payload"]
+                                            current_bal = get_user_balance(user_id) or 0.0
+                                            new_bal = current_bal + order["amount"]
+                                            save_user_balance(user_id, new_bal)
+                                            back_cb = payload if payload and str(payload).startswith("numinfo:") else "profile"
+                                            try:
+                                                await client.edit_message_text(
+                                                    order["chat_id"], order["msg_id"],
+                                                    t(user_id, "payment_confirmed"),
+                                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=back_cb)]])
+                                                )
+                                            except Exception:
+                                                pass
+                                            delete_ton_order(order_id)
+                                            break
+                    except Exception as e:
+                        logging.debug(f"Tonkeeper check order {order_id}: {e}")
+        except Exception as e:
+            logging.error(f"Payment checker error: {e}")
+        await asyncio.sleep(20)
 
 
 class Bot(Client):
@@ -396,6 +487,8 @@ class Bot(Client):
         logging.info("Started background task to check 7-day deletion accounts.")
         asyncio.create_task(check_restricted_numbers(self))
         logging.info("Started daily task to check restricted numbers.")
+        asyncio.create_task(check_payments(self))
+        logging.info("Started payment checker (CryptoBot + Tonkeeper).")
 
         from hybrid.plugins.db import get_all_admins
         AD_MINS = get_all_admins()
