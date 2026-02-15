@@ -371,6 +371,72 @@ def get_user_payment_method(user_id: int):
     return method if method != "tron" else "cryptobot"
 
 
+# ========= TONKEEPER ORDERS =========
+USDT_JETTON_MASTER = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"  # USDT on TON mainnet
+
+
+def get_next_ton_order_id() -> int:
+    """Increment and return next order ID (e.g. 22673)."""
+    key = "ton_order_counter"
+    n = client.incr(key)
+    return n
+
+
+def save_ton_order(order_id: int, user_id: int, amount: float, payload: str, msg_id: int, chat_id: int, created_at=None):
+    if created_at is None:
+        created_at = _now()
+    data = {
+        "user_id": user_id,
+        "amount": str(amount),
+        "payload": payload,
+        "msg_id": msg_id,
+        "chat_id": chat_id,
+        "created_at": created_at.isoformat(),
+    }
+    client.hset(f"ton_order:{order_id}", mapping=data)
+    client.zadd("ton_orders:pending", {str(order_id): created_at.timestamp()})
+
+
+def get_ton_order(order_id: int):
+    data = client.hgetall(f"ton_order:{order_id}")
+    if not data:
+        return None
+    return {
+        "user_id": int(data["user_id"]),
+        "amount": float(data["amount"]),
+        "payload": data["payload"],
+        "msg_id": int(data["msg_id"]),
+        "chat_id": int(data["chat_id"]),
+        "created_at": _parse_dt(data.get("created_at")),
+    }
+
+
+def get_all_pending_ton_orders(max_age_seconds=1800):
+    """Return pending orders. Expired ones (>max_age_seconds) are removed."""
+    now = _now().timestamp()
+    ids = client.zrange("ton_orders:pending", 0, -1)
+    orders = []
+    for oid in ids:
+        try:
+            o = get_ton_order(int(oid))
+            if not o:
+                delete_ton_order(int(oid))
+                continue
+            created = o.get("created_at")
+            if created and (now - created.timestamp()) > max_age_seconds:
+                delete_ton_order(int(oid))
+                continue
+            orders.append((int(oid), o))
+        except (ValueError, TypeError):
+            pass
+    return orders
+
+
+def delete_ton_order(order_id: int):
+    client.delete(f"ton_order:{order_id}")
+    client.zrem("ton_orders:pending", str(order_id))
+
+
 # ========= RULES =========
 def save_rules(rules: str, lang: str = "en"):
     client.hset(f"rules:{lang}", mapping={"text": rules, "language": lang})
