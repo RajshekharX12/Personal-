@@ -278,20 +278,19 @@ async def get_ton_price_usd() -> float:
         return 0.0
 
 
-def create_tonkeeper_link(amount_ton: float, order_id: int) -> str:
-    """Build Tonkeeper TON payment link. Memo auto-filled via text param."""
+def create_tonkeeper_link(amount_ton: float, order_ref: str) -> str:
+    """Build Tonkeeper TON payment link. Memo (order_ref) auto-filled via text param. No # used (Tonkeeper ignores %23)."""
     from urllib.parse import quote
     if not TON_WALLET:
         return ""
     amount_nano = int(float(amount_ton) * 1_000_000_000)  # 1 TON = 1e9 nanotons
-    memo = f"#{order_id}"
     base = f"https://app.tonkeeper.com/transfer/{TON_WALLET}"
-    return f"{base}?amount={amount_nano}&text={quote(memo)}"
+    return f"{base}?amount={amount_nano}&text={quote(order_ref)}"
 
 
 async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: float, description: str, msg: Message, payload: str):
     """Create Tonkeeper payment screen. Converts USDT to TON, memo auto-filled in Pay link."""
-    from hybrid.plugins.db import get_next_ton_order_id, save_ton_order
+    from hybrid.plugins.db import _gen_order_ref, save_ton_order
     if not TON_WALLET:
         await msg.edit("❌ Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
@@ -300,9 +299,9 @@ async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: floa
         await msg.edit("❌ Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
     amount_ton = amount_usdt / ton_price
-    order_id = get_next_ton_order_id()
-    save_ton_order(order_id, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
-    pay_url = create_tonkeeper_link(amount_ton, order_id)
+    order_ref = _gen_order_ref()
+    save_ton_order(order_ref, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
+    pay_url = create_tonkeeper_link(amount_ton, order_ref)
     if not pay_url:
         await msg.edit("❌ Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
@@ -314,7 +313,7 @@ async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: floa
         f"💸 **Tonkeeper Payment**\n\n"
         f"• Amount: {amount_usdt} USDT (~{amount_ton:.4f} TON)\n"
         f"• Description: {description}\n"
-        f"• Order ID (memo): `#{order_id}`\n\n"
+        f"• Order ID (memo): `{order_ref}`\n\n"
         f"Memo is pre-filled when you tap Pay. Payment is checked automatically.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
