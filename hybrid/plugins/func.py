@@ -700,6 +700,7 @@ async def give_payment_option(client, msg: Message, user_id: int):
     rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="set_payment_cryptobot")]]
     if TON_WALLET:
         rows.append([InlineKeyboardButton("Tonkeeper", callback_data="set_payment_tonkeeper")])
+    rows.append([InlineKeyboardButton(t(user_id, "back"), callback_data="profile")])
     keyboard = InlineKeyboardMarkup(rows)
     await msg.reply(
         t(user_id, "choose_payment_method"),
