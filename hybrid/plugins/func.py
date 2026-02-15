@@ -319,67 +319,116 @@ async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: floa
     )
 
 
+def _normalize_ton_address(addr: str) -> str:
+    """Normalize TON address for comparison (handles base64, base64url, raw)."""
+    if not addr:
+        return ""
+    s = str(addr).replace("-", "").replace("_", "").replace(" ", "").lower()
+    return s
+
+
+def _extract_comment(in_msg: dict) -> str:
+    """Extract comment from TON in_msg per asset-processing. Handles msg.dataText and msg.dataRaw (BOC)."""
+    import base64
+    msg_data = in_msg.get("msg_data") or {}
+    comment = (msg_data.get("message") or "").strip()
+    if comment:
+        return comment
+    text_b64 = msg_data.get("text")
+    if text_b64:
+        try:
+            raw = base64.b64decode(text_b64)
+            if len(raw) >= 4 and raw[:4] == b"\x00\x00\x00\x00":
+                return raw[4:].decode("utf-8", errors="ignore").strip()
+            return raw.decode("utf-8", errors="ignore").strip()
+        except Exception:
+            pass
+    body = msg_data.get("body")
+    if body:
+        try:
+            from pytoniq_core import Cell
+            cell = Cell.one_from_boc(base64.b64decode(body))
+            return cell.begin_parse().load_snake_string().replace("\x00", "").strip()
+        except Exception:
+            try:
+                raw = base64.b64decode(body)
+                for start in range(min(20, len(raw))):
+                    try:
+                        s = raw[start:].decode("utf-8", errors="strict").strip().replace("\x00", "")
+                        if 4 <= len(s) <= 64 and s.isprintable():
+                            return s
+                    except (UnicodeDecodeError, ValueError):
+                        continue
+            except Exception:
+                pass
+    return ""
+
+
 # Tonkeeper payment checker (TonCenter API v2 - TON asset processing)
 async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, delete_ton_order,
                                    get_all_pending_ton_orders, t, TON_WALLET):
-    """Poll TonCenter getTransactions, parse in_msg comment and value. Credit on match."""
-    import base64
+    """Poll TonCenter getTransactions, parse in_msg comment and value. Credit on match. Same flow as CryptoBot."""
     if not TON_WALLET:
         return
     pending = get_all_pending_ton_orders()
     if not pending:
         return
+    wallet_norm = _normalize_ton_address(TON_WALLET)
     try:
-        import asyncio
-        url = f"https://toncenter.com/api/v2/getTransactions?address={TON_WALLET}&limit=30"
+        from urllib.parse import quote
+        addr_param = quote(TON_WALLET, safe="")
+        url = f"https://toncenter.com/api/v2/getTransactions?address={addr_param}&limit=50"
         loop = asyncio.get_event_loop()
         r = await loop.run_in_executor(None, lambda: requests.get(url, timeout=15))
         if r.status_code != 200:
             return
         data = r.json()
+        if not data.get("ok") or "result" not in data:
+            return
         txs = data.get("result") or []
         for order_ref, order in pending:
             memo_needle = order_ref
             amount_ton = order.get("amount_ton") or (float(order["amount"]) / 5.0)
-            amount_nano_min = int(float(amount_ton) * 1_000_000_000 * 0.99)
+            amount_nano_min = int(float(amount_ton) * 1_000_000_000 * 0.98)
             for tx in txs:
                 in_msg = tx.get("in_msg")
-                if not in_msg or in_msg.get("@type") != "ext.message":
+                if not in_msg:
                     continue
                 dest = in_msg.get("destination") or ""
-                if TON_WALLET not in str(dest):
-                    wallet_norm = TON_WALLET.replace("-", "").replace("_", "")
-                    dest_norm = str(dest).replace("-", "").replace("_", "")
-                    if dest_norm != wallet_norm:
-                        continue
+                if wallet_norm and _normalize_ton_address(dest) != wallet_norm:
+                    continue
                 try:
                     amt = int(in_msg.get("value") or 0)
                 except (ValueError, TypeError):
                     amt = 0
                 if amt < amount_nano_min:
                     continue
-                msg_data = in_msg.get("msg_data") or {}
-                comment = ""
-                if msg_data.get("@type") == "msg.dataText":
-                    comment = (msg_data.get("message") or "").strip()
-                    if not comment and msg_data.get("text"):
-                        try:
-                            comment = base64.b64decode(msg_data["text"]).decode("utf-8", errors="ignore")
-                        except Exception:
-                            pass
-                if memo_needle not in comment and comment != memo_needle and (comment or "").strip() != memo_needle:
+                comment = _extract_comment(in_msg)
+                if memo_needle not in comment and (comment or "").strip() != memo_needle:
                     continue
                 user_id = order["user_id"]
-                payload = order["payload"]
+                payload = (order.get("payload") or "").strip()
                 current_bal = get_user_balance(user_id) or 0.0
-                new_bal = current_bal + order["amount"]
+                new_bal = current_bal + float(order["amount"])
                 save_user_balance(user_id, new_bal)
-                back_cb = payload if payload and str(payload).startswith("numinfo:") else "profile"
+                if payload.startswith("rentpay:"):
+                    parts = payload.split(":")
+                    if len(parts) >= 3:
+                        _, number, hours = parts[0], parts[1], parts[2]
+                        keyboard = InlineKeyboardMarkup([[
+                            InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
+                        ]])
+                    else:
+                        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+                elif payload.startswith("numinfo:"):
+                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]])
+                else:
+                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
                 try:
                     await client.edit_message_text(
                         order["chat_id"], order["msg_id"],
                         t(user_id, "payment_confirmed"),
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=back_cb)]])
+                        reply_markup=keyboard
                     )
                 except Exception:
                     pass
@@ -656,4 +705,3 @@ async def give_payment_option(client, msg: Message, user_id: int):
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
-
