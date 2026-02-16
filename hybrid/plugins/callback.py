@@ -165,7 +165,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
         number = rented_data.get("number") or number
         success, err = transfer_number(number, user_id, to_user_id)
         if not success:
-            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+            msg = err if err else "Transfer failed."
+            return await query.answer(msg, show_alert=True)
         num_text = format_number(number)
         if number in temp.RENTED_NUMS:
             temp.RENTED_NUMS.remove(number)
