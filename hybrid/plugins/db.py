@@ -187,6 +187,27 @@ def remove_number_data(number: str):
     return (True, "REMOVED") if data else (False, "NOT_FOUND")
 
 
+def transfer_number(number: str, from_user_id: int, to_user_id: int):
+    """
+    Transfer a rented number from one user to another.
+    Returns (True, None) on success, (False, "error_msg") on failure.
+    """
+    if not number.startswith("+888"):
+        number = "+888" + number.lstrip("+")
+    rented = get_number_data(number)
+    if not rented or int(rented.get("user_id", 0)) != from_user_id:
+        return False, "NOT_OWNER"
+    rent_date = rented.get("rent_date")
+    hours = rented.get("hours", 0)
+    if not rent_date or not hours:
+        return False, "INVALID_DATA"
+    remove_number(number, from_user_id)
+    remove_number_data(number)
+    save_number(number, to_user_id, hours, date=rent_date, extend=False)
+    save_number_data(number, to_user_id, rent_date, hours)
+    return True, None
+
+
 def get_expired_numbers():
     now = datetime.now(timezone.utc).timestamp()
     return list(client.zrangebyscore("rentals:expiry", 0, now))
