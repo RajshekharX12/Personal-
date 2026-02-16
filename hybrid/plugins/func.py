@@ -250,29 +250,14 @@ def build_rentnum_keyboard(user_id: int, page: int = 0):
 
 
 def build_number_actions_keyboard(user_id: int, number: str, back_data: str = "my_rentals"):
-    """Build keyboard for rented number: Renew, Get Code, Transfer, Back."""
-    try:
-        from hybrid.plugins.emoji import eid
-        _eid = eid("transfer")
-        if _eid:
-            try:
-                transfer_btn = InlineKeyboardButton(
-                    t(user_id, "transfer"),
-                    callback_data=f"transfer_{number}",
-                    icon_custom_emoji_id=_eid
-                )
-            except TypeError:
-                transfer_btn = InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{number}")
-        else:
-            transfer_btn = InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{number}")
-    except Exception:
-        transfer_btn = InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{number}")
+    """Build keyboard for rented number: Renew, Get Code, Transfer, Back (plain text, no emojis)."""
+    n = normalize_phone(number) or number
     keyboard = [
         [
-            InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{number}"),
-            InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{number}"),
+            InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{n}"),
+            InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{n}"),
         ],
-        [transfer_btn],
+        [InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{n}")],
         [InlineKeyboardButton(t(user_id, "back"), callback_data=back_data)],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -644,18 +629,22 @@ async def check_number_conn(number: str) -> bool:
     from hybrid.plugins.fragment import fragment_api
     return await fragment_api.check_is_number_free(number)
 
+def normalize_phone(number) -> str | None:
+    """Normalize to +888XXXXXXXX. Returns None if invalid."""
+    s = str(number).strip()
+    if s.startswith("+888") and len(s) >= 12:
+        return s
+    if s.startswith("888") and len(s) >= 11:
+        return "+" + s
+    return None
+
 def format_number(number) -> str:
     """
     Format a phone number from +88869696069 (int or str) to +888 6969 6069
     """
-    number = str(number)
-
-    if number.startswith("+888"):
-        clean_number = number
-    elif number.startswith("888"):
-        clean_number = "+" + number
-    else:
-        raise ValueError("Number must start with +888")
+    clean_number = normalize_phone(number)
+    if not clean_number:
+        raise ValueError("Number must start with +888 or 888")
 
     prefix = clean_number[:4]        # +888
     first_block = clean_number[4:8]  # 6969
@@ -663,24 +652,23 @@ def format_number(number) -> str:
 
     return f"{prefix} {first_block} {second_block}"
 
-def format_date(date_str: str) -> str:
+def format_date(date_str) -> str:
     """Parse date string (ISO, strptime formats) and return DD/MM/YY."""
     if date_str is None:
         return "N/A"
     s = str(date_str).strip()
     if not s:
         return "N/A"
+    # Strip timezone to avoid parse errors (e.g. .512189+00:00)
+    if "+" in s or s.endswith("Z"):
+        s = s.replace("Z", "").split("+")[0].rstrip("-").rstrip()
     dt = None
-    try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        s_no_tz = s.split("+")[0].rstrip()
-        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
-            try:
-                dt = datetime.strptime(s_no_tz, fmt)
-                break
-            except ValueError:
-                continue
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            break
+        except ValueError:
+            continue
     if dt is None:
         return s[:10] if len(s) >= 10 else s
     return dt.strftime("%d/%m/%y")
