@@ -152,8 +152,13 @@ def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int)
 
 
 def get_number_data(number: str):
-    key = f"rental:{number}"
+    n = str(number).strip()
+    if not n.startswith("+888") and n.startswith("888") and len(n) >= 11:
+        n = "+" + n
+    key = f"rental:{n}"
     data = client.hgetall(key)
+    if not data and n.startswith("+888"):
+        data = client.hgetall(f"rental:{n[1:]}")
     if not data:
         return None
     out = {
