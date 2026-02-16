@@ -83,6 +83,67 @@ async def callback_handler(client: Client, query: CallbackQuery):
             reply_markup=keyboard,
         )
 
+    elif data.startswith("transfer_confirm"):
+        # Parse using | separator to avoid conflicts with phone number format
+        if "|" in data:
+            parts = data.split("|")
+            if len(parts) < 3:
+                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+            raw_num = parts[1]
+            try:
+                to_user_id = int(parts[2])
+            except (ValueError, TypeError):
+                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        else:
+            # Fallback to old format for backward compatibility
+            parts = data.replace("transfer_confirm_", "").split("_", 1)
+            if len(parts) < 2:
+                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+            raw_num, rest = parts[0], parts[1]
+            try:
+                to_user_id = int(rest.split("_")[0] if "_" in rest else rest)
+            except (ValueError, TypeError):
+                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        
+        number = normalize_phone(raw_num) or raw_num
+        logging.info(f"Transfer confirm: user_id={user_id}, raw_num={raw_num}, normalized={number}, to_user_id={to_user_id}")
+        rented_data = get_rental_by_owner(user_id, number)
+        logging.info(f"Rental data for transfer: {rented_data}")
+        if not rented_data:
+            # Try alternative lookup
+            alt_data = get_number_data(number)
+            logging.info(f"Alternative lookup for transfer: {alt_data}")
+            if alt_data and int(alt_data.get("user_id", 0)) == user_id:
+                rented_data = alt_data
+            else:
+                return await query.answer(f"Number not found for transfer. Debug: raw={raw_num}, norm={number}, uid={user_id}", show_alert=True)
+        number = rented_data.get("number") or number
+        success, err = transfer_number(number, user_id, to_user_id)
+        if not success:
+            msg = err if err else "Transfer failed."
+            return await query.answer(msg, show_alert=True)
+        num_text = format_number(number)
+        if number in temp.RENTED_NUMS:
+            temp.RENTED_NUMS.remove(number)
+        temp.RENTED_NUMS.append(number)
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
+        await query.message.edit_text(
+            f"✅ Number <b>{num_text}</b> has been transferred successfully.",
+            reply_markup=keyboard
+        )
+        try:
+            to_user = await client.get_users(to_user_id)
+            duration = format_remaining_time(rented_data.get("rent_date"), rented_data.get("hours", 0))
+            await client.send_message(
+                to_user_id,
+                f"✅ You have received number <b>{num_text}</b> from another user.\n\n"
+                f"Time left: <b>{duration}</b>\n\n"
+                f"You can get code, renew, or transfer it from My Rentals."
+            )
+        except Exception:
+            pass
+        return
+
     elif data.startswith("transfer_"):
         raw = data.replace("transfer_", "").strip()
         if not raw:
@@ -157,68 +218,6 @@ async def callback_handler(client: Client, query: CallbackQuery):
             f"They will get full control: get code, renew, transfer.",
             reply_markup=keyboard
         )
-        return
-
-    elif data.startswith("transfer_confirm"):
-        # Parse using | separator to avoid conflicts with phone number format
-        if "|" in data:
-            parts = data.split("|")
-            if len(parts) < 3:
-                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
-            raw_num = parts[1]
-            try:
-                to_user_id = int(parts[2])
-            except (ValueError, TypeError):
-                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
-        else:
-            # Fallback to old format for backward compatibility
-            parts = data.replace("transfer_confirm_", "").split("_", 1)
-            if len(parts) < 2:
-                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
-            raw_num, rest = parts[0], parts[1]
-            try:
-                to_user_id = int(rest.split("_")[0] if "_" in rest else rest)
-            except (ValueError, TypeError):
-                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
-        
-        number = normalize_phone(raw_num) or raw_num
-        logging.info(f"Transfer confirm: user_id={user_id}, raw_num={raw_num}, normalized={number}, to_user_id={to_user_id}")
-        rented_data = get_rental_by_owner(user_id, number)
-        logging.info(f"Rental data for transfer: {rented_data}")
-        if not rented_data:
-            # Try alternative lookup
-            alt_data = get_number_data(number)
-            logging.info(f"Alternative lookup for transfer: {alt_data}")
-            if alt_data and int(alt_data.get("user_id", 0)) == user_id:
-                rented_data = alt_data
-            else:
-                return await query.answer(f"Number not found for transfer. Debug: raw={raw_num}, norm={number}, uid={user_id}", show_alert=True)
-            return await query.answer("Number not found.", show_alert=True)
-        number = rented_data.get("number") or number
-        success, err = transfer_number(number, user_id, to_user_id)
-        if not success:
-            msg = err if err else "Transfer failed."
-            return await query.answer(msg, show_alert=True)
-        num_text = format_number(number)
-        if number in temp.RENTED_NUMS:
-            temp.RENTED_NUMS.remove(number)
-        temp.RENTED_NUMS.append(number)
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
-        await query.message.edit_text(
-            f"✅ Number <b>{num_text}</b> has been transferred successfully.",
-            reply_markup=keyboard
-        )
-        try:
-            to_user = await client.get_users(to_user_id)
-            duration = format_remaining_time(rented_data.get("rent_date"), rented_data.get("hours", 0))
-            await client.send_message(
-                to_user_id,
-                f"✅ You have received number <b>{num_text}</b> from another user.\n\n"
-                f"Time left: <b>{duration}</b>\n\n"
-                f"You can get code, renew, or transfer it from My Rentals."
-            )
-        except Exception:
-            pass
         return
 
     elif data.startswith("getcode_"):
