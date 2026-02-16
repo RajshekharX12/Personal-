@@ -195,11 +195,12 @@ def h(text: str) -> str:
 
 def t(user_id: int, key: str, **kwargs):
     from hybrid.plugins.db import get_user_language
-    from hybrid.plugins.emoji import e
     import re
     lang = get_user_language(user_id) or "en"
     text = LANGUAGES.get(lang, LANGUAGES["en"]).get(key, key)
-    text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: e(m.group(1)), text)
+    # Replace {{e:key}} with Unicode fallback (premium emoji disabled)
+    _emoji_fallback = {"success":"✅","error":"❌","warning":"⚠️","phone":"📞","money":"💰","renew":"🔄","get_code":"📨","back":"⬅️","date":"📅","loading":"⌛","time":"🕒","timeout":"⏰"}
+    text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: _emoji_fallback.get(m.group(1), ""), text)
     text = _md_to_html(text)
     if kwargs:
         return text.format(**kwargs)
@@ -631,26 +632,31 @@ async def check_number_conn(number: str) -> bool:
 
 def normalize_phone(number) -> str | None:
     """Normalize to +888XXXXXXXX. Returns None if invalid."""
-    s = str(number).strip()
+    if number is None:
+        return None
+    s = str(number).strip().replace(" ", "").replace("-", "")
+    if not s:
+        return None
     if s.startswith("+888") and len(s) >= 12:
         return s
     if s.startswith("888") and len(s) >= 11:
         return "+" + s
+    if s.isdigit() and len(s) == 8:
+        return "+888" + s
     return None
 
 def format_number(number) -> str:
-    """
-    Format a phone number from +88869696069 (int or str) to +888 6969 6069
-    """
-    clean_number = normalize_phone(number)
-    if not clean_number:
-        raise ValueError("Number must start with +888 or 888")
-
-    prefix = clean_number[:4]        # +888
-    first_block = clean_number[4:8]  # 6969
-    second_block = clean_number[8:]  # 6069
-
-    return f"{prefix} {first_block} {second_block}"
+    """Format phone to +888 XXXX XXXX. Never raises - returns safe fallback for invalid input."""
+    clean = normalize_phone(number)
+    if clean and len(clean) >= 12:
+        return f"{clean[:4]} {clean[4:8]} {clean[8:]}"
+    s = str(number or "").strip().replace(" ", "")
+    if (s.startswith("+888") or s.startswith("888")) and len(s) >= 11:
+        pref = s[:4] if s.startswith("+") else "+" + s[:3]
+        rest = s[4:] if s.startswith("+") else s[3:]
+        if len(rest) >= 8:
+            return f"{pref} {rest[:4]} {rest[4:]}"
+    return s if s else "N/A"
 
 def format_date(date_str) -> str:
     """Parse date string (ISO, strptime formats) and return DD/MM/YY."""
