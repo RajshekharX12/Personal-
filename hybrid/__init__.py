@@ -461,7 +461,7 @@ class Bot(Client):
         self.start_timestamp = datetime.now()
 
         logging.info(f"{BANNER}")
-        self.set_parse_mode(ParseMode.MARKDOWN)
+        self.set_parse_mode(ParseMode.HTML)
         self.username = usr_bot_me.username
         temp.BOT_UN = self.username
         print(f"============  {temp.BOT_UN}  ============")
@@ -469,7 +469,7 @@ class Bot(Client):
         msg_id, user_id = get_restart_data("Bot")
         if msg_id and user_id:
             try:
-                await self.edit_message_text(user_id, msg_id, "**Restarted Successfully!**")
+                await self.edit_message_text(user_id, msg_id, "<b>Restarted Successfully!</b>")
                 os.remove("restart.json")
             except Exception as e:
                 logging.error(f"Failed to send restart message: {e}")
@@ -501,5 +501,4 @@ class Bot(Client):
     async def stop(self, *args):
         await super().stop()
         logging.info("Bot stopped.")
-
 
