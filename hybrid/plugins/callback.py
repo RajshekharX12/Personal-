@@ -66,7 +66,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         raw = data.replace("num_", "")
         number = normalize_phone(raw) or raw
         num_text = format_number(number)
-        rented_data = get_number_data(number)
+        rented_data = get_rented_data_for_number(number)
         owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
         if not rented_data or owner_id != int(user_id):
             return await query.message.edit_text(
@@ -88,7 +88,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         if not raw:
             return await query.answer("Invalid request.", show_alert=True)
         number = normalize_phone(raw) or raw
-        rented_data = get_number_data(number)
+        rented_data = get_rented_data_for_number(number)
         owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
         if not rented_data or owner_id != int(user_id):
             msg = "Number not found." if not rented_data else "You do not own this number."
@@ -162,7 +162,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         except (ValueError, TypeError):
             return await query.answer(t(user_id, "error_occurred"), show_alert=True)
         number = normalize_phone(raw_num) or raw_num
-        rented_data = get_number_data(number)
+        rented_data = get_rented_data_for_number(number)
         owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
         if not rented_data or owner_id != int(user_id):
             msg = "Number not found." if not rented_data else "You do not own this number."
@@ -1769,7 +1769,7 @@ For support, contact the bot developer."""
         num_text = format_number(number)
         user_id = query.from_user.id
         user = await client.get_users(user_id)
-        rented_data = get_number_data(number)
+        rented_data = get_rented_data_for_number(number)
         owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
         if not rented_data or owner_id != int(user.id):
             msg = "Number not found." if not rented_data else "You do not own this number."
