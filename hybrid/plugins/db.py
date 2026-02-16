@@ -151,6 +151,9 @@ def get_remaining_rent_days(number: str):
 # =========== Number Rent Data ============
 def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int):
     hours = int(hours)
+    number = _norm_num(number) or str(number or "").strip().replace(" ", "").replace("-", "")
+    if number.startswith("888") and not number.startswith("+888") and len(number) >= 11:
+        number = "+" + number
     expiry_date = rent_date + timedelta(hours=hours)
     key = f"rental:{number}"
     client.hset(key, mapping={
@@ -164,6 +167,20 @@ def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int)
     client.sadd("rentals:all", number)
     client.sadd(f"rentals:user:{user_id}", number)
     client.expire(key, int(hours * 3600) + 86400)
+
+
+def _normalize_for_lookup(s):
+    """Normalize number for lookup; returns +888 form or None."""
+    s = str(s or "").strip().replace(" ", "").replace("-", "")
+    if not s:
+        return None
+    if s.startswith("+888") and len(s) >= 12:
+        return s
+    if s.startswith("888") and len(s) >= 11:
+        return "+" + s
+    if s.isdigit() and len(s) == 8:
+        return "+888" + s
+    return s if s.startswith("+888") else None
 
 
 def get_number_data(number: str):
@@ -184,6 +201,14 @@ def get_number_data(number: str):
         data = client.hgetall(f"rental:{cand}")
         if data:
             break
+    if not data:
+        n_norm = _normalize_for_lookup(n)
+        for stored in (client.smembers("rentals:all") or []):
+            stored = str(stored).strip() if stored else ""
+            if _normalize_for_lookup(stored) == n_norm:
+                data = client.hgetall(f"rental:{stored}")
+                if data:
+                    break
     if not data:
         return None
     out = {
