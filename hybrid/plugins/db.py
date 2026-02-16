@@ -49,11 +49,18 @@ def _parse_dt(s):
 
 
 # ========= USER NUMBERS =========
+def _norm_num(n):
+    s = str(n or "").strip().replace(" ", "").replace("-", "")
+    if s.startswith("+888") and len(s) >= 12:
+        return s
+    if s.startswith("888") and len(s) >= 11:
+        return "+" + s
+    return s if s.startswith("+888") else None
+
 def save_number(number: str, user_id: int, hours: int, date: datetime = None, extend: bool = False):
     if date is None:
         date = _now()
-    if not number.startswith("+888"):
-        number = "+888" + number.lstrip("+")
+    number = _norm_num(number) or number
 
     key = f"user:{user_id}"
     numbers_raw = client.hget(key, "numbers")
@@ -78,8 +85,7 @@ def save_number(number: str, user_id: int, hours: int, date: datetime = None, ex
 
 
 def get_user_by_number(number: str):
-    if not number.startswith("+888"):
-        number = "+888" + number.lstrip("+")
+    number = _norm_num(number) or number
 
     for uid in client.smembers("users:all"):
         key = f"user:{uid}"
@@ -104,8 +110,7 @@ def get_numbers_by_user(user_id: int):
 
 
 def remove_number(number: str, user_id: int):
-    if not number.startswith("+888"):
-        number = "+888" + number.lstrip("+")
+    number = _norm_num(number) or number
 
     key = f"user:{user_id}"
     numbers_raw = client.hget(key, "numbers")
@@ -183,38 +188,58 @@ def get_user_numbers(user_id: int):
 
 
 def remove_number_data(number: str):
-    key = f"rental:{number}"
-    data = client.hgetall(key) if client.exists(key) else {}
-    user_id = data.get("user_id")
-    pipe = client.pipeline()
-    pipe.delete(key)
-    pipe.zrem("rentals:expiry", number)
-    pipe.srem("rentals:all", number)
-    if user_id:
-        pipe.srem(f"rentals:user:{user_id}", number)
-    pipe.execute()
-    return (True, "REMOVED") if data else (False, "NOT_FOUND")
+    n = _norm_num(number) or str(number or "").strip()
+    candidates = [n]
+    if n.startswith("+888"):
+        candidates.append(n[1:])
+    elif n.startswith("888"):
+        candidates.append("+" + n)
+    for cand in candidates:
+        key = f"rental:{cand}"
+        if client.exists(key):
+            data = client.hgetall(key)
+            user_id = data.get("user_id")
+            stored = data.get("number") or n
+            pipe = client.pipeline()
+            pipe.delete(key)
+            pipe.zrem("rentals:expiry", n)
+            pipe.zrem("rentals:expiry", stored)
+            pipe.srem("rentals:all", n)
+            pipe.srem("rentals:all", stored)
+            if user_id:
+                pipe.srem(f"rentals:user:{user_id}", n)
+                pipe.srem(f"rentals:user:{user_id}", stored)
+            pipe.execute()
+            return True, "REMOVED"
+    return False, "NOT_FOUND"
 
 
 def transfer_number(number: str, from_user_id: int, to_user_id: int):
-    """
-    Transfer a rented number from one user to another.
-    Returns (True, None) on success, (False, "error_msg") on failure.
-    """
-    if not number.startswith("+888"):
-        number = "+888" + number.lstrip("+")
-    rented = get_number_data(number)
-    if not rented or int(rented.get("user_id", 0)) != from_user_id:
-        return False, "NOT_OWNER"
-    rent_date = rented.get("rent_date")
-    hours = rented.get("hours", 0)
-    if not rent_date or not hours:
-        return False, "INVALID_DATA"
-    remove_number(number, from_user_id)
-    remove_number_data(number)
-    save_number(number, to_user_id, hours, date=rent_date, extend=False)
-    save_number_data(number, to_user_id, rent_date, hours)
-    return True, None
+    """Transfer a rented number to another user. Returns (True, None) or (False, error_msg)."""
+    try:
+        num = _norm_num(number)
+        if not num:
+            return False, "Invalid number format"
+        rented = get_number_data(num)
+        if not rented:
+            return False, "Number not found"
+        if int(rented.get("user_id", 0)) != from_user_id:
+            return False, "You do not own this number"
+        rent_date = rented.get("rent_date")
+        hours = int(rented.get("hours", 0) or 0)
+        if not rent_date or not hours:
+            return False, "Invalid rental data"
+        canon = rented.get("number") or num
+        canon = _norm_num(canon) or canon
+        remove_number(canon, from_user_id)
+        remove_number_data(canon)
+        save_number(canon, to_user_id, hours, date=rent_date, extend=False)
+        save_number_data(canon, to_user_id, rent_date, hours)
+        return True, None
+    except Exception as e:
+        import logging
+        logging.exception("transfer_number error")
+        return False, str(e)
 
 
 def get_expired_numbers():
