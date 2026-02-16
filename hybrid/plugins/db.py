@@ -216,11 +216,25 @@ def remove_number_data(number: str):
 
 def transfer_number(number: str, from_user_id: int, to_user_id: int):
     """Transfer a rented number to another user. Returns (True, None) or (False, error_msg)."""
+    # #region agent log
+    try:
+        with open(r"c:\Users\rajsh\Downloads\38833FF26BA1D.UnigramPreview_g9c9v27vpyspw!App\RentalBotcc\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(__import__("json").dumps({"location": "db.py:transfer_number", "message": "entry", "data": {"number": number, "from_user_id": from_user_id, "to_user_id": to_user_id, "hypothesisId": "H4"}, "timestamp": __import__("time").time() * 1000}) + "\n")
+    except Exception:
+        pass
+    # #endregion
     try:
         num = _norm_num(number)
         if not num:
             return False, "Invalid number format"
         rented = get_number_data(num)
+        # #region agent log
+        try:
+            with open(r"c:\Users\rajsh\Downloads\38833FF26BA1D.UnigramPreview_g9c9v27vpyspw!App\RentalBotcc\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(__import__("json").dumps({"location": "db.py:transfer_number", "message": "get_number_data result", "data": {"rented_exists": rented is not None, "rented_uid": rented.get("user_id") if rented else None, "hypothesisId": "H5"}, "timestamp": __import__("time").time() * 1000}) + "\n")
+        except Exception:
+            pass
+        # #endregion
         if not rented:
             return False, "Number not found"
         if int(rented.get("user_id", 0)) != from_user_id:
