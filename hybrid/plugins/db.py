@@ -279,6 +279,11 @@ def get_rental_by_owner(user_id: int, number: str):
     num_clean = str(number or "").strip().replace(" ", "").replace("-", "")
     if not num_clean:
         return None
+    # First try the tolerant lookup which checks rental keys and normalizes forms
+    rented = get_rented_data_for_number(num_clean)
+    if rented and int(rented.get("user_id") or 0) == uid:
+        return rented
+
     # normalize lookup form for comparisons
     num_norm = _normalize_for_lookup(num_clean)
     for doc in get_all_rentals():
