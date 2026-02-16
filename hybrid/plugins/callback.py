@@ -19,7 +19,6 @@ from hybrid import Bot, LOG_FILE_NAME, logging, ADMINS, CRYPTO_STAT, gen_4letter
 from hybrid.plugins.temp import temp
 from hybrid.plugins.func import *
 from hybrid.plugins.db import *
-from hybrid.plugins.emoji import e
 from hybrid.plugins.fragment import *
 from config import D30_RATE, D60_RATE, D90_RATE, TON_WALLET
 
@@ -53,8 +52,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
             )
 
         keyboard = [
-            [InlineKeyboardButton(num, callback_data=f"num_{num}")]
-            for num in numbers
+            [InlineKeyboardButton(format_number(normalize_phone(n) or n), callback_data=f"num_{normalize_phone(n) or n}")]
+            for n in numbers
         ]
         keyboard.append([InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")])
 
@@ -84,12 +83,15 @@ async def callback_handler(client: Client, query: CallbackQuery):
         )
 
     elif data.startswith("transfer_"):
-        raw = data.replace("transfer_", "")
+        raw = data.replace("transfer_", "").strip()
+        if not raw:
+            return await query.answer("Invalid request.", show_alert=True)
         number = normalize_phone(raw) or raw
-        num_text = format_number(number)
         rented_data = get_number_data(number)
         if not rented_data or rented_data.get("user_id") != user_id:
             return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        number = rented_data.get("number") or number
+        num_text = format_number(number)
         try:
             response = await query.message.chat.ask(
                 f"Enter @username or User ID to transfer <b>{num_text}</b> to:\n\n"
@@ -99,7 +101,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         except Exception:
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
             return await query.message.edit_text(
-                f"{e('timeout')} Timeout. Please try again.",
+                "⏰ Timeout. Please try again.",
                 reply_markup=keyboard
             )
         identifier = (response.text or "").strip()
@@ -124,13 +126,13 @@ async def callback_handler(client: Client, query: CallbackQuery):
         if not to_user or to_user.is_bot:
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
             return await query.message.edit_text(
-                f"{e('error')} User not found. They must have started this bot first.",
+                "❌ User not found. They must have started this bot first.",
                 reply_markup=keyboard
             )
         if to_user.id == user_id:
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
             return await query.message.edit_text(
-                f"{e('error')} You cannot transfer to yourself.",
+                "❌ You cannot transfer to yourself.",
                 reply_markup=keyboard
             )
         recipient_name = f"@{to_user.username}" if to_user.username else (to_user.first_name or str(to_user.id))
@@ -148,17 +150,19 @@ async def callback_handler(client: Client, query: CallbackQuery):
         return
 
     elif data.startswith("transfer_confirm_"):
-        parts = data.replace("transfer_confirm_", "").split("_")
+        parts = data.replace("transfer_confirm_", "").split("_", 1)
         if len(parts) < 2:
             return await query.answer(t(user_id, "error_occurred"), show_alert=True)
-        number = normalize_phone(parts[0]) or parts[0]
+        raw_num, rest = parts[0], parts[1]
         try:
-            to_user_id = int(parts[1])
+            to_user_id = int(rest.split("_")[0] if "_" in rest else rest)
         except (ValueError, TypeError):
             return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        number = normalize_phone(raw_num) or raw_num
         rented_data = get_number_data(number)
         if not rented_data or rented_data.get("user_id") != user_id:
             return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        number = rented_data.get("number") or number
         success, err = transfer_number(number, user_id, to_user_id)
         if not success:
             return await query.answer(t(user_id, "error_occurred"), show_alert=True)
@@ -168,7 +172,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         temp.RENTED_NUMS.append(number)
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
         await query.message.edit_text(
-            f"{e('success')} Number <b>{num_text}</b> has been transferred successfully.",
+            f"✅ Number <b>{num_text}</b> has been transferred successfully.",
             reply_markup=keyboard
         )
         try:
@@ -176,7 +180,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             duration = format_remaining_time(rented_data.get("rent_date"), rented_data.get("hours", 0))
             await client.send_message(
                 to_user_id,
-                f"{e('success')} You have received number <b>{num_text}</b> from another user.\n\n"
+                f"✅ You have received number <b>{num_text}</b> from another user.\n\n"
                 f"Time left: <b>{duration}</b>\n\n"
                 f"You can get code, renew, or transfer it from My Rentals."
             )
