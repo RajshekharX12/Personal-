@@ -55,12 +55,24 @@ E = {
     "transfer": (5915851493533028206, "↗️"),
 }
 
-def e(key: str) -> str:
-    """Return HTML custom emoji tag for message text."""
+def e(key: str, use_custom: bool = None) -> str:
+    """
+    Return emoji for message text.
+    use_custom=True: Premium custom emoji (requires bot owner to have Telegram Premium).
+    use_custom=False: Plain Unicode emoji - works for everyone (default).
+    """
     if key not in E:
         return ""
     emoji_id, fallback = E[key]
-    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+    if use_custom is None:
+        try:
+            from config import USE_CUSTOM_EMOJI
+            use_custom = USE_CUSTOM_EMOJI
+        except Exception:
+            use_custom = False
+    if use_custom:
+        return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+    return fallback
 
 def eid(key: str) -> str | None:
     """Return custom emoji ID string for InlineKeyboardButton icon_custom_emoji_id."""
