@@ -175,6 +175,9 @@ def _normalize_for_lookup(s):
         return None
     s = str(s).strip().replace(" ", "").replace("-", "").replace("\ufeff", "")
     s = s.lstrip("\u002b\u066b\u066c\u2393\uff0b+")  # various plus signs
+    # Convert fullwidth Unicode digits (０-９, ٠-٩, etc.) to ASCII
+    _tbl = str.maketrans("０１２３４５６７８９٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+    s = s.translate(_tbl)
     if not s or not s.isdigit():
         return None
     if s.startswith("888") and len(s) >= 11:
@@ -271,8 +274,16 @@ def get_rented_data_for_number(number: str):
 
 
 def get_user_numbers(user_id: int):
+    """Return numbers rented by user. Merges rentals:user with get_all_rentals for consistency."""
     members = client.smembers(f"rentals:user:{user_id}")
-    return list(members) if members else []
+    nums = list(members) if members else []
+    uid = int(user_id)
+    for doc in get_all_rentals():
+        if int(doc.get("user_id") or 0) == uid:
+            n = doc.get("number")
+            if n and n not in nums:
+                nums.append(n)
+    return nums
 
 
 def remove_number_data(number: str):
