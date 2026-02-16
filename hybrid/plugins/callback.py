@@ -64,7 +64,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
         )
 
     elif data.startswith("num_"):
-        number = data.replace("num_", "")
+        raw = data.replace("num_", "")
+        number = normalize_phone(raw) or raw
         num_text = format_number(number)
         rented_data = get_number_data(number)
         if not rented_data or rented_data.get("user_id") != user_id:
@@ -83,7 +84,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
         )
 
     elif data.startswith("transfer_"):
-        number = data.replace("transfer_", "")
+        raw = data.replace("transfer_", "")
+        number = normalize_phone(raw) or raw
         num_text = format_number(number)
         rented_data = get_number_data(number)
         if not rented_data or rented_data.get("user_id") != user_id:
@@ -149,7 +151,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         parts = data.replace("transfer_confirm_", "").split("_")
         if len(parts) < 2:
             return await query.answer(t(user_id, "error_occurred"), show_alert=True)
-        number = parts[0]
+        number = normalize_phone(parts[0]) or parts[0]
         try:
             to_user_id = int(parts[1])
         except (ValueError, TypeError):
@@ -183,7 +185,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
         return
 
     elif data.startswith("getcode_"):
-        number = data.replace("getcode_", "")
+        raw = data.replace("getcode_", "")
+        number = normalize_phone(raw) or raw
         num_text = format_number(number)
         # await query.message.edit_text(f"{t(user_id, 'getting_code')} `{num_text}`...")
         code = get_login_code(number)
@@ -1247,12 +1250,12 @@ For support, contact the bot developer."""
         parts = data.split(":")
         user_id = query.from_user.id
         if len(parts) >= 2:
-            number = parts[1]
+            number = normalize_phone(parts[1]) or parts[1]
             query.data = f"numinfo:{number}:0"
         else:
             query.data = "back_home"
         if query.data.startswith("numinfo:"):
-            number = query.data.split(":")[1]
+            number = normalize_phone(query.data.split(":")[1]) or query.data.split(":")[1]
             num_text = format_number(number)
             page = 0
             rented_data = get_number_data(number)
@@ -1316,7 +1319,7 @@ For support, contact the bot developer."""
             await query.message.edit_text(t(user.id, "welcome", name=user.first_name or ""), reply_markup=InlineKeyboardMarkup(rows))
 
     elif data.startswith("numinfo:"):
-        number = data.split(":")[1]
+        number = normalize_phone(data.split(":")[1]) or data.split(":")[1]
         num_text = format_number(number)
         page = int(data.split(":")[2])
         user_id = query.from_user.id
@@ -1605,9 +1608,10 @@ For support, contact the bot developer."""
         )
 
     elif data.startswith("rentfor:"):
-        _, number, hours = data.split(":")
+        parts = data.split(":")
+        number = normalize_phone(parts[1]) or parts[1] if len(parts) >= 2 else ""
+        hours = int(parts[2]) if len(parts) >= 3 else 0
         num_text = format_number(number)
-        hours = int(hours)
         user_id = query.from_user.id
         user = await client.get_users(user_id)
 
@@ -1750,7 +1754,8 @@ For support, contact the bot developer."""
         )
 
     elif data.startswith("renew_"):
-        number = data.replace("renew_", "")
+        raw = data.replace("renew_", "")
+        number = normalize_phone(raw) or raw
         num_text = format_number(number)
         user_id = query.from_user.id
         user = await client.get_users(user_id)
