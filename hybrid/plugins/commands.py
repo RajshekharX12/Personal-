@@ -51,7 +51,7 @@ async def start_command(client: Client, message: Message):
     user = message.from_user
     save_user_id(user.id)
 
-    lang = get_user_language(user.id) 
+    lang = get_user_language(user.id)
     if not lang:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")],
@@ -59,22 +59,20 @@ async def start_command(client: Client, message: Message):
             [InlineKeyboardButton("🇰🇷 한국어", callback_data="lang_ko")],
             [InlineKeyboardButton("🇨🇳 中文", callback_data="lang_zh")],
         ])
-        return await message.reply("🌍 Please choose your language:", reply_markup=keyboard)
-
-    t = LANGUAGES.get(lang, LANGUAGES["en"])
+        return await message.reply(t(user.id, "choose_lang"), reply_markup=keyboard)
 
     rows = [
-        [InlineKeyboardButton(t["rent"], callback_data="rentnum"),
-         InlineKeyboardButton(t["my_rentals"], callback_data="my_rentals")],
-        [InlineKeyboardButton(t["profile"], callback_data="profile"),
-         InlineKeyboardButton(t["help"], callback_data="help")],
-        [InlineKeyboardButton(t["contact_support"], url="https://t.me/aress")]
+        [InlineKeyboardButton(t(user.id, "rent"), callback_data="rentnum"),
+         InlineKeyboardButton(t(user.id, "my_rentals"), callback_data="my_rentals")],
+        [InlineKeyboardButton(t(user.id, "profile"), callback_data="profile"),
+         InlineKeyboardButton(t(user.id, "help"), callback_data="help")],
+        [InlineKeyboardButton(t(user.id, "contact_support"), url="https://t.me/aress")]
     ]
 
     if user.id in ADMINS:
         rows.insert(0, [InlineKeyboardButton("🛠️ Admin Panel", callback_data="admin_panel")])
 
-    await message.reply(t["welcome"].format(name=user.mention), reply_markup=InlineKeyboardMarkup(rows))
+    await message.reply(t(user.id, "welcome", name=user.mention), reply_markup=InlineKeyboardMarkup(rows))
 
 @Bot.on_message(filters.command("update") & filters.user(ADMINS))
 async def update_restart(_, message):
