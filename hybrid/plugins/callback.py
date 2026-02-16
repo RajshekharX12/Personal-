@@ -67,7 +67,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
         number = normalize_phone(raw) or raw
         num_text = format_number(number)
         rented_data = get_number_data(number)
-        if not rented_data or rented_data.get("user_id") != user_id:
+        owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
+        if not rented_data or owner_id != int(user_id):
             return await query.message.edit_text(
                 t(user_id, "no_rentals"),
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
@@ -88,8 +89,10 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return await query.answer("Invalid request.", show_alert=True)
         number = normalize_phone(raw) or raw
         rented_data = get_number_data(number)
-        if not rented_data or rented_data.get("user_id") != user_id:
-            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
+        if not rented_data or owner_id != int(user_id):
+            msg = "Number not found." if not rented_data else "You do not own this number."
+            return await query.answer(msg, show_alert=True)
         number = rented_data.get("number") or number
         num_text = format_number(number)
         try:
@@ -160,8 +163,10 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return await query.answer(t(user_id, "error_occurred"), show_alert=True)
         number = normalize_phone(raw_num) or raw_num
         rented_data = get_number_data(number)
-        if not rented_data or rented_data.get("user_id") != user_id:
-            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
+        if not rented_data or owner_id != int(user_id):
+            msg = "Number not found." if not rented_data else "You do not own this number."
+            return await query.answer(msg, show_alert=True)
         number = rented_data.get("number") or number
         success, err = transfer_number(number, user_id, to_user_id)
         if not success:
@@ -1765,8 +1770,10 @@ For support, contact the bot developer."""
         user_id = query.from_user.id
         user = await client.get_users(user_id)
         rented_data = get_number_data(number)
-        if not rented_data or rented_data.get("user_id") != user.id:
-            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
+        if not rented_data or owner_id != int(user.id):
+            msg = "Number not found." if not rented_data else "You do not own this number."
+            return await query.answer(msg, show_alert=True)
         info = get_number_info(number)
         if not info or not info.get("available", True):
             return await query.answer(t(user_id, "unavailable"), show_alert=True)
