@@ -1268,7 +1268,7 @@ For support, contact the bot developer."""
             number = normalize_phone(query.data.split(":")[1]) or query.data.split(":")[1]
             num_text = format_number(number)
             page = 0
-            rented_data = get_number_data(number)
+            rented_data = get_rented_data_for_number(number)
             if rented_data and rented_data.get("user_id") == user_id:
                 rent_date = rented_data.get("rent_date")
                 hours = rented_data.get("hours", 0)
@@ -1335,7 +1335,7 @@ For support, contact the bot developer."""
         user_id = query.from_user.id
 
         info = get_number_info(number)  # main DB record
-        rented_data = get_number_data(number)  # rental state (if rented to user)
+        rented_data = get_rented_data_for_number(number)  # rental state (if rented to user)
 
         if rented_data and rented_data.get("user_id"):  # Already rented
             rent_date = rented_data.get("rent_date")
@@ -1585,7 +1585,7 @@ For support, contact the bot developer."""
         number_data = get_number_info(number)
         if not number_data.get("available", True):
             return await query.message.reply("❌ This number is currently marked as unavailable. Cannot assign.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
-        rented_data = get_number_data(number)
+        rented_data = get_rented_data_for_number(number)
         if rented_data and rented_data.get("user_id"):
             return await query.message.reply("❌ This number is already rented to another user.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
         try:
@@ -1604,7 +1604,8 @@ For support, contact the bot developer."""
         hours = int(hours)
         if hours <= 0:
             return await query.message.reply("❌ Invalid input. Please enter a positive number of hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
-        # Assign the number to the user
+        # Assign the number to the user (add to pool so it appears in exports)
+        save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=False)
         save_number(number, user.id, hours)
         save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=hours)
         if number not in temp.RENTED_NUMS:
@@ -1731,7 +1732,7 @@ For support, contact the bot developer."""
                 return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             return
         # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
-        rented_data = get_number_data(number)
+        rented_data = get_rented_data_for_number(number)
         if rented_data and rented_data.get("user_id") and rented_data.get("user_id") != user.id:
             return await query.answer(t(user_id, "unavailable"), show_alert=True)
 
@@ -1831,7 +1832,7 @@ For support, contact the bot developer."""
         number_data = get_number_info(identifier)
         if not number_data:
             return await query.message.reply("❌ This number does not exist in the database.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
-        rented_data = get_number_data(identifier)
+        rented_data = get_rented_data_for_number(identifier)
         if not rented_data or not rented_data.get("user_id"):
             return await query.message.reply("❌ This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
         keyboard = [
@@ -1849,7 +1850,7 @@ For support, contact the bot developer."""
 
     elif data.startswith("changerental_duration_") and query.from_user.id in ADMINS:
         identifier = data.replace("changerental_duration_", "")
-        rented_data = get_number_data(identifier)
+        rented_data = get_rented_data_for_number(identifier)
         user_id = rented_data.get("user_id")
         rented_date = rented_data.get("rent_date")
         user = await client.get_users(user_id)
@@ -1887,7 +1888,7 @@ For support, contact the bot developer."""
 
     elif data.startswith("changerental_date_") and query.from_user.id in ADMINS:
         identifier = data.replace("changerental_date_", "")
-        rented_data = get_number_data(identifier)
+        rented_data = get_rented_data_for_number(identifier)
         user_id = rented_data.get("user_id")
         rented_date = rented_data.get("rent_date")
         hours = rented_data.get("hours", 0)
