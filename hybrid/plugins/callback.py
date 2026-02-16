@@ -19,6 +19,7 @@ from hybrid import Bot, LOG_FILE_NAME, logging, ADMINS, CRYPTO_STAT, gen_4letter
 from hybrid.plugins.temp import temp
 from hybrid.plugins.func import *
 from hybrid.plugins.db import *
+from hybrid.plugins.emoji import e
 from hybrid.plugins.fragment import *
 from config import D30_RATE, D60_RATE, D90_RATE, TON_WALLET
 
@@ -75,17 +76,111 @@ async def callback_handler(client: Client, query: CallbackQuery):
         rent_date = rented_data.get("rent_date")
         time_left = format_remaining_time(rent_date, hours)
         date_str = format_date(str(rent_date)) if rent_date else "N/A"
-        keyboard = [
-            [
-                InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{number}"),
-                InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{number}"),
-            ],
-            [InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")],
-        ]
+        keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
         await query.message.edit_text(
             t(user_id, "number", num=num_text, time=time_left, date=date_str),
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
+
+    elif data.startswith("transfer_"):
+        number = data.replace("transfer_", "")
+        num_text = format_number(number)
+        rented_data = get_number_data(number)
+        if not rented_data or rented_data.get("user_id") != user_id:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        try:
+            response = await query.message.chat.ask(
+                f"Enter @username or User ID to transfer <b>{num_text}</b> to:\n\n"
+                f"Example: @johndoe or 123456789",
+                timeout=120
+            )
+        except Exception:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
+            return await query.message.edit_text(
+                f"{e('timeout')} Timeout. Please try again.",
+                reply_markup=keyboard
+            )
+        identifier = (response.text or "").strip()
+        await response.delete()
+        try:
+            await response.sent_message.delete()
+        except Exception:
+            pass
+        to_user = None
+        if identifier.startswith("@"):
+            try:
+                to_user = await client.get_users(identifier)
+            except Exception:
+                pass
+        else:
+            try:
+                uid = int(identifier)
+                if uid != user_id:
+                    to_user = await client.get_users(uid)
+            except (ValueError, TypeError):
+                pass
+        if not to_user or to_user.is_bot:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
+            return await query.message.edit_text(
+                f"{e('error')} User not found. They must have started this bot first.",
+                reply_markup=keyboard
+            )
+        if to_user.id == user_id:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
+            return await query.message.edit_text(
+                f"{e('error')} You cannot transfer to yourself.",
+                reply_markup=keyboard
+            )
+        recipient_name = f"@{to_user.username}" if to_user.username else (to_user.first_name or str(to_user.id))
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"transfer_confirm_{number}_{to_user.id}"),
+                InlineKeyboardButton(t(user_id, "cancel"), callback_data=f"num_{number}"),
+            ]
+        ])
+        await query.message.edit_text(
+            f"Transfer <b>{num_text}</b> to {recipient_name} (ID: <code>{to_user.id}</code>)?\n\n"
+            f"They will get full control: get code, renew, transfer.",
+            reply_markup=keyboard
+        )
+        return
+
+    elif data.startswith("transfer_confirm_"):
+        parts = data.replace("transfer_confirm_", "").split("_")
+        if len(parts) < 2:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        number = parts[0]
+        try:
+            to_user_id = int(parts[1])
+        except (ValueError, TypeError):
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        rented_data = get_number_data(number)
+        if not rented_data or rented_data.get("user_id") != user_id:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        success, err = transfer_number(number, user_id, to_user_id)
+        if not success:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        num_text = format_number(number)
+        if number in temp.RENTED_NUMS:
+            temp.RENTED_NUMS.remove(number)
+        temp.RENTED_NUMS.append(number)
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
+        await query.message.edit_text(
+            f"{e('success')} Number <b>{num_text}</b> has been transferred successfully.",
+            reply_markup=keyboard
+        )
+        try:
+            to_user = await client.get_users(to_user_id)
+            duration = format_remaining_time(rented_data.get("rent_date"), rented_data.get("hours", 0))
+            await client.send_message(
+                to_user_id,
+                f"{e('success')} You have received number <b>{num_text}</b> from another user.\n\n"
+                f"Time left: <b>{duration}</b>\n\n"
+                f"You can get code, renew, or transfer it from My Rentals."
+            )
+        except Exception:
+            pass
+        return
 
     elif data.startswith("getcode_"):
         number = data.replace("getcode_", "")
@@ -1166,10 +1261,7 @@ For support, contact the bot developer."""
                 hours = rented_data.get("hours", 0)
                 time_left = format_remaining_time(rent_date, hours)
                 date_str = format_date(str(rent_date)) if rent_date else "N/A"
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{number}"), InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{number}")],
-                    [InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")],
-                ])
+                keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
                 await query.message.edit_text(
                     t(user_id, "number", num=num_text, time=time_left, date=date_str),
                     reply_markup=keyboard,
@@ -1651,13 +1743,7 @@ For support, contact the bot developer."""
             temp.RENTED_NUMS.append(number)
         duration = format_remaining_time(get_current_datetime(), new_hours)
 
-        keyboard = [
-            [
-                InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{number}"),
-                InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{number}"),
-            ],
-            [InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")],
-        ]
+        keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
         await query.message.edit_text(
             t(user_id, "rental_success").format(number=num_text, duration=duration, price=price, balance=new_balance),
             reply_markup=InlineKeyboardMarkup(keyboard)
