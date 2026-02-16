@@ -145,9 +145,10 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 reply_markup=keyboard
             )
         recipient_name = f"@{to_user.username}" if to_user.username else (to_user.first_name or str(to_user.id))
+        # Use | as separator to avoid conflicts with phone number format
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"transfer_confirm_{number}_{to_user.id}"),
+                InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"transfer_confirm|{number}|{to_user.id}"),
                 InlineKeyboardButton(t(user_id, "cancel"), callback_data=f"num_{number}"),
             ]
         ])
@@ -158,18 +159,40 @@ async def callback_handler(client: Client, query: CallbackQuery):
         )
         return
 
-    elif data.startswith("transfer_confirm_"):
-        parts = data.replace("transfer_confirm_", "").split("_", 1)
-        if len(parts) < 2:
-            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
-        raw_num, rest = parts[0], parts[1]
-        try:
-            to_user_id = int(rest.split("_")[0] if "_" in rest else rest)
-        except (ValueError, TypeError):
-            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+    elif data.startswith("transfer_confirm"):
+        # Parse using | separator to avoid conflicts with phone number format
+        if "|" in data:
+            parts = data.split("|")
+            if len(parts) < 3:
+                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+            raw_num = parts[1]
+            try:
+                to_user_id = int(parts[2])
+            except (ValueError, TypeError):
+                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        else:
+            # Fallback to old format for backward compatibility
+            parts = data.replace("transfer_confirm_", "").split("_", 1)
+            if len(parts) < 2:
+                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+            raw_num, rest = parts[0], parts[1]
+            try:
+                to_user_id = int(rest.split("_")[0] if "_" in rest else rest)
+            except (ValueError, TypeError):
+                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        
         number = normalize_phone(raw_num) or raw_num
+        logging.info(f"Transfer confirm: user_id={user_id}, raw_num={raw_num}, normalized={number}, to_user_id={to_user_id}")
         rented_data = get_rental_by_owner(user_id, number)
+        logging.info(f"Rental data for transfer: {rented_data}")
         if not rented_data:
+            # Try alternative lookup
+            alt_data = get_number_data(number)
+            logging.info(f"Alternative lookup for transfer: {alt_data}")
+            if alt_data and int(alt_data.get("user_id", 0)) == user_id:
+                rented_data = alt_data
+            else:
+                return await query.answer(f"Number not found for transfer. Debug: raw={raw_num}, norm={number}, uid={user_id}", show_alert=True)
             return await query.answer("Number not found.", show_alert=True)
         number = rented_data.get("number") or number
         success, err = transfer_number(number, user_id, to_user_id)
