@@ -273,6 +273,23 @@ def get_rented_data_for_number(number: str):
     return None
 
 
+def get_rental_by_owner(user_id: int, number: str):
+    """Find rental for this user+number. Uses get_all_rentals only - same source as admin export."""
+    uid = int(user_id)
+    num_clean = str(number or "").strip().replace(" ", "").replace("-", "")
+    if not num_clean:
+        return None
+    for doc in get_all_rentals():
+        if int(doc.get("user_id") or 0) != uid:
+            continue
+        doc_num = (doc.get("number") or "").strip()
+        if doc_num == num_clean:
+            return doc
+        if _normalize_for_lookup(doc_num) == _normalize_for_lookup(num_clean):
+            return doc
+    return None
+
+
 def get_user_numbers(user_id: int):
     """Return numbers rented by user. Merges rentals:user with get_all_rentals for consistency."""
     members = client.smembers(f"rentals:user:{user_id}")
@@ -316,20 +333,14 @@ def remove_number_data(number: str):
 def transfer_number(number: str, from_user_id: int, to_user_id: int):
     """Transfer a rented number to another user. Returns (True, None) or (False, error_msg)."""
     try:
-        num = _norm_num(number)
-        if not num:
-            return False, "Invalid number format"
-        rented = get_rented_data_for_number(num)
+        rented = get_rental_by_owner(from_user_id, number)
         if not rented:
             return False, "Number not found"
-        if int(rented.get("user_id", 0)) != from_user_id:
-            return False, "You do not own this number"
+        canon = _norm_num(rented.get("number") or number) or (rented.get("number") or number)
         rent_date = rented.get("rent_date")
         hours = int(rented.get("hours", 0) or 0)
         if not rent_date or not hours:
             return False, "Invalid rental data"
-        canon = rented.get("number") or num
-        canon = _norm_num(canon) or canon
         remove_number(canon, from_user_id)
         remove_number_data(canon)
         save_number(canon, to_user_id, hours, date=rent_date, extend=False)
