@@ -3,8 +3,6 @@
 
 import json
 import os
-
-_DEBUG_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".cursor", "debug.log")
 import ssl
 import redis
 import config
@@ -113,13 +111,23 @@ def get_numbers_by_user(user_id: int):
 
 def remove_number(number: str, user_id: int):
     number = _norm_num(number) or number
+    num_canon = number
 
     key = f"user:{user_id}"
     numbers_raw = client.hget(key, "numbers")
     if not numbers_raw:
         return False, "NOT_FOUND"
     numbers = json.loads(numbers_raw)
-    new_numbers = [n for n in numbers if n.get("number") != number]
+    new_numbers = []
+    for n in numbers:
+        stored = n.get("number")
+        if not stored:
+            new_numbers.append(n)
+            continue
+        stored_norm = _norm_num(stored) or stored
+        if stored_norm == num_canon or stored == number:
+            continue  # skip - removing this one
+        new_numbers.append(n)
     if len(new_numbers) == len(numbers):
         return False, "NOT_FOUND"
     client.hset(key, "numbers", json.dumps(new_numbers))
@@ -166,10 +174,16 @@ def get_number_data(number: str):
         n = "+" + n
     if n.startswith("+") and not n.startswith("+888"):
         return None
-    key = f"rental:{n}"
-    data = client.hgetall(key)
-    if not data and n.startswith("+888"):
-        data = client.hgetall(f"rental:{n[1:]}")
+    candidates = [n]
+    if n.startswith("+888"):
+        candidates.append(n[1:])
+    elif n.startswith("888"):
+        candidates.append("+" + n)
+    data = None
+    for cand in candidates:
+        data = client.hgetall(f"rental:{cand}")
+        if data:
+            break
     if not data:
         return None
     out = {
@@ -218,26 +232,11 @@ def remove_number_data(number: str):
 
 def transfer_number(number: str, from_user_id: int, to_user_id: int):
     """Transfer a rented number to another user. Returns (True, None) or (False, error_msg)."""
-    # #region agent log
-    try:
-        os.makedirs(os.path.dirname(_DEBUG_LOG), exist_ok=True)
-        with open(_DEBUG_LOG, "a", encoding="utf-8") as _f:
-            _f.write(__import__("json").dumps({"location": "db.py:transfer_number", "message": "entry", "data": {"number": number, "from_user_id": from_user_id, "to_user_id": to_user_id, "hypothesisId": "H4"}, "timestamp": __import__("time").time() * 1000}) + "\n")
-    except Exception:
-        pass
-    # #endregion
     try:
         num = _norm_num(number)
         if not num:
             return False, "Invalid number format"
         rented = get_number_data(num)
-        # #region agent log
-        try:
-            with open(_DEBUG_LOG, "a", encoding="utf-8") as _f:
-                _f.write(__import__("json").dumps({"location": "db.py:transfer_number", "message": "get_number_data result", "data": {"rented_exists": rented is not None, "rented_uid": rented.get("user_id") if rented else None, "hypothesisId": "H5"}, "timestamp": __import__("time").time() * 1000}) + "\n")
-        except Exception:
-            pass
-        # #endregion
         if not rented:
             return False, "Number not found"
         if int(rented.get("user_id", 0)) != from_user_id:
