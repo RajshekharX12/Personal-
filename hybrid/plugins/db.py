@@ -171,16 +171,21 @@ def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int)
 
 def _normalize_for_lookup(s):
     """Normalize number for lookup; returns +888 form or None."""
-    s = str(s or "").strip().replace(" ", "").replace("-", "")
-    if not s:
+    if s is None:
         return None
-    if s.startswith("+888") and len(s) >= 12:
-        return s
+    s = str(s).strip().replace(" ", "").replace("-", "").replace("\ufeff", "")
+    s = s.lstrip("\u002b\u066b\u066c\u2393\uff0b+")  # various plus signs
+    if not s or not s.isdigit():
+        return None
     if s.startswith("888") and len(s) >= 11:
         return "+" + s
-    if s.isdigit() and len(s) == 8:
+    if s.startswith("888") and len(s) == 8:
         return "+888" + s
-    return s if s.startswith("+888") else None
+    if len(s) == 8 and s.isdigit():
+        return "+888" + s
+    if s.startswith("+888") and len(s) >= 12:
+        return s
+    return None
 
 
 def get_number_data(number: str):
@@ -197,18 +202,46 @@ def get_number_data(number: str):
     elif n.startswith("888"):
         candidates.append("+" + n)
     data = None
+    n_norm = _normalize_for_lookup(n)
     for cand in candidates:
         data = client.hgetall(f"rental:{cand}")
         if data:
             break
-    if not data:
-        n_norm = _normalize_for_lookup(n)
+    if not data and n_norm:
         for stored in (client.smembers("rentals:all") or []):
             stored = str(stored).strip() if stored else ""
             if _normalize_for_lookup(stored) == n_norm:
                 data = client.hgetall(f"rental:{stored}")
                 if data:
                     break
+    if not data and n_norm:
+        for key in (client.keys("rental:*") or []):
+            key = key if isinstance(key, str) else key.decode("utf-8", errors="ignore")
+            if not key.startswith("rental:"):
+                continue
+            data = client.hgetall(key)
+            if not data:
+                continue
+            stored_num = (data.get("number") or "")
+            if hasattr(stored_num, "decode"):
+                stored_num = stored_num.decode("utf-8", errors="ignore")
+            stored_num = str(stored_num).strip()
+            if _normalize_for_lookup(stored_num) == n_norm:
+                break
+        else:
+            data = None
+    if not data and n_norm:
+        for doc in get_all_rentals():
+            stored_num = (doc.get("number") or "")
+            if _normalize_for_lookup(stored_num) == n_norm:
+                data = {
+                    "number": doc.get("number"),
+                    "user_id": str(doc.get("user_id", "")),
+                    "hours": str(doc.get("hours", 0)),
+                    "rent_date": doc.get("rent_date").isoformat() if doc.get("rent_date") else "",
+                    "expiry_date": doc.get("expiry_date").isoformat() if doc.get("expiry_date") else "",
+                }
+                break
     if not data:
         return None
     out = {
