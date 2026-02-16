@@ -256,6 +256,20 @@ def get_number_data(number: str):
     return out
 
 
+def get_rented_data_for_number(number: str):
+    """Get rental data - tries get_number_data first, then get_all_rentals (same as admin export)."""
+    data = get_number_data(number)
+    if data:
+        return data
+    n_norm = _normalize_for_lookup(number)
+    if not n_norm:
+        return None
+    for doc in get_all_rentals():
+        if _normalize_for_lookup(doc.get("number")) == n_norm:
+            return doc
+    return None
+
+
 def get_user_numbers(user_id: int):
     members = client.smembers(f"rentals:user:{user_id}")
     return list(members) if members else []
@@ -294,7 +308,7 @@ def transfer_number(number: str, from_user_id: int, to_user_id: int):
         num = _norm_num(number)
         if not num:
             return False, "Invalid number format"
-        rented = get_number_data(num)
+        rented = get_rented_data_for_number(num)
         if not rented:
             return False, "Number not found"
         if int(rented.get("user_id", 0)) != from_user_id:
