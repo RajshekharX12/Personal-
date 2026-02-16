@@ -79,7 +79,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
         await query.message.edit_text(
             t(user_id, "number", num=num_text, time=time_left, date=date_str),
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            reply_markup=keyboard,
         )
 
     elif data.startswith("transfer_"):
@@ -1745,8 +1745,8 @@ For support, contact the bot developer."""
 
         keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
         await query.message.edit_text(
-            t(user_id, "rental_success").format(number=num_text, duration=duration, price=price, balance=new_balance),
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
+            reply_markup=keyboard
         )
 
     elif data.startswith("renew_"):
@@ -1909,5 +1909,6 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
 
 
