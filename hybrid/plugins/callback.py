@@ -88,9 +88,17 @@ async def callback_handler(client: Client, query: CallbackQuery):
         if not raw:
             return await query.answer("Invalid request.", show_alert=True)
         number = normalize_phone(raw) or raw
+        logging.info(f"Transfer attempt: user_id={user_id}, raw={raw}, normalized={number}")
         rented_data = get_rental_by_owner(user_id, number)
+        logging.info(f"Rental data found: {rented_data}")
         if not rented_data:
-            return await query.answer("Number not found.", show_alert=True)
+            # Try alternative lookup
+            alt_data = get_number_data(number)
+            logging.info(f"Alternative lookup (get_number_data): {alt_data}")
+            if alt_data and int(alt_data.get("user_id", 0)) == user_id:
+                rented_data = alt_data
+            else:
+                return await query.answer(f"Number not found. Debug: raw={raw}, norm={number}, uid={user_id}", show_alert=True)
         number = rented_data.get("number") or number
         num_text = format_number(number)
         try:
