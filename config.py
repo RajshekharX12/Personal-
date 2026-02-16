@@ -17,7 +17,7 @@ DB_NAME = os.environ.get("DATABASE_NAME", "rental")
 CRYPTO_API = os.environ.get("CRYPTO_API", "523718:AAEQO6x6qx2PXerElEVuIvBcuL5rdHgDR4Q")
 TON_WALLET = os.environ.get("TON_WALLET", "UQAYH3MHNSUABi73Z6HwIcuXkmws1tBDDN-lWIPhXZW455bI")  # TON wallet address for Tonkeeper payments
 TON_API_TOKEN = os.environ.get("TON_API_TOKEN", "762cfcfb5dc3b67f31d8eba4fec6377bc98b28f3b8e2a24954d31201e6143911")  # Optional: for payment checker (get from @tonapibot)
-USE_CUSTOM_EMOJI = os.environ.get("USE_CUSTOM_EMOJI", "true").lower() in ("1", "true", "yes")  # Set True if bot owner h
+USE_CUSTOM_EMOJI = os.environ.get("USE_CUSTOM_EMOJI", "true").lower() in ("1", "true", "yes")  # Premium emojis in messages
 
 # ============== FRAGMENT data =============
 FRAGMENT_API_HASH = os.environ.get("FRAGMENT_API_HASH", "38f80e92d2dbe5065b")
@@ -40,6 +40,7 @@ except ValueError:
 
 
 ADMINS.append(OWNER_ID)
+
 
 
 
