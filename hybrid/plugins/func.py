@@ -679,7 +679,7 @@ def format_date(date_str) -> str:
         return s[:10] if len(s) >= 10 else s
     return dt.strftime("%d/%m/%y")
 
-from hybrid.plugins.db import get_user_balance, get_number_data
+from hybrid.plugins.db import get_user_balance, get_number_data, get_rented_data_for_number, get_all_rentals
 
 try:
     from hybrid.plugins.db import get_all_pool_numbers
@@ -690,18 +690,17 @@ except ImportError:
 def export_numbers_csv(filename: str = "numbers_export.csv"):
     """
     Export all numbers with rental details to a CSV file.
-
-    Columns: Number, Rented, User ID, Balance, Rent Date, Expiry Date, Days Left, Hours Left, Rented Amount
+    Includes pool numbers + rented numbers (admin-assigned may not be in pool).
     """
-    if get_all_pool_numbers is not None:
-        all_numbers = get_all_pool_numbers()
-    else:
-        all_numbers = list(temp.NUMBE_RS) if temp.NUMBE_RS else []
+    pool = set(get_all_pool_numbers()) if get_all_pool_numbers else set()
+    pool = pool or set(temp.NUMBE_RS or [])
+    rented_numbers = {doc.get("number") for doc in get_all_rentals() if doc.get("number")}
+    all_numbers = sorted(pool | rented_numbers)
     rows = []
 
     now = datetime.now(timezone.utc)
     for number in all_numbers:
-        rented_data = get_number_data(number)
+        rented_data = get_rented_data_for_number(number)
 
         if rented_data and rented_data.get("user_id"):
             user_id = rented_data.get("user_id")
