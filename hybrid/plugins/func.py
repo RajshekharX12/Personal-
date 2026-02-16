@@ -181,10 +181,26 @@ async def show_numbers(query, page: int = 1):
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
+def _md_to_html(text: str) -> str:
+    """Convert Markdown to HTML for parse_mode HTML."""
+    import re
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+    text = re.sub(r'__(.+?)__', r'<i>\1</i>', text)
+    return text
+
+def h(text: str) -> str:
+    """Convert inline Markdown to HTML. Use for hardcoded messages."""
+    return _md_to_html(text)
+
 def t(user_id: int, key: str, **kwargs):
     from hybrid.plugins.db import get_user_language
+    from hybrid.plugins.emoji import e
+    import re
     lang = get_user_language(user_id) or "en"
     text = LANGUAGES.get(lang, LANGUAGES["en"]).get(key, key)
+    text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: e(m.group(1)), text)
+    text = _md_to_html(text)
     if kwargs:
         return text.format(**kwargs)
     return text
@@ -211,11 +227,7 @@ def build_rentnum_keyboard(user_id: int, page: int = 0):
     keyboard = []
 
     for number in numbers_page:
-        if number in temp.RENTED_NUMS:
-            status = " 🔴"  # rented/unavailable
-        else:
-            status = " 🟢"  # available
-
+        status = " 🔴" if number in temp.RENTED_NUMS else " 🟢"
         keyboard.append([
             InlineKeyboardButton(f"{number} {status}", callback_data=f"numinfo:{number}:{page}")
         ])
@@ -234,6 +246,35 @@ def build_rentnum_keyboard(user_id: int, page: int = 0):
 
     keyboard.append([InlineKeyboardButton(t(user_id, "back_home"), callback_data="back_home")])
 
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_number_actions_keyboard(user_id: int, number: str, back_data: str = "my_rentals"):
+    """Build keyboard for rented number: Renew, Get Code, Transfer, Back."""
+    try:
+        from hybrid.plugins.emoji import eid
+        _eid = eid("transfer")
+        if _eid:
+            try:
+                transfer_btn = InlineKeyboardButton(
+                    t(user_id, "transfer"),
+                    callback_data=f"transfer_{number}",
+                    icon_custom_emoji_id=_eid
+                )
+            except TypeError:
+                transfer_btn = InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{number}")
+        else:
+            transfer_btn = InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{number}")
+    except Exception:
+        transfer_btn = InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{number}")
+    keyboard = [
+        [
+            InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{number}"),
+            InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{number}"),
+        ],
+        [transfer_btn],
+        [InlineKeyboardButton(t(user_id, "back"), callback_data=back_data)],
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -716,3 +757,4 @@ async def give_payment_option(client, msg: Message, user_id: int):
         t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
+
