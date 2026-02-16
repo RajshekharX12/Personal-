@@ -1,769 +1,1914 @@
 #(©) @Hybrid_Vamp - https://github.com/hybridvamp
 
-import json
-import math
-import asyncio
-import logging
+from email.mime import message
+import re
+import os
 import random
-import requests
-import traceback
-import csv
+import asyncio
+import subprocess
+import psutil
+import platform
 
-from os import execvp
-from sys import executable
-from datetime import datetime, timedelta, timezone
+from pyrogram.types import Message
+from pyrogram import Client, filters
+from pyrogram.errors import FloodWait
+from pyrogram.types import CallbackQuery
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+from hybrid import Bot, LOG_FILE_NAME, logging, ADMINS, CRYPTO_STAT, gen_4letters
+from hybrid.plugins.temp import temp
+from hybrid.plugins.func import *
+from hybrid.plugins.db import *
+from hybrid.plugins.emoji import e
+from hybrid.plugins.fragment import *
+from config import D30_RATE, D60_RATE, D90_RATE, TON_WALLET
+
+from aiosend.types import Invoice
+from datetime import datetime, timezone
 
 
-from pyrogram import Client, types
-from pyrogram.raw import functions, types
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import (
-    SessionPasswordNeeded,
-    FloodWait,
-    PhoneCodeInvalid,
-    PhoneNumberUnoccupied,
-    PhoneNumberBanned,
-    RPCError
+if CRYPTO_STAT:
+    from hybrid.__init__ import cp
+
+DEFAULT_ADMIN_BACK_KEYBOARD = InlineKeyboardMarkup(
+    [[InlineKeyboardButton("Back to Admin Menu", callback_data="admin_panel")]]
 )
 
-from hybrid.plugins.temp import temp
-from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH, TON_WALLET
 
+# ===================== Callback Query Handler ===================== #
 
-def get_current_datetime():
-    return datetime.now(timezone.utc)
+@Bot.on_callback_query()
+async def callback_handler(client: Client, query: CallbackQuery):
+    user_id = query.from_user.id
+    data = query.data
 
-def fetch_progress(current, total, length=10):
-    if total == 0:
-        return "Total cannot be zero."
-    percentage = int((current / total) * 100)
-    filled_length = int(length * current // total)
-    empty_length = length - filled_length
-    progress_bar = '▥' * filled_length + '▢' * empty_length
-    return f"[{progress_bar}] {percentage}%"
+    if data == "my_rentals":
+        numbers = get_user_numbers(user_id)
+        if not numbers:
+            return await query.message.edit_text(
+                t(user_id, "no_rentals"),
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")]]
+                ),
+            )
 
-def restart(session_name, m: Message):
-    if m:
-        restart_handler(session_name, m.id,  m.chat.id)
-    execvp(executable, [executable, "-m", "hybrid"])
+        keyboard = [
+            [InlineKeyboardButton(num, callback_data=f"num_{num}")]
+            for num in numbers
+        ]
+        keyboard.append([InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")])
 
-def check_proxy(pro_xy):
-    proxy = {
-        "http": f"{pro_xy}",
-        "https": f"{pro_xy}"
-    }
-
-    url = "http://httpbin.org/ip"
-
-    try:
-        response = requests.get(url, proxies=proxy, timeout=10)
-        if response.status_code == 200:
-            return True
-        else:
-            return False
-    except Exception as e:
-        return False
-
-def restart_handler(session_name, msg_id=None, user_id=None):
-    try:
-        with open("restart.json", "r") as f:
-            restart_data = json.load(f)
-    except FileNotFoundError:
-        restart_data = {}
-    except json.JSONDecodeError:
-        restart_data = {}
-
-    if msg_id is None or user_id is None:
-        if session_name in restart_data:
-            return restart_data[session_name]
-        else:
-            return None
-
-    if session_name not in restart_data:
-        restart_data[session_name] = {}
-    restart_data[session_name]['message_id'] = msg_id
-    restart_data[session_name]['user_id'] = user_id
-
-    with open("restart.json", "w") as f:
-        json.dump(restart_data, f, indent=4)
-    return restart_data[session_name]
-
-def get_restart_data(session_name):
-    try:
-        with open("restart.json", "r") as f:
-            restart_data = json.load(f)
-            msg_id = restart_data.get(session_name, {}).get('message_id')
-            user_id = restart_data.get(session_name, {}).get('user_id')
-            return msg_id, user_id
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None, None
-
-def _normalize_hours(total_hours) -> float:
-    """Convert total_hours to float safely (int, float, or str)."""
-    try:
-        return float(total_hours)
-    except (TypeError, ValueError):
-        return 0.0
-
-def _ensure_utc(dt: datetime) -> datetime:
-    """Ensure datetime is timezone-aware UTC."""
-    if dt is None:
-        return get_current_datetime()
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-def format_remaining_time(start_date: datetime, total_hours) -> str:
-    """Return remaining time as 'X days Yh Zm'."""
-    start_date = _ensure_utc(start_date)
-    total_hours = _normalize_hours(total_hours)
-
-    expiry = start_date + timedelta(hours=total_hours)
-    now = get_current_datetime().replace(tzinfo=timezone.utc)
-    remaining = expiry - now
-
-    if remaining.total_seconds() <= 0:
-        return "Expired"
-
-    days = remaining.days
-    hours, remainder = divmod(remaining.seconds, 3600)
-    minutes, _ = divmod(remainder, 60)
-
-    parts = []
-    if days > 0:
-        parts.append(f"{days} days")
-    if hours > 0:
-        parts.append(f"{hours}h")
-    if minutes > 0:
-        parts.append(f"{minutes}m")
-
-    return " ".join(parts) if parts else "0m"
-
-def get_remaining_hours(start_date: datetime, total_hours) -> int:
-    """Return remaining hours as integer."""
-    start_date = _ensure_utc(start_date)
-    total_hours = _normalize_hours(total_hours)
-
-    expiry = start_date + timedelta(hours=total_hours)
-    now = get_current_datetime()
-    remaining = expiry - now
-
-    if remaining.total_seconds() <= 0:
-        return 0
-
-    return max(0, int(remaining.total_seconds() // 3600))
-
-def get_numbers_page(page: int = 1, per_page: int = 10):
-    total = len(temp.NUMBE_RS)
-    pages = math.ceil(total / per_page)
-    start = (page - 1) * per_page
-    end = start + per_page
-    return temp.NUMBE_RS[start:end], pages
-
-async def show_numbers(query, page: int = 1):
-    numbers, pages = get_numbers_page(page)
-    kb = []
-
-    for num in numbers:
-        kb.append([InlineKeyboardButton(num, callback_data=f"admin_number_{num}_{page}")])
-
-    nav = []
-    if page > 1:
-        nav.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_numbers_page_{page-1}"))
-    if page < pages:
-        nav.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin_numbers_page_{page+1}"))
-    if nav:
-        kb.append(nav)
-    kb.append([InlineKeyboardButton("Back to Admin Menu", callback_data="admin_panel")])
-
-    await query.message.edit_text(
-        f"📞 **Available Numbers** (Page {page}/{pages})",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
-
-def _md_to_html(text: str) -> str:
-    """Convert Markdown to HTML for parse_mode HTML."""
-    import re
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
-    text = re.sub(r'__(.+?)__', r'<i>\1</i>', text)
-    return text
-
-def h(text: str) -> str:
-    """Convert inline Markdown to HTML. Use for hardcoded messages."""
-    return _md_to_html(text)
-
-def t(user_id: int, key: str, **kwargs):
-    from hybrid.plugins.db import get_user_language
-    from hybrid.plugins.emoji import e
-    import re
-    lang = get_user_language(user_id) or "en"
-    text = LANGUAGES.get(lang, LANGUAGES["en"]).get(key, key)
-    text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: e(m.group(1)), text)
-    text = _md_to_html(text)
-    if kwargs:
-        return text.format(**kwargs)
-    return text
-
-from hybrid.plugins.db import get_number_data, get_number_info, save_number_info
-
-NUMBERS_PER_PAGE = 8
-
-def build_rentnum_keyboard(user_id: int, page: int = 0):
-    filtered_numbers = temp.AVAILABLE_NUM
-    filtered_numbers = [num for num in filtered_numbers if num not in temp.UN_AV_NUMS]
-    seen = set()
-    filtered_numbers = [x for x in filtered_numbers if not (x in seen or seen.add(x))]
-
-    available_nums = [n for n in filtered_numbers if n not in temp.RENTED_NUMS]
-    rented_nums = [n for n in filtered_numbers if n in temp.RENTED_NUMS]
-
-    ordered_numbers = available_nums + rented_nums
-
-    start = page * NUMBERS_PER_PAGE
-    end = start + NUMBERS_PER_PAGE
-    numbers_page = ordered_numbers[start:end]
-
-    keyboard = []
-
-    for number in numbers_page:
-        status = " 🔴" if number in temp.RENTED_NUMS else " 🟢"
-        keyboard.append([
-            InlineKeyboardButton(f"{number} {status}", callback_data=f"numinfo:{number}:{page}")
-        ])
-
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page-1}"))
-        nav_row.append(InlineKeyboardButton(f"Page {page+1}/{math.ceil(len(ordered_numbers) / NUMBERS_PER_PAGE)}", callback_data="pagenumber"))
-    if end < len(ordered_numbers):
-        if page == 0:
-            nav_row.append(InlineKeyboardButton(f"Page {page+1}/{math.ceil(len(ordered_numbers) / NUMBERS_PER_PAGE)}", callback_data="pagenumber"))
-        nav_row.append(InlineKeyboardButton(t(user_id, "next"), callback_data=f"rentnum_page:{page+1}"))
-
-    if nav_row:
-        keyboard.append(nav_row)
-
-    keyboard.append([InlineKeyboardButton(t(user_id, "back_home"), callback_data="back_home")])
-
-    return InlineKeyboardMarkup(keyboard)
-
-
-def build_number_actions_keyboard(user_id: int, number: str, back_data: str = "my_rentals"):
-    """Build keyboard for rented number: Renew, Get Code, Transfer, Back."""
-    try:
-        from hybrid.plugins.emoji import eid
-        _eid = eid("transfer")
-        if _eid:
-            try:
-                transfer_btn = InlineKeyboardButton(
-                    t(user_id, "transfer"),
-                    callback_data=f"transfer_{number}",
-                    icon_custom_emoji_id=_eid
-                )
-            except TypeError:
-                transfer_btn = InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{number}")
-        else:
-            transfer_btn = InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{number}")
-    except Exception:
-        transfer_btn = InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{number}")
-    keyboard = [
-        [
-            InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{number}"),
-            InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{number}"),
-        ],
-        [transfer_btn],
-        [InlineKeyboardButton(t(user_id, "back"), callback_data=back_data)],
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-
-async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, description: str, msg: Message, payload: str):
-    invoice = await cp.create_invoice(
-        amount=amount,
-        asset="USDT",
-        description=description,
-        paid_btn_name="openBot",
-        paid_btn_url="https://t.me/{}".format((await client.get_me()).username),
-        expires_in=1800,
-        payload=payload
-    )
-    keyboard = [
-        [InlineKeyboardButton("💳 Pay", url=invoice.bot_invoice_url)],
-        [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
-    ]
-    await msg.edit(
-        f"💸 **Invoice Created**\n\n"
-        f"Amount: `{amount}` USDT\n"
-        f"Description: `{description}`\n"
-        f"Pay using the button below.",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-async def get_ton_price_usd() -> float:
-    """Fetch current TON price in USD. Returns 0 on failure."""
-    import requests
-    import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-        r = await loop.run_in_executor(
-            None,
-            lambda: requests.get("https://tonapi.io/v2/rates?tokens=ton&currencies=usd", timeout=10)
+        await query.message.edit_text(
+            t(user_id, "your_rentals"),
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
-        if r.status_code != 200:
-            return 0.0
-        data = r.json()
-        return float(data.get("rates", {}).get("TON", {}).get("prices", {}).get("USD", 0) or 0)
-    except Exception:
-        return 0.0
 
+    elif data.startswith("num_"):
+        number = data.replace("num_", "")
+        num_text = format_number(number)
+        rented_data = get_number_data(number)
+        if not rented_data or rented_data.get("user_id") != user_id:
+            return await query.message.edit_text(
+                t(user_id, "no_rentals"),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
+            )
+        hours = rented_data.get("hours", 0)
+        rent_date = rented_data.get("rent_date")
+        time_left = format_remaining_time(rent_date, hours)
+        date_str = format_date(str(rent_date)) if rent_date else "N/A"
+        keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
+        await query.message.edit_text(
+            t(user_id, "number", num=num_text, time=time_left, date=date_str),
+            reply_markup=keyboard,
+        )
 
-def create_tonkeeper_link(amount_ton: float, order_ref: str) -> str:
-    """Build Tonkeeper TON payment link. Memo (order_ref) auto-filled via text param. No # used (Tonkeeper ignores %23)."""
-    from urllib.parse import quote
-    if not TON_WALLET:
-        return ""
-    amount_nano = int(float(amount_ton) * 1_000_000_000)  # 1 TON = 1e9 nanotons
-    base = f"https://app.tonkeeper.com/transfer/{TON_WALLET}"
-    return f"{base}?amount={amount_nano}&text={quote(order_ref)}"
-
-
-async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: float, description: str, msg: Message, payload: str):
-    """Create Tonkeeper payment screen. Converts USDT to TON, memo auto-filled in Pay link."""
-    from hybrid.plugins.db import _gen_order_ref, save_ton_order
-    if not TON_WALLET:
-        await msg.edit("❌ Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
-        return
-    ton_price = await get_ton_price_usd()
-    if not ton_price or ton_price <= 0:
-        await msg.edit("❌ Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
-        return
-    amount_ton = amount_usdt / ton_price
-    order_ref = _gen_order_ref()
-    save_ton_order(order_ref, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
-    pay_url = create_tonkeeper_link(amount_ton, order_ref)
-    if not pay_url:
-        await msg.edit("❌ Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
-        return
-    keyboard = [
-        [InlineKeyboardButton("💳 Pay", url=pay_url)],
-        [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
-    ]
-    await msg.edit(
-        f"💸 **Tonkeeper Payment**\n\n"
-        f"• Amount: {amount_usdt} USDT (~{amount_ton:.4f} TON)\n"
-        f"• Description: {description}\n"
-        f"• Order ID (memo): `{order_ref}`\n\n"
-        f"Memo is pre-filled when you tap Pay. Payment is checked automatically.",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-def _ton_addresses_match(addr1: str, addr2: str) -> bool:
-    """Compare TON addresses - EQ vs UQ same wallet have different checksums, must decode to raw."""
-    if not addr1 or not addr2:
-        return False
-    try:
-        from pytoniq_core import Address
-        a1 = Address(addr1.strip())
-        a2 = Address(addr2.strip())
-        return a1 == a2 or str(a1) == str(a2)
-    except Exception:
-        s1 = str(addr1).replace("-", "").replace("_", "").replace(" ", "").lower()
-        s2 = str(addr2).replace("-", "").replace("_", "").replace(" ", "").lower()
-        return s1 == s2
-
-
-def _extract_comment(in_msg: dict) -> str:
-    """Extract comment from TON in_msg per asset-processing. Handles msg.dataText and msg.dataRaw (BOC)."""
-    import base64
-    msg_data = in_msg.get("msg_data") or {}
-    comment = (msg_data.get("message") or "").strip()
-    if comment:
-        return comment
-    text_b64 = msg_data.get("text")
-    if text_b64:
+    elif data.startswith("transfer_"):
+        number = data.replace("transfer_", "")
+        num_text = format_number(number)
+        rented_data = get_number_data(number)
+        if not rented_data or rented_data.get("user_id") != user_id:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
         try:
-            raw = base64.b64decode(text_b64)
-            if len(raw) >= 4 and raw[:4] == b"\x00\x00\x00\x00":
-                return raw[4:].decode("utf-8", errors="ignore").strip()
-            return raw.decode("utf-8", errors="ignore").strip()
+            response = await query.message.chat.ask(
+                f"Enter @username or User ID to transfer <b>{num_text}</b> to:\n\n"
+                f"Example: @johndoe or 123456789",
+                timeout=120
+            )
+        except Exception:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
+            return await query.message.edit_text(
+                f"{e('timeout')} Timeout. Please try again.",
+                reply_markup=keyboard
+            )
+        identifier = (response.text or "").strip()
+        await response.delete()
+        try:
+            await response.sent_message.delete()
         except Exception:
             pass
-    body = msg_data.get("body")
-    if body:
-        try:
-            from pytoniq_core import Cell
-            cell = Cell.one_from_boc(base64.b64decode(body))
-            return cell.begin_parse().load_snake_string().replace("\x00", "").strip()
-        except Exception:
+        to_user = None
+        if identifier.startswith("@"):
             try:
-                raw = base64.b64decode(body)
-                for start in range(min(20, len(raw))):
-                    try:
-                        s = raw[start:].decode("utf-8", errors="strict").strip().replace("\x00", "")
-                        if 4 <= len(s) <= 64 and s.isprintable():
-                            return s
-                    except (UnicodeDecodeError, ValueError):
-                        continue
+                to_user = await client.get_users(identifier)
             except Exception:
                 pass
-    return ""
-
-
-# Tonkeeper payment checker (TonCenter API v2 - TON asset processing)
-async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, delete_ton_order,
-                                   get_all_pending_ton_orders, t, TON_WALLET):
-    """Poll TonCenter getTransactions, parse in_msg comment and value. Credit on match. Same flow as CryptoBot."""
-    if not TON_WALLET:
+        else:
+            try:
+                uid = int(identifier)
+                if uid != user_id:
+                    to_user = await client.get_users(uid)
+            except (ValueError, TypeError):
+                pass
+        if not to_user or to_user.is_bot:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
+            return await query.message.edit_text(
+                f"{e('error')} User not found. They must have started this bot first.",
+                reply_markup=keyboard
+            )
+        if to_user.id == user_id:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
+            return await query.message.edit_text(
+                f"{e('error')} You cannot transfer to yourself.",
+                reply_markup=keyboard
+            )
+        recipient_name = f"@{to_user.username}" if to_user.username else (to_user.first_name or str(to_user.id))
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"transfer_confirm_{number}_{to_user.id}"),
+                InlineKeyboardButton(t(user_id, "cancel"), callback_data=f"num_{number}"),
+            ]
+        ])
+        await query.message.edit_text(
+            f"Transfer <b>{num_text}</b> to {recipient_name} (ID: <code>{to_user.id}</code>)?\n\n"
+            f"They will get full control: get code, renew, transfer.",
+            reply_markup=keyboard
+        )
         return
-    pending = get_all_pending_ton_orders()
-    if not pending:
-        return
-    try:
-        from urllib.parse import quote
-        addr_param = quote(TON_WALLET.strip(), safe="")
-        url = f"https://toncenter.com/api/v2/getTransactions?address={addr_param}&limit=50"
-        loop = asyncio.get_event_loop()
-        r = await loop.run_in_executor(None, lambda: requests.get(url, timeout=8))
-        if r.status_code != 200:
-            return
-        data = r.json()
-        if not data.get("ok") or "result" not in data:
-            return
-        txs = data.get("result") or []
-        for order_ref, order in pending:
-            memo_needle = order_ref
-            amount_ton = order.get("amount_ton") or (float(order["amount"]) / 5.0)
-            amount_nano_min = int(float(amount_ton) * 1_000_000_000 * 0.98)
-            for tx in txs:
-                in_msg = tx.get("in_msg")
-                if not in_msg:
-                    continue
-                dest = in_msg.get("destination") or ""
-                if not _ton_addresses_match(TON_WALLET, dest):
-                    continue
-                try:
-                    amt = int(in_msg.get("value") or 0)
-                except (ValueError, TypeError):
-                    amt = 0
-                if amt < amount_nano_min:
-                    continue
-                comment = _extract_comment(in_msg)
-                if memo_needle not in comment and (comment or "").strip() != memo_needle:
-                    continue
-                user_id = order["user_id"]
-                payload = (order.get("payload") or "").strip()
-                try:
-                    await client.edit_message_text(order["chat_id"], order["msg_id"], "⌛")
-                except Exception:
-                    pass
-                current_bal = get_user_balance(user_id) or 0.0
-                new_bal = current_bal + float(order["amount"])
-                save_user_balance(user_id, new_bal)
-                if payload.startswith("rentpay:"):
-                    parts = payload.split(":")
-                    if len(parts) >= 3:
-                        _, number, hours = parts[0], parts[1], parts[2]
-                        keyboard = InlineKeyboardMarkup([[
-                            InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
-                        ]])
-                    else:
-                        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
-                elif payload.startswith("numinfo:"):
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]])
-                else:
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
-                try:
-                    await client.edit_message_text(
-                        order["chat_id"], order["msg_id"],
-                        t(user_id, "payment_confirmed"),
-                        reply_markup=keyboard
-                    )
-                except Exception:
-                    pass
-                delete_ton_order(order_ref)
-                break
-    except Exception as e:
-        logging.error(f"Tonkeeper check error: {e}")
 
-
-# NOTE: return type changed to (bool, str) to preserve reason strings used elsewhere.
-async def delete_account(number: str, app: Client, two_fa_password: str = None) -> tuple[bool, str]:
-    """
-    Delete Telegram account linked to `number`.
-
-    Logic:
-    - If code type is not FRAGMENT_SMS but next_type is → force one resend to switch to Fragment.
-    - Wait up to 30s for OTP from Fragment helper.
-    - Handle 2FA (immediate deletion if password provided, else scheduled).
-    - Manage all known errors, retry on FloodWait.
-    """
-    session_name = f"delete-{number.replace('+', '')}"
-    client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
-    logging.info("=== delete_account START ===")
-    logging.info(f"Starting deletion process for {number} (session='{session_name}')")
-
-    def _type_name(x):
-        if x is None:
-            return "None"
-        return getattr(x, "name", str(x))
-
-    try:
-        logging.info("Connecting pyrogram client...")
-        await client.connect()
-        logging.info(f"Connected to Telegram for {number} (is_connected={getattr(client, 'is_connected', False)})")
-
-        # Step 1: Send login code
-        logging.info("Requesting login code using client.send_code(...)")
+    elif data.startswith("transfer_confirm_"):
+        parts = data.replace("transfer_confirm_", "").split("_")
+        if len(parts) < 2:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        number = parts[0]
         try:
-            sent_code = await client.send_code(number)
-        except FloodWait as e:
-            logging.warning("FloodWait %s seconds during send_code. Sleeping and retrying...", e.value)
-            await asyncio.sleep(e.value + 1)
-            return await delete_account(number, app, two_fa_password)
+            to_user_id = int(parts[1])
+        except (ValueError, TypeError):
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        rented_data = get_number_data(number)
+        if not rented_data or rented_data.get("user_id") != user_id:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        success, err = transfer_number(number, user_id, to_user_id)
+        if not success:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        num_text = format_number(number)
+        if number in temp.RENTED_NUMS:
+            temp.RENTED_NUMS.remove(number)
+        temp.RENTED_NUMS.append(number)
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
+        await query.message.edit_text(
+            f"{e('success')} Number <b>{num_text}</b> has been transferred successfully.",
+            reply_markup=keyboard
+        )
+        try:
+            to_user = await client.get_users(to_user_id)
+            duration = format_remaining_time(rented_data.get("rent_date"), rented_data.get("hours", 0))
+            await client.send_message(
+                to_user_id,
+                f"{e('success')} You have received number <b>{num_text}</b> from another user.\n\n"
+                f"Time left: <b>{duration}</b>\n\n"
+                f"You can get code, renew, or transfer it from My Rentals."
+            )
+        except Exception:
+            pass
+        return
 
-        logging.info(
-            "SentCode: phone_code_hash=%s, type=%s, next_type=%s, timeout=%s",
-            getattr(sent_code, "phone_code_hash", None),
-            _type_name(getattr(sent_code, "type", None)),
-            _type_name(getattr(sent_code, "next_type", None)),
-            getattr(sent_code, "timeout", None),
+    elif data.startswith("getcode_"):
+        number = data.replace("getcode_", "")
+        num_text = format_number(number)
+        # await query.message.edit_text(f"{t(user_id, 'getting_code')} `{num_text}`...")
+        code = get_login_code(number)
+        await asyncio.sleep(2)  # Simulate waiting for the code
+        if code and code.isdigit():
+            keyboard = [
+                [InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]
+            ]
+            await query.message.reply(
+                t(user_id, "here_is_code", code=code),
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # keyboard = [
+            #     [InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]
+            # ]
+            # await query.message.edit_text(
+            #     t(user_id, "no_code"),
+            #     reply_markup=InlineKeyboardMarkup(keyboard)
+            # )
+            await query.answer(t(user_id, "no_code"), show_alert=True)
+
+    elif data == "profile":
+        user = query.from_user
+        balance = get_user_balance(user.id) or 0.0
+        method = get_user_payment_method(user.id)
+        if method == "cryptobot":
+            payment_method = "CryptoBot (@send)"
+        elif method == "tonkeeper":
+            payment_method = "Tonkeeper"
+        else:
+            payment_method = "Not set"
+        text = t(
+            user.id,
+            "profile_text",
+            id=user.id,
+            fname=user.first_name or "N/A",
+            uname=("@" + user.username) if user.username else "N/A",
+            bal=balance,
+            payment_method=payment_method
+        )
+        keyboard = [
+            [InlineKeyboardButton(t(user.id, "add_balance"), callback_data="add_balance")],
+            [InlineKeyboardButton(t(user.id, "change_payment_method"), callback_data="change_payment_method")],
+            [InlineKeyboardButton(t(user.id, "language"), callback_data="language")],
+            [InlineKeyboardButton(t(user.id, "back"), callback_data="back_home")],
+        ]
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "change_payment_method":
+        rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="setpayment_cryptobot")]]
+        if TON_WALLET:
+            rows.append([InlineKeyboardButton("Tonkeeper", callback_data="setpayment_tonkeeper")])
+        rows.append([InlineKeyboardButton(t(user_id, "back"), callback_data="profile")])
+        keyboard = InlineKeyboardMarkup(rows)
+        await query.message.edit_text(t(user_id, "choose_payment_method"), reply_markup=keyboard)
+
+    elif data == "back_home":
+        user = query.from_user
+        rows = [
+            [
+                InlineKeyboardButton(t(user.id, "rent"), callback_data="rentnum"),
+                InlineKeyboardButton(t(user.id, "my_rentals"), callback_data="my_rentals"),
+            ],
+            [
+                InlineKeyboardButton(t(user.id, "profile"), callback_data="profile"),
+                InlineKeyboardButton(t(user.id, "help"), callback_data="help"),
+            ],
+        ]
+
+        if user.id in ADMINS:
+            rows.insert(0, [InlineKeyboardButton("🛠️ Admin Panel", callback_data="admin_panel")])
+
+        keyboard = InlineKeyboardMarkup(rows)
+
+        await query.message.edit(
+            t(user.id, "welcome", name=user.mention),
+            reply_markup=keyboard
         )
 
-        # Step 2: Resend if needed
-        type_str = _type_name(getattr(sent_code, "type", None)).upper()
-        next_type_str = _type_name(getattr(sent_code, "next_type", None)).upper()
-
-        if type_str != "FRAGMENT_SMS" and next_type_str == "FRAGMENT_SMS":
-            logging.info("First code is %s, next_type is FRAGMENT_SMS → resending to force Fragment.", type_str)
-            try:
-                sent_code = await client.resend_code(number, phone_code_hash=sent_code.phone_code_hash)
-                logging.info(
-                    "After resend: type=%s, next_type=%s",
-                    _type_name(getattr(sent_code, "type", None)),
-                    _type_name(getattr(sent_code, "next_type", None)),
-                )
-            except Exception as e:
-                logging.error("Resend failed: %s", e)
-                return False, "ResendError"
-        elif type_str == "FRAGMENT_SMS":
-            logging.info("Code already sent via Fragment SMS.")
+    elif data == "setpayment_tron" or data == "setpayment_cryptobot" or data == "setpayment_tonkeeper" or data.startswith("setpayment_"):
+        method = data.replace("setpayment_", "")
+        if method == "cryptobot":
+            save_user_payment_method(user_id, "cryptobot")
+            await query.message.edit_text(t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
+                                          reply_markup=InlineKeyboardMarkup(
+                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                                          ))
+        elif method == "tonkeeper":
+            save_user_payment_method(user_id, "tonkeeper")
+            await query.message.edit_text(t(user_id, "selected_payment_method", method="Tonkeeper"),
+                                          reply_markup=InlineKeyboardMarkup(
+                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                                          ))
         else:
-            logging.warning("No Fragment type available (type=%s, next_type=%s). Proceeding anyway.", type_str, next_type_str)
+            await query.answer("❌ Invalid payment method selected.", show_alert=True)
+    
+    elif data.startswith("set_payment_"):
+        method = data.replace("set_payment_", "")
+        if method == "cryptobot":
+            save_user_payment_method(user_id, "cryptobot")
+            await query.message.edit_text(t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
+                                          reply_markup=InlineKeyboardMarkup(
+                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                                          ))
+            await asyncio.sleep(3)
+            await query.message.delete()
+        elif method == "tonkeeper":
+            save_user_payment_method(user_id, "tonkeeper")
+            await query.message.edit_text(t(user_id, "selected_payment_method", method="Tonkeeper"),
+                                          reply_markup=InlineKeyboardMarkup(
+                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                                          ))
+            await asyncio.sleep(3)
+            await query.message.delete()
+        else:
+            await query.answer("❌ Invalid payment method selected.", show_alert=True)
+            await asyncio.sleep(3)
+            await query.message.delete()
 
-        # Step 3: Fetch OTP from Fragment
-        from hybrid.plugins.fragment import get_login_code
-        otp = None
-        for attempt in range(6):
+    elif data == "add_balance":
+        method = get_user_payment_method(user_id)
+        if not method:
+            return await give_payment_option(client, query.message, user_id)
+        chat = query.message.chat
+
+        if method == "tonkeeper":
             try:
-                otp = get_login_code(number)
-            except Exception as e:
-                logging.error("get_login_code failed: %s", e)
-                otp = None
-
-            if otp:
-                logging.info("Received OTP: %s", otp)
-                break
-            logging.info("No OTP yet. Waiting 5s (attempt %d/6).", attempt + 1)
-            await asyncio.sleep(5)
-
-        if not otp:
-            logging.error("No OTP received for %s", number)
-            return False, "OTP"
-
-        # Step 4: Sign in
-        try:
-            await client.sign_in(
-                phone_number=number,
-                phone_code_hash=sent_code.phone_code_hash,
-                phone_code=otp,
-            )
-            logging.info("Signed in successfully.")
-        except PhoneNumberUnoccupied:
-            logging.info("No account exists for this number.")
-            return True, "NoAccount"
-        except PhoneCodeInvalid:
-            logging.error("Invalid OTP.")
-            return False, "InvalidOTP"
-        except SessionPasswordNeeded:
-            if two_fa_password:
-                try:
-                    await client.check_password(two_fa_password)
-                    logging.info("2FA password accepted.")
-                except Exception as e:
-                    logging.error("2FA password failed: %s", e)
-                    return False, "Invalid2FAPassword"
-            else:
-                # CRITICAL: Don't return early. Still attempt deletion to trigger Telegram's 7-day period.
-                logging.info("2FA enabled, no password. Attempting deletion anyway to trigger 7-day wait...")
-        except PhoneNumberBanned:
-            logging.error("Number banned.")
-            return False, "Banned"
-        except FloodWait as e:
-            logging.warning("FloodWait %s during sign_in. Retrying...", e.value)
-            await asyncio.sleep(e.value + 1)
-            return await delete_account(number, app, two_fa_password)
-        except Exception as e:
-            logging.error("Unexpected sign_in error: %s", e)
-            return False, "SignInError"
-
-        # Step 5: Delete account (ALWAYS attempt, even with 2FA — triggers 7-day period if needed)
-        try:
-            await client.invoke(functions.account.DeleteAccount(reason="Cleanup"))
-            logging.info("Account deleted immediately.")
-            return True, "Deleted"
-        except RPCError as e:
-            error_text = str(e).upper()
-            # 2FA without password = 7 day waiting period
-            if "2FA_CONFIRM_WAIT" in error_text or "SESSION_PASSWORD_NEEDED" in error_text:
-                logging.info("2FA detected - Telegram scheduled deletion in 7 days.")
-                return True, "7Days"
-            # Account already scheduled for deletion
-            if "ACCOUNT_DELETE_SCHEDULED" in error_text:
-                logging.info("Account deletion already scheduled.")
-                return True, "7Days"
-            logging.error("DeleteAccount RPCError: %s", e)
-            return False, "DeleteError"
-        except Exception as e:
-            logging.error("Unexpected DeleteAccount error: %s", e)
-            return False, "DeleteError"
-
-    except Exception as e:
-        logging.error("Top-level error: %s", e)
-        return False, "Error"
-    finally:
-        if getattr(client, "is_connected", False):
-            await client.disconnect()
-            logging.info("Disconnected client.")
-        logging.info("=== delete_account END ===")
-
-
-async def check_number_conn(number: str) -> bool:
-    from hybrid.plugins.fragment import fragment_api
-    return await fragment_api.check_is_number_free(number)
-
-def format_number(number) -> str:
-    """
-    Format a phone number from +88869696069 (int or str) to +888 6969 6069
-    """
-    number = str(number)
-
-    if number.startswith("+888"):
-        clean_number = number
-    elif number.startswith("888"):
-        clean_number = "+" + number
-    else:
-        raise ValueError("Number must start with +888")
-
-    prefix = clean_number[:4]        # +888
-    first_block = clean_number[4:8]  # 6969
-    second_block = clean_number[8:]  # 6069
-
-    return f"{prefix} {first_block} {second_block}"
-
-def format_date(date_str: str) -> str:
-    """Parse date string (ISO, strptime formats) and return DD/MM/YY."""
-    if date_str is None:
-        return "N/A"
-    s = str(date_str).strip()
-    if not s:
-        return "N/A"
-    dt = None
-    try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        s_no_tz = s.split("+")[0].rstrip()
-        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+                response = await chat.ask(t(user_id, "enter_amount"), timeout=120)
+            except Exception:
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+                return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=keyboard)
             try:
-                dt = datetime.strptime(s_no_tz, fmt)
-                break
+                amount = float(response.text.strip())
+                if amount < 0.5:
+                    return await query.message.reply("❌ Amount must be at least 0.5 USDT.")
             except ValueError:
-                continue
-    if dt is None:
-        return s[:10] if len(s) >= 10 else s
-    return dt.strftime("%d/%m/%y")
+                return await query.message.reply("❌ Invalid input. Please enter a valid number.")
+            await response.delete()
+            await response.sent_message.delete()
+            await send_tonkeeper_invoice(client, user_id, amount, f"Top-up for {user_id}", query.message, "profile")
 
-from hybrid.plugins.db import get_user_balance, get_number_data
-
-try:
-    from hybrid.plugins.db import get_all_pool_numbers
-except ImportError:
-    get_all_pool_numbers = None
-
-
-def export_numbers_csv(filename: str = "numbers_export.csv"):
-    """
-    Export all numbers with rental details to a CSV file.
-
-    Columns: Number, Rented, User ID, Balance, Rent Date, Expiry Date, Days Left, Hours Left, Rented Amount
-    """
-    if get_all_pool_numbers is not None:
-        all_numbers = get_all_pool_numbers()
-    else:
-        all_numbers = list(temp.NUMBE_RS) if temp.NUMBE_RS else []
-    rows = []
-
-    now = datetime.now(timezone.utc)
-    for number in all_numbers:
-        rented_data = get_number_data(number)
-
-        if rented_data and rented_data.get("user_id"):
-            user_id = rented_data.get("user_id")
-            balance = get_user_balance(user_id) or 0.0
-            rent_date = rented_data.get("rent_date")
-            expiry_date = rented_data.get("expiry_date")
-            hours = rented_data.get("hours", 0)
-            rent_date_str = rent_date.strftime("%Y-%m-%d %H:%M:%S") if rent_date else ""
-            expiry_date_str = expiry_date.strftime("%Y-%m-%d %H:%M:%S") if expiry_date else ""
-            if expiry_date and rent_date:
-                remaining = expiry_date - now
-                days_left = max(0, remaining.days)
-                hours_left = max(0, remaining.seconds // 3600)
+        elif method == "cryptobot":
+            if not CRYPTO_STAT:
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                )
+                return await query.message.edit_text(
+                    "❌ CryptoBot payments are currently disabled. Please choose another method.",
+                    reply_markup=keyboard
+                )
+            
             else:
-                days_left = hours_left = 0
+                try:
+                    response = await chat.ask(
+                        t(user_id, "enter_amount"),
+                        timeout=120
+                    )
+                except Exception:
+                    keyboard = InlineKeyboardMarkup(
+                        [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                    )
+                    return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=keyboard)
 
-            rows.append({
-                "Number": number,
-                "Rented": "Yes",
-                "User ID": user_id,
-                "Balance": balance,
-                "Rent Date": rent_date_str,
-                "Expiry Date": expiry_date_str,
-                "Days Left": days_left,
-                "Hours Left": hours_left,
-                "Rented Amount (Hours)": hours
-            })
+                try:
+                    amount = float(response.text.strip())
+                    if amount <= 0:
+                        return await query.message.reply("❌ Amount must be greater than 0.5 USDT.")
+                except ValueError:
+                    return await query.message.reply("❌ Invalid input. Please enter a valid number.")
+
+                user_id = query.from_user.id
+
+                invoice = await cp.create_invoice(
+                    amount=amount,
+                    asset="USDT",
+                    description=f"Top-up for {user_id}",
+                    payload=str(f"{user_id}_{query.message.id}"),
+                    allow_comments=False,
+                    allow_anonymous=False,
+                    expires_in=1800
+                )
+
+                # cancel old invoice if exists
+                if user_id in temp.INV_DICT:
+                    old_inv_id, old_msg_id = temp.INV_DICT[user_id]
+                    old_invoice = await cp.get_invoice(old_inv_id)
+                    if old_invoice.status == "pending":
+                        await cp.cancel_invoice(old_inv_id)
+                    try:
+                        msg = await client.get_messages(chat.id, old_msg_id)
+                        await msg.edit("❌ This invoice has been cancelled due to a new top-up request.")
+                    except Exception:
+                        pass
+                    temp.INV_DICT.pop(user_id, None)
+
+                temp.INV_DICT[user_id] = (invoice.invoice_id, query.message.id)
+                temp.PENDING_INV.append(invoice.invoice_id)
+
+                pay_url = invoice.bot_invoice_url
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💳 Pay", url=pay_url)],
+                    [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
+                ])
+
+                await query.message.edit_text(
+                    t(user_id, "payment_pending", amount=amount, inv=invoice.invoice_id),
+                    reply_markup=keyboard
+                )
+                await response.delete()
+                await response.sent_message.delete()
+                return
+
+    elif data == "check_payment_" or data.startswith("check_payment_"):
+        user_id = query.from_user.id
+        if user_id in temp.PAID_LOCK:
+            return await query.answer("⏳ Please wait, checking your previous request.", show_alert=True)
+        temp.PAID_LOCK.append(user_id)
+
+        inv_id = data.replace("check_payment_", "")
+        invoice = await cp.get_invoice(inv_id)
+        if not invoice or inv_id not in temp.PENDING_INV:
+            await query.answer(t(user_id, "payment_not_found"), show_alert=True)
+            temp.PAID_LOCK.remove(user_id)
+            return
+
+        if invoice.status == "paid":
+            payload = (invoice.payload or "").strip()
+            if payload.startswith("rentpay:"):
+                parts = payload.split(":")
+                if len(parts) >= 3:
+                    _, number, hours = parts[0], parts[1], parts[2]
+                    keyboard = InlineKeyboardMarkup([[
+                        InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
+                    ]])
+                else:
+                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+            elif payload.startswith("numinfo:"):
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]
+                )
+            else:
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                )
+            current_bal = get_user_balance(user_id) or 0.0
+            new_bal = current_bal + float(invoice.amount)
+            save_user_balance(user_id, new_bal)
+
+            await query.message.edit_text(
+                t(user_id, "payment_confirmed"),
+                reply_markup=keyboard
+            )
+            temp.PAID_LOCK.remove(user_id)
+            temp.PENDING_INV.remove(inv_id)
         else:
-            rows.append({
-                "Number": number,
-                "Rented": "No",
-                "User ID": "",
-                "Balance": "",
-                "Rent Date": "",
-                "Expiry Date": "",
-                "Days Left": "",
-                "Hours Left": "",
-                "Rented Amount (Hours)": ""
-            })
+            await query.answer(t(user_id, "payment_not_found"), show_alert=True)
+            temp.PAID_LOCK.remove(user_id)
 
-    fieldnames = ["Number", "Rented", "User ID", "Balance", "Rent Date", "Expiry Date", "Days Left", "Hours Left", "Rented Amount (Hours)"]
-    with open(filename, mode="w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    elif data == "help":
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")]]
+        )
+        await query.message.edit_text(t(user_id, "help_text"), reply_markup=keyboard)
 
-    return filename
+    elif data.startswith("lang_"):
+        lang = query.data.split("_")[1]
+        user_id = query.from_user.id
 
-async def give_payment_option(client, msg: Message, user_id: int):
-    rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="set_payment_cryptobot")]]
-    if TON_WALLET:
-        rows.append([InlineKeyboardButton("Tonkeeper", callback_data="set_payment_tonkeeper")])
-    rows.append([InlineKeyboardButton(t(user_id, "back"), callback_data="profile")])
-    keyboard = InlineKeyboardMarkup(rows)
-    await msg.reply(
-        t(user_id, "choose_payment_method"),
-        reply_markup=keyboard
-    )
+        save_user_language(user_id, lang)
+
+        await query.message.edit("✅ Language saved! press /start again to continue.")
+
+    elif data == "language":
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")],
+            [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
+            [InlineKeyboardButton("🇰🇷 한국어", callback_data="lang_ko")],
+            [InlineKeyboardButton("🇨🇳 中文", callback_data="lang_zh")],
+            [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]
+        ])
+        await query.message.edit("🌍 Please choose your language:", reply_markup=keyboard)
+
+    elif data == "admin_panel" and query.from_user.id in ADMINS:
+        text = "🛠️ **Admin Panel**\n\nSelect an option below:"
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("👤 User Management", callback_data="user_management"),
+            ],
+            [
+                InlineKeyboardButton("🛒 Rental Management", callback_data="rental_management"),
+            ],
+            [
+                InlineKeyboardButton("🔢 Number Control", callback_data="number_control"),
+            ],
+            [
+                InlineKeyboardButton("🛠️ Admin Tools", callback_data="admin_tools"),
+            ],
+            [InlineKeyboardButton("⬅️ Back", callback_data="back_home")]
+        ])
+        await query.message.edit_text(text, reply_markup=keyboard)
+    
+    elif data == "user_management" and query.from_user.id in ADMINS:
+        text = """👤 **User Management**
+        
+Details:
+- User Info: Get detailed information about a user by User ID.
+- User Balances: View total user balances and add balance to a user.
+        """
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("User Info", callback_data="admin_user_info"),
+                InlineKeyboardButton("User Balances", callback_data="admin_balances"),
+            ],
+            [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
+        ])
+        await query.message.edit_text(text, reply_markup=keyboard)
+
+    elif data == "rental_management" and query.from_user.id in ADMINS:
+        text = """🛒 **Rental Management**
+
+Details:
+- Numbers: View all rented numbers and their details.
+- Assign Number: Manually assign a number to a user.
+- Cancel Rent: Cancel a user's rental by User ID or Number.
+- Extend Rent: Extend a user's rental duration by User ID or Number.
+- Change Rental Date: Modify the rental dates for a user's number.
+- Export CSV: Export all rental data in CSV format.
+        """
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Numbers", callback_data="admin_numbers"),
+                InlineKeyboardButton("Assign Number", callback_data="admin_assign_number"),
+            ],
+            [
+                InlineKeyboardButton("Cancel Rent", callback_data="admin_cancel_rent"),
+                InlineKeyboardButton("Extend Rent", callback_data="admin_extend_rent"),
+            ],
+            [
+                InlineKeyboardButton("Change Rental Date", callback_data="change_rental_date"),
+                InlineKeyboardButton("📑 Export CSV", callback_data="exportcsv")
+            ],
+            [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
+        ])
+        await query.message.edit_text(text, reply_markup=keyboard)
+
+    elif data == "number_control" and query.from_user.id in ADMINS:
+        rest_toggle = is_restricted_del_enabled()
+        if rest_toggle:
+            toggle_text = "Disable Restricted Auto-Deletion"
+        else:
+            toggle_text = "Enable Restricted Auto-Deletion"
+        text = """🔢 **Number Control**
+
+Details:
+- Enable/Disable Numbers: Toggle the availability of numbers for rent.
+- Enable All: Make all numbers available for rent.
+- Delete Accounts: Delete a Telegram account associated with a number.
+- Banned Numbers: View banned numbers.
+- Restricted Auto-Deletion: Toggle automatic deletion of restricted numbers.
+        """
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Enable Numbers", callback_data="admin_enable_numbers"),
+                InlineKeyboardButton("Disable Numbers", callback_data="admin_disable_numbers"),
+            ],
+            [
+                InlineKeyboardButton("Enable All", callback_data="admin_enable_all"),
+                InlineKeyboardButton("Delete Accounts", callback_data="admin_delete_acc"),
+            ],
+            [InlineKeyboardButton("Banned Numbers", callback_data="banned_numbers")],
+            [InlineKeyboardButton(toggle_text, callback_data="toggle_restricted_del")],
+            [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
+        ])
+        await query.message.edit_text(text, reply_markup=keyboard)
+
+    elif data == "admin_tools" and query.from_user.id in ADMINS:
+        text = """🛠️ **Admin Tools**
+
+Details:
+- Change Rules: Update the rental rules text in multiple languages.
+- Check Tx: Verify a transaction ID for balance top-up.
+- Admin Help: Get help on using admin features.
+        """
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Check Tx", callback_data="checktx"),
+                InlineKeyboardButton("Change Rules", callback_data="admin_change_rules"),
+            ],
+            [
+                InlineKeyboardButton("❓ Admin Help", callback_data="admin_help")
+            ],
+            [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
+        ])
+        await query.message.edit_text(text, reply_markup=keyboard)
+
+    elif data == "admin_numbers" and query.from_user.id in ADMINS:
+        await show_numbers(query, page=1)
+
+    elif data == "toggle_restricted_del" and query.from_user.id in ADMINS:
+        current_status = is_restricted_del_enabled()
+        new_status = restricted_del_toggle()
+        status_text = "enabled" if new_status else "disabled"
+        await query.message.edit_text(
+            f"✅ Restricted numbers auto-deletion has been {status_text}.",
+            reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD
+        )
+
+    elif data.startswith("admin_numbers_page_"):
+        page = int(data.split("_")[-1])
+        await show_numbers(query, page=page)
+
+    elif data.startswith("admin_number_"):
+        _, _, number, page = data.split("_")
+        page = int(page)
+
+        number_data = get_number_info(number)
+        if not number_data:
+            # save default data if not found
+            save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
+            logging.info(f"Number {number} not found in DB. Created with default prices.")
+        if number not in temp.AVAILABLE_NUM:
+            temp.AVAILABLE_NUM.append(number)
+        number_data = get_number_info(number)
+        price_30d = number_data.get("prices", {}).get("30d", 0.0)
+        price_60d = number_data.get("prices", {}).get("60d", 0.0)
+        price_90d = number_data.get("prices", {}).get("90d", 0.0)
+        available = number_data.get("available", True)
+        rented_user = get_user_by_number(number)
+        if rented_user:
+            rented_status = f"🔴 Rented by User ID: {rented_user[0]}"   
+        else:
+            rented_status = "🟢 Available"
+        text = f"""📞 **Number:** {number}
+{rented_status}
+• 💵 **Prices:**
+    • 30 days: {price_30d} USDT
+    • 60 days: {price_60d} USDT
+    • 90 days: {price_90d} USDT
+• 📦 **Available:** {"✅ Yes" if available else "❌ No"}
+• 🛠️ **Last Updated:** {number_data.get("updated_at", "N/A").strftime('%Y-%m-%d %H:%M:%S UTC')}
+• 🆔 **In Database:** {"✅ Yes" if number_data else "❌ No"}
+"""
+        kb = [
+            [InlineKeyboardButton("💵 Change Price", callback_data=f"change_price_{number}_{page}")],
+            [InlineKeyboardButton("🟢 Toggle Availability", callback_data=f"toggle_avail_{number}_{page}")],
+            [InlineKeyboardButton("⬅️ Back", callback_data=f"admin_numbers_page_{page}")]
+        ]
+
+        await query.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
+
+    elif data.startswith("change_price_") and query.from_user.id in ADMINS:
+        _, _, number, page = data.split("_")
+        page = int(page)
+
+        try:
+            response = await query.message.chat.ask(
+                f"💰 Enter new prices for **{number}** in USDT as `30d,60d,90d` (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            return await query.message.edit_text("⏰ Timeout! Please try again.")
+
+        try:
+            prices = list(map(float, response.text.strip().split(",")))
+            if len(prices) != 3 or any(p <= 0 for p in prices):
+                return await query.message.reply("❌ Please provide three positive numbers separated by commas.")
+            price_30d, price_60d, price_90d = prices
+        except ValueError:
+            return await query.message.reply("❌ Invalid input. Please enter valid numbers.")
+
+        status = save_number_info(number, price_30d, price_60d, price_90d)
+        await response.delete()
+        await response.sent_message.delete()
+
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Back", callback_data=f"admin_number_{number}_{page}")]
+        ]
+        await query.message.edit_text(f"✅ Prices for **{number}** updated successfully ({status}).",
+                                      reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+    
+    elif data.startswith("toggle_avail_") and query.from_user.id in ADMINS:
+        _, _, number, page = data.split("_")
+        page = int(page)
+
+        number_data = get_number_info(number)
+        if not number_data:
+            return await query.message.edit_text("❌ Number not found in database.")
+
+        current_status = number_data.get("available", True)
+        new_status = not current_status
+        save_number_info(
+            number,
+            number_data.get("prices", {}).get("30d", 0.0),
+            number_data.get("prices", {}).get("60d", 0.0),
+            number_data.get("prices", {}).get("90d", 0.0),
+            available=new_status
+        )
+
+        await query.message.edit_text(
+            f"✅ Availability for **{number}** set to {'✅ Yes' if new_status else '❌ No'}.",
+        )
+        # change in temp.AVAILABLE_NUM
+        if new_status and number not in temp.AVAILABLE_NUM:
+            temp.AVAILABLE_NUM.append(number)
+        elif not new_status and number in temp.AVAILABLE_NUM:
+            temp.AVAILABLE_NUM.remove(number)
+        if not new_status:
+            if number not in temp.UN_AV_NUMS:
+                temp.UN_AV_NUMS.append(number)
+        else:
+            if number in temp.UN_AV_NUMS:
+                temp.UN_AV_NUMS.remove(number)
+        await asyncio.sleep(2)
+        query_data = CallbackQuery(
+            id=query.id,
+            from_user=query.from_user,
+            message=query.message,
+            chat_instance=query.chat_instance,
+            data=f"admin_number_{number}_{page}"
+        )
+        await callback_handler(client, query=query_data)
+        return
+
+    elif data == "admin_cancel_rent" and query.from_user.id in ADMINS:
+        user = query.from_user
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the Number (starting with +888) to cancel rent (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        identifier = response.text.strip()
+        identifier = identifier.replace(" ", "")
+        await response.delete()
+        await response.sent_message.delete()
+        if identifier.startswith("+888"):
+            number = identifier
+            user_data = get_user_by_number(number)
+            if not user_data:
+                return await query.message.edit_text("❌ This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+            user_id = user_data[0]
+        elif identifier.startswith("888") and identifier.isdigit():
+            number = f"+{identifier}"
+            user_data = get_user_by_number(number)
+            if not user_data:
+                return await query.message.edit_text("❌ This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+            user_id = user_data[0]
+        else:
+            return await query.message.reply("❌ Invalid input. Please enter a valid User ID or Number.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        user = await client.get_users(user_id)
+        success, status = remove_number(number, user_id)
+        remove_number_data(number)
+
+
+        if success:
+            terminate_all_sessions(number)
+
+
+        if success:
+            TEXT = f"""✅ Rental for number **{number}** has been cancelled.
+• User ID: {user.id}
+• Username: @{user.username if user.username else 'N/A'}
+• Name: {user.first_name if user.first_name else 'N/A'}
+• Balance: {get_user_balance(user.id) or 0.0}
+• Rented On: {user_data[2]}
+• Time Left: {format_remaining_time(user_data[2], user_data[1])}
+• Cancelled By: {query.from_user.mention} (ID: {query.from_user.id})
+            """
+            keyboard = [
+                [InlineKeyboardButton("🗑️ Delete Account", callback_data=f"delacc_{number}")],
+                [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
+            ]
+            await query.message.edit_text(TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
+            try:
+                await client.send_message(
+                    user.id,
+                    f"❌ Your rental for number **{number}** has been cancelled by the admin.\n"
+                    f"• Rented On: {user_data[2]}\n"
+                    f"• Time Left: {format_remaining_time(user_data[1], user_data[2])}\n"
+                    f"For more info, contact support."
+                )
+            except Exception:
+                pass
+        
+    elif data == "admin_extend_rent" and query.from_user.id in ADMINS:
+        user = query.from_user
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the Number (starting with +888) to extend rent (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        identifier = response.text.strip()
+        identifier = identifier.replace(" ", "")
+        await response.delete()
+        await response.sent_message.delete()
+        if identifier.startswith("+888"):
+            number = identifier
+            user_data = get_user_by_number(number)
+            if not user_data:
+                return await query.message.edit_text("❌ This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+            user_id = user_data[0]
+        elif identifier.startswith("888") and identifier.isdigit():
+            number = f"+{identifier}"
+            user_data = get_user_by_number(number)
+            if not user_data:
+                return await query.message.edit_text("❌ This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+            user_id = user_data[0]
+        else:
+            return await query.message.reply("❌ Invalid input. Please enter a valid Number.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        user = await client.get_users(user_id)
+        try:
+            response = await query.message.chat.ask(
+                f"⚠️ Enter the number of hours/days (6h or 2d format) to extend for **{number}** (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        duration_str = response.text.strip().lower()
+        await response.delete()
+        await response.sent_message.delete()
+        match = re.match(r"^(\d+)([hd])$", duration_str)
+        if not match:
+            return await query.message.reply("❌ Invalid format. Use number followed by 'h' or 'd' (e.g., 6h or 2d).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        amount, unit = match.groups()
+        amount = int(amount)
+        hours = amount * 24 if unit == "d" else amount
+        success, status = save_number(number, user_id, hours, extend=True)
+        if success:
+            new_time_left = format_remaining_time(user_data[1], user_data[2] + hours)
+            h_days = hours // 24
+            TEXT = f"""✅ Rental for number **{number}** has been extended by **{h_days} days**.
+• User ID: {user.id}
+• Username: @{user.username if user.username else 'N/A'}
+• Name: {user.first_name if user.first_name else 'N/A'}
+• Balance: {get_user_balance(user.id) or 0.0}
+• Rented On: {user_data[1].strftime('%Y-%m-%d %H:%M:%S UTC')}
+• New Time Left: {new_time_left}
+• Extended By: {query.from_user.mention} (ID: {query.from_user.id})
+            """
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
+            ]
+            await query.message.edit_text(TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
+            try:
+                await client.send_message(
+                    user.id,
+                    f"✅ Your rental for number **{number}** has been extended by **{h_days} days** by the admin.\n"
+                    f"• Rented On: {user_data[1].strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+                    f"• New Time Left: {new_time_left}\n"
+                    f"For more info, contact support."
+                )
+            except Exception:
+                pass
+
+    elif data == "admin_balances" and query.from_user.id in ADMINS:
+        to_tal, to_user = get_total_balance()
+        text = f"💰 **Total User Balances:**\n\n• Total Balance: **{to_tal} USDT**\n• Total Users with Balance: **{to_user}**"
+        keyboard = [
+            [InlineKeyboardButton("➕ Add Balance", callback_data="admin_add_balance")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="admin_panel")]
+        ]
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "admin_add_balance" and query.from_user.id in ADMINS:
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the User ID to add balance to (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        identifier = response.text.strip()
+        await response.delete()
+        await response.sent_message.delete()
+        try:
+            user_id = int(identifier)
+        except ValueError:
+            return await query.message.reply("❌ Invalid input. Please enter a valid User ID.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        try:
+            user = await client.get_users(user_id)
+        except Exception:
+            user = None
+        if not user:
+            return await query.message.edit_text("❌ User not found/invalid User ID. (User must start this bot first)", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        try:
+            response = await query.message.chat.ask(
+                f"⚠️ Enter the amount in **USDT** to add to user {user.first_name} (ID: {user.id}) (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        try:
+            amount = float(response.text.strip())
+            if amount <= 0:
+                return await query.message.reply("❌ Amount must be greater than 0.5 USDT.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        except ValueError:
+            return await query.message.reply("❌ Invalid input. Please enter a valid number.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        current_bal = get_user_balance(user.id) or 0.0
+        new_bal = current_bal + amount
+        save_user_balance(user.id, new_bal)
+        await response.delete()
+        await response.sent_message.delete()
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
+        ]
+        await query.message.edit_text(
+            f"✅ Added **{amount} USDT** to user {user.first_name} (ID: {user.id}). New Balance: **{new_bal} USDT**",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        try:
+            await client.send_message(
+                user.id,
+                f"✅ An admin has added **{amount} USDT** to your balance.\n"
+                f"• New Balance: **{new_bal} USDT**\n"
+                f"For more info, contact support."
+            )
+        except Exception:
+            pass
+
+    elif data == "admin_user_info" and query.from_user.id in ADMINS:
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the User ID to get info for (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        identifier = response.text.strip()
+        await response.delete()
+        await response.sent_message.delete()
+        try:
+            user_id = int(identifier)
+        except ValueError:
+            return await query.message.reply("❌ Invalid input. Please enter a valid User ID.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        user = await client.get_users(user_id)
+        if not user:
+            return await query.message.edit_text("❌ User not found/invalid User ID. (User must start this bot first)", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        balance = get_user_balance(user.id) or 0.0
+        numbers = get_user_numbers(user.id)
+        text = (
+            f"👤 **User Info**\n\n"
+            f"🆔 User ID: `{user.id}`\n"
+            f"👤 First Name: {user.first_name or 'N/A'}\n"
+            f"🔗 Username: @{user.username if user.username else 'N/A'}\n"
+            f"💰 Balance: **{balance} USDT**\n"
+            f"📞 Active Rentals: {len(numbers)}\n"
+        )
+        if numbers:
+            text += "• " + "\n• ".join(numbers) + "\n"
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
+        ]
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "admin_delete_acc" and query.from_user.id in ADMINS:
+        # TEST - ask for number to delete account using chat.ask do not check anything with db just ask for number and call delete_account from func.py also ask for code and 2fa if needed
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the Number to delete account (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        identifier = response.text.strip()
+        identifier = identifier.replace(" ", "")
+        await response.delete()
+        await response.sent_message.delete()
+        chat = query.message.chat
+        stat, reason = await delete_account(identifier, app=client)
+        if stat:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
+            try:
+                is_free = await fragment_api.check_is_number_free(identifier)
+                if is_free:
+                    msg = f"✅ Account associated with number **{identifier}** has been deleted."
+                else:
+                    msg = f"❌ Account is not deleted. 7-day step two verification activated for **{identifier}**."
+            except Exception:
+                msg = f"✅ Account associated with number **{identifier}** has been deleted/deletion counter for one week started successfully."
+            await query.message.edit_text(msg, reply_markup=keyboard)
+        else:
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
+            ]
+            await query.message.edit_text(f"❌ Failed to delete account for number **{identifier}**. Reason: {reason}", reply_markup=InlineKeyboardMarkup(keyboard))
+            if reason == "Banned":
+                logging.info(f"Number {identifier} is banned.")
+                if identifier not in temp.BLOCKED_NUMS:
+                    temp.BLOCKED_NUMS.append(identifier)
+        return
+        
+    elif data == "admin_help" or (data.startswith("admin_help_page_") and query.from_user.id in ADMINS):
+        if not (query.from_user.id in ADMINS):
+            return
+        page = 0
+        if data.startswith("admin_help_page_"):
+            try:
+                page = int(data.replace("admin_help_page_", ""))
+            except ValueError:
+                page = 0
+        ADMIN_HELP_PAGES = [
+            """📘 **Admin Help — Page 1/5: Overview & User Management**
+
+**🛠️ Admin Panel**
+▎ User Management — User info, add balance
+▎ Rental Management — Numbers, assign/cancel/extend, change date, export CSV
+▎ Number Control — Enable/disable numbers, delete accounts, banned list, restricted auto-deletion
+▎ Admin Tools — Check Tx, Change Rules, this Help
+
+━━━━━━━━━━━━━━━━━━━━
+**👤 1. User Info**
+▎ **Path:** Admin Panel → User Management → User Info
+▎ **How to use:** Click the button → bot asks *Enter the User ID* → send a Telegram User ID.
+▎ **Example:** You send `1412909688`
+▎ **What happens:** Bot shows: name, username, balance (USDT), count of active rentals, list of rented numbers (e.g. +88801497213). User must have started the bot at least once; otherwise you get "User not found".
+
+**👤 2. User Balances**
+▎ **Path:** Admin Panel → User Management → User Balances
+▎ **How to use:** Opens a screen with total balance (all users) in USDT and total users with balance. Use **➕ Add Balance** to credit a user.
+▎ **Example:** Click Add Balance → send `1412909688` → then send `25` (USDT). Minimum 0.5 USDT.
+▎ **What happens:** That user's balance increases by 25 USDT; they get a notification. Bot confirms the new balance.""",
+            """📘 **Admin Help — Page 2/5: Rental Management (1/2)**
+
+**🛒 1. Numbers**
+▎ **Path:** Admin Panel → Rental Management → Numbers
+▎ **How to use:** Browse paginated list of all numbers (e.g. +88801497213). Click a number for details.
+▎ **On number screen:** Status (🟢 Available / 🔴 Rented), 30/60/90 day prices (USDT), availability. **💵 Change Price** → send `30d,60d,90d` (e.g. `80,152,224`). **🟢 Toggle Availability** → hide/show from rent list.
+▎ **What happens:** Price or visibility updates immediately; users see new prices when renting.
+
+**🛒 2. Assign Number**
+▎ **Path:** Rental Management → Assign Number
+▎ **How to use:** Step 1 — enter **User ID** (e.g. `1412909688`). Step 2 — enter **Number** (e.g. `+88801497213` or `88801497213`). Step 3 — enter **Hours**: `720` (30d), `1440` (60d), `2160` (90d).
+▎ **Example:** User ID `1412909688`, Number `+88801497213`, Hours `720` → 30 days rental.
+▎ **What happens:** Number is assigned to that user; they receive a message with rental details. Number disappears from public rent list.
+
+**🛒 3. Cancel Rent**
+▎ **Path:** Rental Management → Cancel Rent
+▎ **How to use:** Send the **number** to cancel (e.g. `+88801497213` or `88801497213`).
+▎ **What happens:** Rental is removed; user is notified. A **🗑️ Delete Account** button appears — use it to delete the Telegram account linked to that number (SMS code and optional 2FA required).""",
+            """📘 **Admin Help — Page 3/5: Rental Management (2/2)**
+
+**🛒 4. Extend Rent**
+▎ **Path:** Rental Management → Extend Rent
+▎ **How to use:** Send **number** (e.g. `+88801497213`) → then **duration** in `6h` or `2d` format (e.g. `6h`, `2d`).
+▎ **Example:** Number `+88801497213`, duration `2d` → adds 2 days to current expiry.
+▎ **What happens:** Remaining time is extended; user gets a notification with new time left.
+
+**🛒 5. Change Rental Date**
+▎ **Path:** Rental Management → Change Rental Date
+▎ **How to use:** Send **number** (e.g. `+88801497213`) → choose **Change Rental Duration** or **Change Rented date**.
+▎ **Duration:** Enter e.g. `3d` or `72h` — total rental length from the original rent date is set to this.
+▎ **Date:** Enter DD/MM/YYYY (e.g. `14/02/2026`) — rent start date is changed; cannot be in the future.
+▎ **What happens:** Rental data is updated; expiry recalculates accordingly.
+
+**🛒 6. Export CSV**
+▎ **Path:** Rental Management → 📑 Export CSV (or command `/exportcsv`)
+▎ **How to use:** Click once; no input.
+▎ **What happens:** Bot sends a CSV file with: Number, Rented (Yes/No), User ID, Balance, Rent Date, Expiry, Days/Hours Left.""",
+            """📘 **Admin Help — Page 4/5: Number Control**
+
+**🔢 1. Enable Numbers**
+▎ **Path:** Number Control → Enable Numbers
+▎ **How to use:** Send one or more numbers, comma-separated: `+88801497213` or `88801497213` or `1497213`. Example: `+88801497213, +88801547639`.
+▎ **What happens:** Those numbers become visible in the rent list (if they exist in DB).
+
+**🔢 2. Disable Numbers**
+▎ **Path:** Number Control → Disable Numbers
+▎ **How to use:** Same format as Enable; send number(s) to hide.
+▎ **What happens:** Numbers are hidden from the rent list (not deleted from DB).
+
+**🔢 3. Enable All**
+▎ **Path:** Number Control → Enable All
+▎ **What happens:** Every number in the system is set to available for rent in one action.
+
+**🔢 4. Delete Accounts**
+▎ **Path:** Number Control → Delete Accounts → send **number** (e.g. `+88801497213`).
+▎ **How to use:** Bot asks for number → Fragment sends login code via SMS → you enter OTP (e.g. in Fragment helper) → then 2FA if enabled. Account is deleted or 7-day deletion starts.
+▎ **What happens:** Telegram account on that number is deleted. If number becomes Banned, it is added to the Banned list.
+
+**🔢 5. Banned Numbers**
+▎ **Path:** Number Control → Banned Numbers (or `/banned`)
+▎ **What happens:** Lists all numbers that are banned (e.g. after failed delete). No input.
+
+**🔢 6. Restricted Auto-Deletion**
+▎ **Path:** Number Control → toggle (Enable/Disable Restricted Auto-Deletion)
+▎ **When ON:** Numbers that become restricted on Fragment are auto-deleted after 3 days; users are notified.
+▎ **When OFF:** No auto-deletion.""",
+            """📘 **Admin Help — Page 5/5: Admin Tools & Commands**
+
+**🛠️ ADMIN TOOLS**
+
+**1. Check Tx**
+▎ **Path:** Admin Panel → Admin Tools → Check Tx
+▎ **How to use:** Enter a transaction hash (e.g. from CryptoBot) to verify.
+▎ **What happens:** Bot replies whether the tx was found and shows amount/recipient (if supported).
+
+**2. Change Rules**
+▎ **Path:** Admin Tools → Change Rules
+▎ **How to use:** Bot asks for new rules text **four times**: English → Russian → Korean → Chinese (300s each).
+▎ **What happens:** Rules are saved; users see them when they tap Accept before renting.
+
+**3. Admin Help**
+▎ You are here. Use Prev/Next to move between pages.
+
+━━━━━━━━━━━━━━━━━━━━
+**📌 COMMANDS** (send in chat)
+
+▎ `/addadmin 1412909688` — Add that user as admin.
+▎ `/remadmin 1412909688` — Remove admin.
+▎ `/cleardb` — Asks confirmation; type `YES` to clear all DB.
+▎ `/broadcast` — Reply to a message → that message is sent to all users (with success/fail count).
+▎ `/checknum` — Bot asks for number (e.g. +88801497213); replies if available on Fragment.
+▎ `/exportcsv` — Same as Export CSV button; sends CSV file.
+▎ `/logs` — Bot sends the log file.
+▎ `/update` — Git pull then restart.
+▎ `/restart` — Restart bot.
+▎ `/sysinfo` — CPU, memory, disk usage.
+▎ `/banned` — List banned numbers.
+
+For support, contact the bot developer."""
+        ]
+        total_pages = len(ADMIN_HELP_PAGES)
+        page = max(0, min(page, total_pages - 1))
+        text = ADMIN_HELP_PAGES[page]
+        keyboard = []
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_help_page_{page - 1}"))
+        nav.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="admin_help_pageno"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton("Next ➡️", callback_data=f"admin_help_page_{page + 1}"))
+        if nav:
+            keyboard.append(nav)
+        keyboard.append([InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")])
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "admin_help_pageno" and query.from_user.id in ADMINS:
+        await query.answer("Use Prev / Next to change page.", show_alert=False)
+
+    elif data == "admin_change_rules" and query.from_user.id in ADMINS:
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the new rules text - ENGLISH (within 300s):",
+                timeout=300
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        new_rules = response.text.strip()
+        await response.delete()
+        await response.sent_message.delete()
+        save_rules(new_rules, lang="en")
+
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the new rules text - RUSSIAN (within 300s):",
+                timeout=300
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        new_rules = response.text.strip()
+        await response.delete()
+        await response.sent_message.delete()
+        save_rules(new_rules, lang="ru")
+
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the new rules text - KOREAN (within 300s):",
+                timeout=300
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        new_rules = response.text.strip()
+        await response.delete()
+        await response.sent_message.delete()
+        save_rules(new_rules, lang="ko")
+
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the new rules text - CHINESE (within 300s):",
+                timeout=300
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        new_rules = response.text.strip()
+        await response.delete()
+        await response.sent_message.delete()
+        save_rules(new_rules, lang="zh")
+        
+        await query.message.edit_text("✅ Rules updated successfully in all languages.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+
+    elif data.startswith("delacc_") and query.from_user.id in ADMINS:
+        number = data.replace("delacc_", "")
+        user_data = get_user_by_number(number)
+        if not user_data:
+            return await query.message.edit_text("❌ This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        user_id = user_data[0]
+        user = await client.get_users(user_id)
+
+        # ========== Delete Account logic ========== #
+        check = await fragment_api.check_is_number_free(number)
+        if check:
+            return await query.message.edit_text("❌ Cannot delete account. The number is currently in use in Fragment.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        stat, reason = await delete_account(number, app=client, chat=query.message.chat)
+        if stat:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
+            try:
+                is_free = await fragment_api.check_is_number_free(number)
+                if is_free:
+                    msg = f"✅ Account associated with number **{number}** has been deleted."
+                else:
+                    msg = f"❌ Account is not deleted. 7-day step two verification activated for **{number}**."
+            except Exception:
+                msg = f"✅ Account associated with number **{number}** has been deleted/deletion counter for one week started successfully."
+            await query.message.edit_text(msg, reply_markup=keyboard)
+            return
+        else:
+            if reason == "Banned":
+                logging.info(f"Number {number} is banned.")
+                if number not in temp.BLOCKED_NUMS:
+                    temp.BLOCKED_NUMS.append(number)
+                            
+            return await query.message.edit_text("❌ Failed to delete account. Please check logs.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD) 
+        # ========== End Delete Account logic ========== #
+
+    elif data == "rentnum":
+        await query.message.edit("⌛")
+        await query.message.edit_text(
+            t(user_id, "choose_number"),
+            reply_markup=build_rentnum_keyboard(user_id, page=0)
+        )
+
+    elif data.startswith("rentnum_page:"):
+        user_id = query.from_user.id
+        await query.message.edit(t(user_id, "choose_number"))
+        page = int(data.split(":")[1])
+        await query.message.edit_reply_markup(
+            build_rentnum_keyboard(user_id, page=page)
+        )
+
+    elif data.startswith("rentpay:"):
+        await query.answer()
+        parts = data.split(":")
+        user_id = query.from_user.id
+        if len(parts) >= 2:
+            number = parts[1]
+            query.data = f"numinfo:{number}:0"
+        else:
+            query.data = "back_home"
+        if query.data.startswith("numinfo:"):
+            number = query.data.split(":")[1]
+            num_text = format_number(number)
+            page = 0
+            rented_data = get_number_data(number)
+            if rented_data and rented_data.get("user_id") == user_id:
+                rent_date = rented_data.get("rent_date")
+                hours = rented_data.get("hours", 0)
+                time_left = format_remaining_time(rent_date, hours)
+                date_str = format_date(str(rent_date)) if rent_date else "N/A"
+                keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
+                await query.message.edit_text(
+                    t(user_id, "number", num=num_text, time=time_left, date=date_str),
+                    reply_markup=keyboard,
+                )
+                return
+            info = get_number_info(number)
+            if not info:
+                await query.answer(t(user_id, "no_info"), show_alert=True)
+                return
+            if rented_data and rented_data.get("user_id"):
+                rent_date = rented_data.get("rent_date")
+                remaining_days = format_remaining_time(rent_date, rented_data.get("hours", 0))
+                date_str = format_date(str(rent_date))
+                txt = (
+                    f"📞: `{num_text}`\n"
+                    f"🔴: {t(user_id, 'unavailable')}\n\n"
+                    f"⏰ {t(user_id, 'days')}: {remaining_days}\n"
+                    f"📅 {t(user_id, 'date')}: {date_str}"
+                )
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
+                )
+                await query.message.edit_text(txt, reply_markup=keyboard)
+            elif info and info.get("available", True):
+                prices = info.get("prices", {})
+                txt = (
+                    f"📞: `{num_text}`\n"
+                    f"🟢: {t(user_id, 'available')}\n"
+                    f"💰: {t(user_id, 'rent_now')}"
+                )
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"30 {t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT", callback_data=f"rentfor:{number}:720")],
+                    [InlineKeyboardButton(f"60 {t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT", callback_data=f"rentfor:{number}:1440")],
+                    [InlineKeyboardButton(f"90 {t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT", callback_data=f"rentfor:{number}:2160")],
+                    [InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")],
+                ])
+                await query.message.edit_text(txt, reply_markup=keyboard)
+            else:
+                txt = f"📞: `{num_text}`\n🔴: {t(user_id, 'unavailable')}"
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
+                )
+                await query.message.edit_text(txt, reply_markup=keyboard)
+        else:
+            user = query.from_user
+            rows = [
+                [InlineKeyboardButton(t(user.id, "rent"), callback_data="rentnum"), InlineKeyboardButton(t(user.id, "my_rentals"), callback_data="my_rentals")],
+                [InlineKeyboardButton(t(user.id, "profile"), callback_data="profile"), InlineKeyboardButton(t(user.id, "help"), callback_data="help")],
+            ]
+            if user.id in ADMINS:
+                rows.insert(0, [InlineKeyboardButton("🛠️ Admin Panel", callback_data="admin_panel")])
+            await query.message.edit_text(t(user.id, "welcome", name=user.first_name or ""), reply_markup=InlineKeyboardMarkup(rows))
+
+    elif data.startswith("numinfo:"):
+        number = data.split(":")[1]
+        num_text = format_number(number)
+        page = int(data.split(":")[2])
+        user_id = query.from_user.id
+
+        info = get_number_info(number)  # main DB record
+        rented_data = get_number_data(number)  # rental state (if rented to user)
+
+        if rented_data and rented_data.get("user_id"):  # Already rented
+            rent_date = rented_data.get("rent_date")
+            date_str = format_date(str(rent_date))
+            remaining_days = format_remaining_time(rent_date, rented_data.get("hours", 0))
+            txt = (
+                f"📞: `{num_text}`\n"
+                f"🔴: {t(user_id, 'unavailable')}\n\n"
+                f"⏰ {t(user_id, 'days')}: {remaining_days}\n"
+                f"📅 {t(user_id, 'date')}: {date_str}"
+            )
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
+            )
+            await query.message.edit_text(txt, reply_markup=keyboard)
+
+        else:  # Available
+            if not info:  # if no record exists at all
+                await query.answer(t(user_id, "no_info"), show_alert=True)
+                return
+
+            if not info.get("available", True):
+                txt = f"📞: `{num_text}`\n🔴: {t(user_id, 'unavailable')}"
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
+                )
+                await query.message.edit_text(txt, reply_markup=keyboard)
+                return
+
+            # number available, show rent buttons
+            prices = info.get("prices", {})
+            txt = (
+                f"📞: `{num_text}`\n"
+                f"🟢: {t(user_id, 'available')}\n"
+                f"💰: {t(user_id, 'rent_now')}"
+            )
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"30 {t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT",
+                                      callback_data=f"rentfor:{number}:720")],
+                [InlineKeyboardButton(f"60 {t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT",
+                                      callback_data=f"rentfor:{number}:1440")],
+                [InlineKeyboardButton(f"90 {t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT",
+                                      callback_data=f"rentfor:{number}:2160")],
+                [InlineKeyboardButton(t(user_id, "back"), callback_data="rentnum_page:" + str(page))],
+            ])
+            await query.message.edit_text(txt, reply_markup=keyboard)
+
+    elif data.startswith("admin_enable_numbers") and query.from_user.id in ADMINS:
+        user = query.from_user
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the Number (starting with +888 or 888) to enable numbers (comma separated for multiple) (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        await response.delete()
+        await response.sent_message.delete()
+
+        numbers = []
+        if "," in response.text:
+            for num in response.text.split(","):
+                n = num.strip()
+                if n.startswith("+888"):
+                    numbers.append(n)
+                elif n.startswith("888"):
+                    numbers.append("+" + n)
+                else:
+                    if n.isdigit():
+                        numbers = ["+888" + n]
+                    else:
+                        await query.message.reply("❌ Invalid input. Please enter valid numbers.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+                        return
+        else:
+            n = response.text.strip()
+            if n.startswith("+888"):
+                numbers = [n]
+            elif n.startswith("888"):
+                numbers = ["+" + n]
+            else:
+                if n.isdigit():
+                    numbers = ["+888" + n]
+                else:
+                    await query.message.reply("❌ Invalid input. Please enter valid numbers.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+                    return
+        if not numbers:
+            return await query.message.reply("❌ No valid numbers provided.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        enabled = []
+        for number in numbers:
+            number_data = get_number_info(number)
+            if not number_data:
+                save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
+                enabled.append(number)
+            else:
+                if not number_data.get("available", True):
+                    save_number_info(
+                        number,
+                        number_data.get("prices", {}).get("30d", D30_RATE),
+                        number_data.get("prices", {}).get("60d", D60_RATE),
+                        number_data.get("prices", {}).get("90d", D90_RATE),
+                        available=True
+                    )
+                    enabled.append(number)
+        if not enabled:
+            return await query.message.reply("❌ No valid numbers provided.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        
+        for num in enabled:
+            if num not in temp.AVAILABLE_NUM:
+                temp.AVAILABLE_NUM.append(num)
+        await query.message.reply(f"✅ Enabled the following numbers:\n" + "\n".join(enabled), reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+
+    elif data.startswith("admin_disable_numbers") and query.from_user.id in ADMINS:
+        user = query.from_user
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the Number (starting with +888 or 888) to Disable numbers (comma separated for multiple) (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        await response.delete()
+        await response.sent_message.delete()
+
+        numbers = []
+        if "," in response.text:
+            for num in response.text.split(","):
+                n = num.strip()
+                if n.startswith("+888"):
+                    numbers.append(n)
+                elif n.startswith("888"):
+                    numbers.append("+" + n)
+                else:
+                    if n.isdigit():
+                        numbers = ["+888" + n]
+                    else:
+                        await query.message.reply("❌ Invalid input. Please enter valid numbers.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+                        return
+        else:
+            n = response.text.strip()
+            if n.startswith("+888"):
+                numbers = [n]
+            elif n.startswith("888"):
+                numbers = ["+" + n]
+            else:
+                if n.isdigit():
+                    numbers = ["+888" + n]
+                else:
+                    await query.message.reply("❌ Invalid input. Please enter valid numbers.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+                    return
+        if not numbers:
+            return await query.message.reply("❌ No valid numbers provided.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        disabled = []
+        for number in numbers:
+            number_data = get_number_info(number)
+            if not number_data:
+                save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=False)
+                disabled.append(number)
+            else:
+                if number_data.get("available", True):
+                    save_number_info(
+                        number,
+                        number_data.get("prices", {}).get("30d", D30_RATE),
+                        number_data.get("prices", {}).get("60d", D60_RATE),
+                        number_data.get("prices", {}).get("90d", D90_RATE),
+                        available=False
+                    )
+                    disabled.append(number)
+        if not disabled:
+            return await query.message.reply("❌ No valid numbers provided.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        
+        for num in disabled:
+            if num in temp.AVAILABLE_NUM:
+                temp.AVAILABLE_NUM.remove(num)
+        await query.message.reply(f"✅ Disabled the following numbers:\n" + "\n".join(disabled), reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+
+    elif data == "admin_enable_all" and query.from_user.id in ADMINS:
+        user = query.from_user
+        all_numbers = temp.NUMBE_RS
+        if not all_numbers:
+            return await query.message.reply("❌ No numbers found in the database.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        enabled = []
+        for number in all_numbers:
+            number_data = get_number_info(number)
+            if not number_data:
+                save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
+                enabled.append(number)
+            else:
+                if not number_data.get("available", True):
+                    save_number_info(
+                        number,
+                        number_data.get("prices", {}).get("30d", D30_RATE),
+                        number_data.get("prices", {}).get("60d", D60_RATE),
+                        number_data.get("prices", {}).get("90d", D90_RATE),
+                        available=True
+                    )
+                    enabled.append(number)
+        if not enabled:
+            return await query.message.reply("❌ All numbers are already enabled.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        
+        for num in enabled:
+            if num not in temp.AVAILABLE_NUM:
+                temp.AVAILABLE_NUM.append(num)
+        await query.message.reply(f"✅ Enabled all numbers ({len(enabled)} total).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+
+    elif data == "admin_assign_number" and query.from_user.id in ADMINS:
+        user = query.from_user
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the User ID to assign number to (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        identifier = response.text.strip()
+        await response.delete()
+        await response.sent_message.delete()
+        try:
+            user_id = int(identifier)
+        except ValueError:
+            return await query.message.reply("❌ Invalid input. Please enter a valid User ID.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        try:
+            user = await client.get_users(user_id)
+        except Exception:
+            user = None
+        if not user:
+            return await query.message.edit_text("❌ User not found/invalid User ID. (User must start this bot first)", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        try:
+            response = await query.message.chat.ask(
+                f"⚠️ Enter the Number (starting with +888) to assign to user {user.first_name} (ID: {user.id}) (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        number = response.text.strip()
+        number = number.replace(" ", "")
+        await response.delete()
+        await response.sent_message.delete()
+        if not number.startswith("+888") or not number[1:].isdigit():
+            return await query.message.reply("❌ Invalid number format. It should start with +888 followed by digits.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        number_data = get_number_info(number)
+        if not number_data:
+            save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
+            logging.info(f"Number {number} not found in DB. Created with default prices.")
+        number_data = get_number_info(number)
+        if not number_data.get("available", True):
+            return await query.message.reply("❌ This number is currently marked as unavailable. Cannot assign.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        rented_data = get_number_data(number)
+        if rented_data and rented_data.get("user_id"):
+            return await query.message.reply("❌ This number is already rented to another user.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        try:
+            response = await query.message.chat.ask(
+                f"⚠️ Enter the number of hours (e.g., 720 for 30 days) to assign for **{number}** \n\n 30 days - 720 hours\n 60 days - 1440 hours\n 90 days - 2160 hours\n\n (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        hours = response.text.strip()
+        await response.delete()
+        await response.sent_message.delete()
+        if not hours.isdigit():
+            return await query.message.reply("❌ Invalid input. Please enter a valid number of hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        hours = int(hours)
+        if hours <= 0:
+            return await query.message.reply("❌ Invalid input. Please enter a positive number of hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        # Assign the number to the user
+        save_number(number, user.id, hours)
+        save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=hours)
+        if number not in temp.RENTED_NUMS:
+            temp.RENTED_NUMS.append(number)
+        await query.message.reply(f"✅ Assigned number **{number}** to user {user.first_name} (ID: {user.id}) for **{hours} hours**.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        await client.send_message(
+            user.id,
+            f"✅ An admin has assigned you the number **{number}** for **{hours} hours**.\n"
+            f"• Rented On: {get_current_datetime().strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+            f"For more info, contact support."
+        )
+
+    elif data.startswith("rentfor:"):
+        _, number, hours = data.split(":")
+        num_text = format_number(number)
+        hours = int(hours)
+        user_id = query.from_user.id
+        user = await client.get_users(user_id)
+
+        info = get_number_info(number)
+        if not info or not info.get("available", True):
+            return await query.answer(t(user_id, "unavailable"), show_alert=True)
+
+        prices = info.get("prices", {})
+        price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
+        price = price_map.get(hours, None)
+        if price is None:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+
+        balance = get_user_balance(user.id) or 0.0
+        if balance < price:
+            # await query.message.edit_text(
+            #     t(user_id, "insufficient_balance").format(balance=balance, price=price),
+            #     reply_markup=InlineKeyboardMarkup(
+            #         [
+            #             [InlineKeyboardButton(t(user_id, "add_balance"), callback_data="add_balance")],
+            #             [InlineKeyboardButton(t(user_id, "back"), callback_data=f"numinfo:{number}:0")]
+            #         ]
+            #     )
+            # )
+            amount = price - balance
+            method = get_user_payment_method(user.id)
+            if not method:
+                return await give_payment_option(client, query.message, user.id)
+            if method == "cryptobot":
+                return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
+            if method == "tonkeeper":
+                return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
+            return
+        
+        if hours == 720:
+            days = 30
+        elif hours == 1440:
+            days = 60
+        elif hours == 2160:
+            days = 90
+        else:
+            days = hours // 24
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"rule:{number}:{hours}"),
+                    InlineKeyboardButton(t(user_id, "cancel"), callback_data=f"numinfo:{number}:0")
+                ]
+            ]
+        )
+        await query.message.edit_text(
+            t(user_id, "confirm_rent").format(number=num_text, days=days, price=price),
+            reply_markup=keyboard
+        )
+
+    elif data.startswith("rule:"):
+        _, number, hours = data.split(":")
+        hours = int(hours)
+        user_id = query.from_user.id
+        rules = get_rules(lang="en")
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(t(user_id, "accept"), callback_data=f"confirmrent:{number}:{hours}"),
+                    InlineKeyboardButton(t(user_id, "decline"), callback_data=f"numinfo:{number}:0")
+                ]
+            ]
+        )
+        await query.message.edit_text(
+            t(user_id, "rules").format(rules=rules),
+            reply_markup=keyboard
+        )
+
+    elif data.startswith("confirmrent:"):
+        _, number, hours = data.split(":")
+        num_text = format_number(number)
+        hours = int(hours)
+        user_id = query.from_user.id
+        user = await client.get_users(user_id)
+        info = get_number_info(number)
+        if not info or not info.get("available", True):
+            return await query.answer(t(user_id, "unavailable"), show_alert=True)
+        prices = info.get("prices", {})
+        price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
+        price = price_map.get(hours, None)
+        if price is None:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        balance = get_user_balance(user.id) or 0.0
+        if balance < price:
+            # await query.message.edit_text(
+            #     t(user_id, "insufficient_balance").format(balance=balance, price=price),
+            #     reply_markup=InlineKeyboardMarkup(
+            #         [
+            #             [InlineKeyboardButton(t(user_id, "add_balance"), callback_data="add_balance")],
+            #             [InlineKeyboardButton(t(user_id, "back"), callback_data=f"numinfo:{number}:0")]
+            #         ]
+            #     )
+            # )
+            amount = price - balance
+            method = get_user_payment_method(user.id)
+            if not method:
+                return await give_payment_option(client, query.message, user.id)
+            if method == "cryptobot":
+                return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
+            if method == "tonkeeper":
+                return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
+            return
+        # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
+        rented_data = get_number_data(number)
+        if rented_data and rented_data.get("user_id") and rented_data.get("user_id") != user.id:
+            return await query.answer(t(user_id, "unavailable"), show_alert=True)
+
+
+        rent_date = rented_data.get("rent_date", get_current_datetime()) if rented_data else get_current_datetime()
+
+        remaining_hours = get_remaining_hours(rent_date, rented_data.get("hours", 0)) if rented_data else 0
+
+        new_hours = remaining_hours + hours
+        new_balance = balance - price
+
+        # if already remaining hours exist, extend from current time
+        # else start new rental from now
+        if remaining_hours > 0:
+            save_number(number, user.id, new_hours, extend=True)
+        else:
+            save_number(number, user.id, new_hours)
+
+        save_user_balance(user.id, new_balance)
+        save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=new_hours)
+
+        if number not in temp.RENTED_NUMS:
+            temp.RENTED_NUMS.append(number)
+        duration = format_remaining_time(get_current_datetime(), new_hours)
+
+        keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
+        await query.message.edit_text(
+            t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
+            reply_markup=keyboard
+        )
+
+    elif data.startswith("renew_"):
+        number = data.replace("renew_", "")
+        num_text = format_number(number)
+        user_id = query.from_user.id
+        user = await client.get_users(user_id)
+        rented_data = get_number_data(number)
+        if not rented_data or rented_data.get("user_id") != user.id:
+            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+        info = get_number_info(number)
+        if not info or not info.get("available", True):
+            return await query.answer(t(user_id, "unavailable"), show_alert=True)
+        prices = info.get("prices", {})
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"30 {t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT",
+                                  callback_data=f"rentfor:{number}:720")],
+            [InlineKeyboardButton(f"60 {t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT",
+                                  callback_data=f"rentfor:{number}:1440")],
+            [InlineKeyboardButton(f"90 {t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT",
+                                  callback_data=f"rentfor:{number}:2160")],
+            [InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")],
+        ])
+        await query.message.edit_text(
+            t(user_id, "choose_renew").format(number=num_text),
+            reply_markup=keyboard
+        )
+
+    elif data == "exportcsv" and query.from_user.id in ADMINS:
+        try:
+            message = query.message
+            msg = await message.reply("⏳ **Exporting numbers data to CSV...**")
+            filename = export_numbers_csv(f"numbers_export_{gen_4letters()}.csv")
+            await message.reply_document(filename, caption="📑 Exported Numbers Data")
+            os.remove(filename)
+            await msg.delete()
+        except Exception as e:
+            await message.reply_text(f"❌ Failed to export: {e}")
+
+    elif data == "banned_numbers" and query.from_user.id in ADMINS:
+        banned_numbers = temp.BLOCKED_NUMS
+        if not banned_numbers:
+            return await query.message.reply("❌ No banned numbers found.")
+        text = "📜 Banned Numbers:\n" + "\n".join(f"• {num}" for num in banned_numbers)
+        return await query.message.reply(text, reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+
+    elif data == "change_rental_date" and query.from_user.id in ADMINS:
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the Number (starting with +888) to change rental date (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.edit_text("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        identifier = response.text.strip()
+        identifier = identifier.replace(" ", "")
+        await response.delete()
+        await response.sent_message.delete()
+        if not identifier.startswith("+888"):
+            return await query.message.reply("❌ Invalid number format. It should start with +888 followed by digits.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        
+        if identifier.startswith("888"):
+            identifier = "+" + identifier
+        number_data = get_number_info(identifier)
+        if not number_data:
+            return await query.message.reply("❌ This number does not exist in the database.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        rented_data = get_number_data(identifier)
+        if not rented_data or not rented_data.get("user_id"):
+            return await query.message.reply("❌ This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        keyboard = [
+            [InlineKeyboardButton("Change Rental Duration", callback_data=f"changerental_duration_{identifier}")],
+            [InlineKeyboardButton("Change Rented date", callback_data=f"changerental_date_{identifier}")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="rental_management")]
+        ]
+        await query.message.edit_text(
+            f"📞 Number: **{identifier}**\n"
+            f"👤 Rented by User ID: **{rented_data.get('user_id')}**\n"
+            f"⏰ Currently rented for (days): {rented_data.get('hours', 0) // 24}\n"
+            f"📅 Rented On: {rented_data.get('rent_date').strftime('%Y-%m-%d %H:%M:%S')}",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif data.startswith("changerental_duration_") and query.from_user.id in ADMINS:
+        identifier = data.replace("changerental_duration_", "")
+        rented_data = get_number_data(identifier)
+        user_id = rented_data.get("user_id")
+        rented_date = rented_data.get("rent_date")
+        user = await client.get_users(user_id)
+        try:
+            response = await query.message.chat.ask(
+                f"⚠️ Enter the new rental duration in hours or days (e.g. 2h or 3d) for **{identifier}** (currently rented for {rented_data.get('hours', 0)} hours) (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.reply("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        hours = response.text.strip()
+        hours = hours.replace(" ", "").lower()
+        if hours.endswith("d") and hours[:-1].isdigit():
+            hours = int(hours[:-1]) * 24
+        elif hours.endswith("h") and hours[:-1].isdigit():
+            hours = int(hours[:-1])
+        await response.delete()
+        await response.sent_message.delete()
+        hours = int(hours)
+        if hours <= 0:
+            return await query.message.reply("❌ Invalid input. Please enter a positive number of hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        save_number(identifier, user.id, hours, extend=True)
+        save_number_data(identifier, user_id=user.id, rent_date=rented_date, hours=hours)
+        duration = format_remaining_time(rented_date, hours)
+        keyboard = [
+            [
+                InlineKeyboardButton("Back to Rental Management", callback_data="rental_management")
+            ]
+        ]
+        await query.message.reply(
+            f"✅ Updated rental duration for number **{identifier}** to **{hours} hours** (Duration: {duration}).",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif data.startswith("changerental_date_") and query.from_user.id in ADMINS:
+        identifier = data.replace("changerental_date_", "")
+        rented_data = get_number_data(identifier)
+        user_id = rented_data.get("user_id")
+        rented_date = rented_data.get("rent_date")
+        hours = rented_data.get("hours", 0)
+        user = await client.get_users(user_id)
+        try:
+            response = await query.message.chat.ask(
+                f"⚠️ Enter the new rental start date for **{identifier}** in format DD/MM/YYYY (currently rented on {rented_data.get('rent_date').strftime('%Y-%m-%d %H:%M:%S')}) (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            await response.sent_message.delete()
+            return await query.message.reply("⏰ Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        date_str = response.text.strip()
+        await response.delete()
+        await response.sent_message.delete()
+        try:
+            new_rent_date = datetime.strptime(date_str, "%d/%m/%Y")
+        except ValueError:
+            return await query.message.reply("❌ Invalid date format. Please use DD/MM/YYYY.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        
+        new_rent_date = new_rent_date.replace(tzinfo=timezone.utc)
+        now = get_current_datetime()
+        now = now.replace(tzinfo=timezone.utc)
+        if new_rent_date > now:
+            return await query.message.reply("❌ Rental date cannot be in the future.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+
+        save_number(identifier, user.id, hours, date=new_rent_date, extend=True)
+        save_number_data(identifier, user_id=user.id, rent_date=new_rent_date, hours=hours)
+        duration = format_remaining_time(new_rent_date, hours)
+        keyboard = [
+            [
+                InlineKeyboardButton("Back to Rental Management", callback_data="rental_management")
+            ]
+        ]
+        await query.message.reply(
+            f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+
 
