@@ -664,16 +664,25 @@ def format_number(number) -> str:
     return f"{prefix} {first_block} {second_block}"
 
 def format_date(date_str: str) -> str:
+    """Parse date string (ISO, strptime formats) and return DD/MM/YY."""
+    if date_str is None:
+        return "N/A"
+    s = str(date_str).strip()
+    if not s:
+        return "N/A"
+    dt = None
     try:
-        dt = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
     except (ValueError, TypeError):
-        try:
-            dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S.%f")
-        except ValueError:
+        s_no_tz = s.split("+")[0].rstrip()
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
             try:
-                dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+                dt = datetime.strptime(s_no_tz, fmt)
+                break
             except ValueError:
-                dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S %Z")
+                continue
+    if dt is None:
+        return s[:10] if len(s) >= 10 else s
     return dt.strftime("%d/%m/%y")
 
 from hybrid.plugins.db import get_user_balance, get_number_data
