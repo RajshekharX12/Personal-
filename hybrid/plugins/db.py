@@ -279,13 +279,23 @@ def get_rental_by_owner(user_id: int, number: str):
     num_clean = str(number or "").strip().replace(" ", "").replace("-", "")
     if not num_clean:
         return None
+    # normalize lookup form for comparisons
+    num_norm = _normalize_for_lookup(num_clean)
     for doc in get_all_rentals():
         if int(doc.get("user_id") or 0) != uid:
             continue
         doc_num = (doc.get("number") or "").strip()
+        if not doc_num:
+            continue
+        # direct match (handles exact stored format)
         if doc_num == num_clean:
             return doc
-        if _normalize_for_lookup(doc_num) == _normalize_for_lookup(num_clean):
+        # try normalized comparison (handles +/no+ and formatting differences)
+        doc_norm = _normalize_for_lookup(doc_num)
+        if doc_norm and num_norm and doc_norm == num_norm:
+            return doc
+        # fallback: tolerant string compare removing + sign
+        if doc_num.lstrip("+") == num_clean.lstrip("+"):
             return doc
     return None
 
