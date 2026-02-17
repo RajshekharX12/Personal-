@@ -61,7 +61,11 @@
     "tx_id_invalid": "❌ Invalid transaction ID or Transaction record does not match",
     "tx_id_already_used": "❌ This transaction ID has already been used.",
     "change_payment_method": "🔄 Change Payment Method",
-    "transfer": "Transfer"
+    "transfer": "Transfer",
+    "disable_codes": "🔕 Disable Codes",
+    "enable_codes": "🔔 Enable Codes",
+    "codes_status_enabled": "Current - Enabled",
+    "codes_status_disabled": "Current - Disabled"
   },
   "ru": {
     "choose_lang": "🌍 Пожалуйста, выберите язык:",
@@ -125,7 +129,11 @@
     "tx_id_invalid": "❌ Неверный ID транзакции или запись транзакции не совпадает.",
     "tx_id_already_used": "❌ Этот ID транзакции уже был использован.",
     "change_payment_method": "🔄 Изменить способ оплаты",
-    "transfer": "Передать"
+    "transfer": "Передать",
+    "disable_codes": "🔕 Отключить коды",
+    "enable_codes": "🔔 Включить коды",
+    "codes_status_enabled": "Сейчас - Включено",
+    "codes_status_disabled": "Сейчас - Выключено"
   },
   "ko": {
     "choose_lang": "🌍 언어를 선택하세요:",
@@ -189,7 +197,11 @@
     "tx_id_invalid": "❌ 잘못된 거래 ID 또는 거래 기록이 일치하지 않습니다.",
     "tx_id_already_used": "❌ 이 거래 ID는 이미 사용되었습니다.",
     "change_payment_method": "🔄 결제 방법 변경",
-    "transfer": "양도"
+    "transfer": "양도",
+    "disable_codes": "🔕 코드 비활성화",
+    "enable_codes": "🔔 코드 활성화",
+    "codes_status_enabled": "현재 - 활성화됨",
+    "codes_status_disabled": "현재 - 비활성화됨"
   },
   "zh": {
     "choose_lang": "🌍 请选择语言:",
@@ -253,6 +265,10 @@
     "tx_id_invalid": "❌ 无效的交易ID或交易记录不匹配。",
     "tx_id_already_used": "❌ 此交易ID已被使用。",
     "change_payment_method": "🔄 更改支付方式",
-    "transfer": "转让"
+    "transfer": "转让",
+    "disable_codes": "🔕 禁用验证码",
+    "enable_codes": "🔔 启用验证码",
+    "codes_status_enabled": "当前 - 已启用",
+    "codes_status_disabled": "当前 - 已禁用"
   }
 }
