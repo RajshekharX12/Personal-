@@ -219,11 +219,7 @@ async def export_csv_cmd(_, message: Message):
 
 @Bot.on_message(filters.command("banned") & filters.private)
 async def banned_cmd(_, message: Message):
-    BANNED = temp.BLOCKED_NUMS
-    if not BANNED:
-        return await message.reply("No banned numbers.")
-    text = "🚫 Banned Numbers:\n\n" + "\n".join(BANNED)
-    await message.reply(text)
+    await message.reply("🔒 Banned numbers feature is disabled.")
 
 @Bot.on_message(filters.command("createbtn") & filters.private)
 async def create_button_cmd(_, message: Message):
@@ -234,4 +230,3 @@ async def create_button_cmd(_, message: Message):
 
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data=data)]])
     await message.reply("Here is your button:", reply_markup=keyboard)
-
