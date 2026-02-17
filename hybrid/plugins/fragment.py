@@ -354,6 +354,30 @@ def get_login_code(number: str, cookies_file="frag.json") -> str:
     return None
 
 def disable_receive_login_codes(number: str, cookies_file="frag.json") -> bool:
+    """
+    Turn OFF login codes for this number on Fragment.
+    When disabled, you will NOT receive Telegram login codes via Fragment for this number.
+    Uses Fragment API: setPhoneFlag with flag=receive_codes, value=false.
+    Returns True if successful, False otherwise.
+    """
+    return _set_receive_login_codes(number, enabled=False, cookies_file=cookies_file)
+
+
+def enable_receive_login_codes(number: str, cookies_file="frag.json") -> bool:
+    """
+    Turn ON login codes for this number on Fragment.
+    When enabled, you WILL receive Telegram login codes via Fragment for this number.
+    Uses Fragment API: setPhoneFlag with flag=receive_codes, value=true.
+    Returns True if successful, False otherwise.
+    """
+    return _set_receive_login_codes(number, enabled=True, cookies_file=cookies_file)
+
+
+def _set_receive_login_codes(number: str, enabled: bool, cookies_file="frag.json") -> bool:
+    """
+    Internal: Call Fragment API to set receive_codes flag.
+    Fragment.com has a toggle on the "Get Login" page - this mirrors that action.
+    """
     cookies = _load_cookies_from_file(cookies_file)
     session = requests.Session()
     session.cookies.update(cookies)
@@ -364,7 +388,7 @@ def disable_receive_login_codes(number: str, cookies_file="frag.json") -> bool:
         "method": "setPhoneFlag",
         "number": num_path,
         "flag": "receive_codes",
-        "value": "false",
+        "value": "true" if enabled else "false",
     }
 
     resp = session.post(url, data=formdata, timeout=15)
