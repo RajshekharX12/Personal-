@@ -250,8 +250,12 @@ def build_rentnum_keyboard(user_id: int, page: int = 0):
     return InlineKeyboardMarkup(keyboard)
 
 
-def build_number_actions_keyboard(user_id: int, number: str, back_data: str = "my_rentals"):
-    """Build keyboard for rented number: Renew, Get Code, Transfer, Back (plain text, no emojis)."""
+def build_number_actions_keyboard(user_id: int, number: str, back_data: str = "my_rentals", codes_enabled: bool = True):
+    """
+    Build keyboard for rented number: Renew, Get Code, Transfer, Login Codes toggle, Back.
+    codes_enabled: whether login codes are currently ON for this number (Fragment setting).
+    Shows "Current - enabled" + [Disable] button, or "Current - disabled" + [Enable] button.
+    """
     n = normalize_phone(number) or number
     keyboard = [
         [
@@ -259,6 +263,13 @@ def build_number_actions_keyboard(user_id: int, number: str, back_data: str = "m
             InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{n}"),
         ],
         [InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{n}")],
+        # Login codes toggle: Fragment "Turn off login codes" - user can enable/disable receiving codes
+        [
+            InlineKeyboardButton(
+                t(user_id, "disable_codes") if codes_enabled else t(user_id, "enable_codes"),
+                callback_data=f"toggle_codes_{n}",
+            )
+        ],
         [InlineKeyboardButton(t(user_id, "back"), callback_data=back_data)],
     ]
     return InlineKeyboardMarkup(keyboard)
