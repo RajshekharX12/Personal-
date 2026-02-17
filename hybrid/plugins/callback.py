@@ -570,19 +570,14 @@ Details:
         await query.message.edit_text(text, reply_markup=keyboard)
 
     elif data == "number_control" and query.from_user.id in ADMINS:
-        rest_toggle = is_restricted_del_enabled()
-        if rest_toggle:
-            toggle_text = "Disable Restricted Auto-Deletion"
-        else:
-            toggle_text = "Enable Restricted Auto-Deletion"
         text = """🔢 **Number Control**
 
 Details:
 - Enable/Disable Numbers: Toggle the availability of numbers for rent.
 - Enable All: Make all numbers available for rent.
 - Delete Accounts: Delete a Telegram account associated with a number.
-- Banned Numbers: View banned numbers.
-- Restricted Auto-Deletion: Toggle automatic deletion of restricted numbers.
+- 🔒 Banned Numbers: (disabled)
+- 🔒 Restricted Auto-Deletion: (disabled)
         """
         keyboard = InlineKeyboardMarkup([
             [
@@ -593,8 +588,8 @@ Details:
                 InlineKeyboardButton("Enable All", callback_data="admin_enable_all"),
                 InlineKeyboardButton("Delete Accounts", callback_data="admin_delete_acc"),
             ],
-            [InlineKeyboardButton("Banned Numbers", callback_data="banned_numbers")],
-            [InlineKeyboardButton(toggle_text, callback_data="toggle_restricted_del")],
+            [InlineKeyboardButton("🔒 Banned Numbers", callback_data="banned_disabled")],
+            [InlineKeyboardButton("🔒 Restricted Auto-Deletion", callback_data="restricted_disabled")],
             [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
         ])
         await query.message.edit_text(text, reply_markup=keyboard)
@@ -621,6 +616,14 @@ Details:
 
     elif data == "admin_numbers" and query.from_user.id in ADMINS:
         await show_numbers(query, page=1)
+
+    elif data == "restricted_disabled" and query.from_user.id in ADMINS:
+        await query.answer("🔒 Feature disabled", show_alert=True)
+        return
+
+    elif data == "banned_disabled" and query.from_user.id in ADMINS:
+        await query.answer("🔒 Feature disabled", show_alert=True)
+        return
 
     elif data == "toggle_restricted_del" and query.from_user.id in ADMINS:
         current_status = is_restricted_del_enabled()
@@ -1029,9 +1032,7 @@ Details:
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             if reason == "Banned":
-                logging.info(f"Number {identifier} is banned.")
-                if identifier not in temp.BLOCKED_NUMS:
-                    temp.BLOCKED_NUMS.append(identifier)
+                logging.info(f"Number {identifier} is banned (banned feature disabled).")
         return
         
     elif data == "admin_help" or (data.startswith("admin_help_page_") and query.from_user.id in ADMINS):
@@ -1264,9 +1265,7 @@ For support, contact the bot developer."""
             return
         else:
             if reason == "Banned":
-                logging.info(f"Number {number} is banned.")
-                if number not in temp.BLOCKED_NUMS:
-                    temp.BLOCKED_NUMS.append(number)
+                logging.info(f"Number {number} is banned (banned feature disabled).")
                             
             hint = " Update Fragment cookies (frag.json) and try again." if reason == "OTP" else ""
             return await query.message.edit_text(
@@ -1840,11 +1839,7 @@ For support, contact the bot developer."""
             await message.reply_text(f"❌ Failed to export: {e}")
 
     elif data == "banned_numbers" and query.from_user.id in ADMINS:
-        banned_numbers = temp.BLOCKED_NUMS
-        if not banned_numbers:
-            return await query.message.reply("❌ No banned numbers found.")
-        text = "📜 Banned Numbers:\n" + "\n".join(f"• {num}" for num in banned_numbers)
-        return await query.message.reply(text, reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        return await query.message.reply("🔒 Banned numbers feature is disabled.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
 
     elif data == "change_rental_date" and query.from_user.id in ADMINS:
         try:
