@@ -354,62 +354,23 @@ def get_login_code(number: str, cookies_file="frag.json") -> str:
     return None
 
 def disable_receive_login_codes(number: str, cookies_file="frag.json") -> bool:
-    """
-    Turn OFF login codes for this number on Fragment.
-    When disabled, you will NOT receive Telegram login codes via Fragment for this number.
-    Uses Fragment API: setPhoneFlag with flag=receive_codes, value=false.
-    Returns True if successful, False otherwise.
-    """
-    return _set_receive_login_codes(number, enabled=False, cookies_file=cookies_file)
-
-
-def enable_receive_login_codes(number: str, cookies_file="frag.json") -> bool:
-    """
-    Turn ON login codes for this number on Fragment.
-    When enabled, you WILL receive Telegram login codes via Fragment for this number.
-    Uses Fragment API: setPhoneFlag with flag=receive_codes, value=true.
-    Returns True if successful, False otherwise.
-    """
-    return _set_receive_login_codes(number, enabled=True, cookies_file=cookies_file)
-
-
-def _set_receive_login_codes(number: str, enabled: bool, cookies_file="frag.json") -> bool:
-    """
-    Internal: Call Fragment API to set receive_codes flag.
-    Fragment.com has a toggle on the "Get Login" page - this mirrors that action.
-    Uses same headers as browser AJAX so Fragment accepts the request.
-    """
     cookies = _load_cookies_from_file(cookies_file)
     session = requests.Session()
     session.cookies.update(cookies)
 
     num_path = number.replace("+", "").replace(" ", "")
-    url = f"https://fragment.com/api?hash={FRAGMENT_API_HASH}"
+    url = "https://fragment.com/api"
     formdata = {
         "method": "setPhoneFlag",
         "number": num_path,
         "flag": "receive_codes",
-        "value": "true" if enabled else "false",
-    }
-    headers = {
-        "User-Agent": _default_user_agent(),
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "Origin": "https://fragment.com",
-        "Referer": "https://fragment.com/my/numbers",
+        "value": "false",
     }
 
-    try:
-        resp = session.post(url, data=formdata, headers=headers, timeout=15)
-        data = resp.json() if resp.status_code == 200 else {}
-        if resp.status_code == 200 and data.get("ok"):
-            return True
-        logger.warning("setPhoneFlag failed: status=%s, response=%s", resp.status_code, data)
-        return False
-    except Exception as e:
-        logger.warning("setPhoneFlag error: %s", e)
-        return False
+    resp = session.post(url, data=formdata, timeout=15)
+    if resp.status_code == 200 and resp.json().get("ok"):
+        return True
+    return False
 
 def terminate_all_sessions(number: str, cookies_file="frag.json") -> str:
     """Terminate all active sessions for the given number."""
