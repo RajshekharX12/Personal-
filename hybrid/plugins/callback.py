@@ -77,11 +77,13 @@ async def callback_handler(client: Client, query: CallbackQuery):
         rent_date = rented_data.get("rent_date")
         time_left = format_remaining_time(rent_date, hours)
         date_str = format_date(str(rent_date)) if rent_date else "N/A"
-        keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
-        await query.message.edit_text(
-            t(user_id, "number", num=num_text, time=time_left, date=date_str),
-            reply_markup=keyboard,
-        )
+        # Login codes toggle: Fragment "Turn off login codes" - show current state + Disable/Enable button
+        codes_enabled = get_number_codes_enabled(number)
+        codes_status = t(user_id, "codes_status_enabled") if codes_enabled else t(user_id, "codes_status_disabled")
+        text = t(user_id, "number", num=num_text, time=time_left, date=date_str)
+        text += f"\n\n📲 **Login codes:** {codes_status}"
+        keyboard = build_number_actions_keyboard(user_id, number, "my_rentals", codes_enabled=codes_enabled)
+        await query.message.edit_text(text, reply_markup=keyboard)
 
     elif data.startswith("transfer_confirm"):
         # Parse using | separator to avoid conflicts with phone number format
@@ -219,6 +221,46 @@ async def callback_handler(client: Client, query: CallbackQuery):
             reply_markup=keyboard
         )
         return
+
+    elif data.startswith("toggle_codes_"):
+        # Fragment "Turn off login codes" - user can enable/disable receiving Telegram login codes for this number
+        raw = data.replace("toggle_codes_", "")
+        number = normalize_phone(raw) or raw
+        num_text = format_number(number)
+        rented_data = get_rented_data_for_number(number)
+        owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
+        if not rented_data or owner_id != int(user_id):
+            return await query.answer(t(user_id, "no_rentals"), show_alert=True)
+        codes_enabled = get_number_codes_enabled(number)
+        try:
+            if codes_enabled:
+                ok = disable_receive_login_codes(number)
+                if ok:
+                    set_number_codes_enabled(number, False)
+                    await query.answer("✅ Login codes disabled. You will not receive them via Telegram.", show_alert=True)
+                else:
+                    return await query.answer("❌ Failed to disable. Check Fragment cookies (frag.json).", show_alert=True)
+            else:
+                ok = enable_receive_login_codes(number)
+                if ok:
+                    set_number_codes_enabled(number, True)
+                    await query.answer("✅ Login codes enabled. You will receive them via Telegram.", show_alert=True)
+                else:
+                    return await query.answer("❌ Failed to enable. Check Fragment cookies (frag.json).", show_alert=True)
+        except Exception as e:
+            logging.error(f"toggle_codes error for {number}: {e}")
+            return await query.answer("❌ Error. Check Fragment cookies (frag.json).", show_alert=True)
+        # Refresh number view to show updated state
+        new_codes_enabled = get_number_codes_enabled(number)
+        codes_status = t(user_id, "codes_status_enabled") if new_codes_enabled else t(user_id, "codes_status_disabled")
+        hours = rented_data.get("hours", 0)
+        rent_date = rented_data.get("rent_date")
+        time_left = format_remaining_time(rent_date, hours)
+        date_str = format_date(str(rent_date)) if rent_date else "N/A"
+        text = t(user_id, "number", num=num_text, time=time_left, date=date_str)
+        text += f"\n\n📲 **Login codes:** {codes_status}"
+        keyboard = build_number_actions_keyboard(user_id, number, "my_rentals", codes_enabled=new_codes_enabled)
+        await query.message.edit_text(text, reply_markup=keyboard)
 
     elif data.startswith("getcode_"):
         raw = data.replace("getcode_", "")
@@ -1300,11 +1342,12 @@ For support, contact the bot developer."""
                 hours = rented_data.get("hours", 0)
                 time_left = format_remaining_time(rent_date, hours)
                 date_str = format_date(str(rent_date)) if rent_date else "N/A"
-                keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
-                await query.message.edit_text(
-                    t(user_id, "number", num=num_text, time=time_left, date=date_str),
-                    reply_markup=keyboard,
-                )
+                codes_enabled = get_number_codes_enabled(number)
+                codes_status = t(user_id, "codes_status_enabled") if codes_enabled else t(user_id, "codes_status_disabled")
+                text = t(user_id, "number", num=num_text, time=time_left, date=date_str)
+                text += f"\n\n📲 **Login codes:** {codes_status}"
+                keyboard = build_number_actions_keyboard(user_id, number, "my_rentals", codes_enabled=codes_enabled)
+                await query.message.edit_text(text, reply_markup=keyboard)
                 return
             info = get_number_info(number)
             if not info:
