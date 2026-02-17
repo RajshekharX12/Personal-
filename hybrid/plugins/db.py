@@ -510,6 +510,33 @@ def edit_number_info(number: str, **kwargs):
     return True, "UPDATED"
 
 
+# ========= LOGIN CODES PREFERENCE (Fragment "Turn off login codes" toggle) =========
+# Stores user's preference for whether login codes are enabled/disabled for a number.
+# Matches Fragment.com setting: "You can turn off login codes for this number."
+# Key: number:{number}:codes_enabled = "1" (enabled) or "0" (disabled). Default: enabled.
+
+
+def get_number_codes_enabled(number: str) -> bool:
+    """Check if login codes are enabled for this number. Default True (enabled) if not set."""
+    number = _norm_num(number) or str(number or "").strip().replace(" ", "").replace("-", "")
+    if number.startswith("888") and not number.startswith("+888") and len(number) >= 11:
+        number = "+" + number
+    key = f"number:{number}:codes_enabled"
+    val = client.get(key)
+    if val is None:
+        return True  # default: codes enabled
+    return val == "1"
+
+
+def set_number_codes_enabled(number: str, enabled: bool) -> None:
+    """Store whether login codes are enabled for this number (after successful Fragment API call)."""
+    number = _norm_num(number) or str(number or "").strip().replace(" ", "").replace("-", "")
+    if number.startswith("888") and not number.startswith("+888") and len(number) >= 11:
+        number = "+" + number
+    key = f"number:{number}:codes_enabled"
+    client.set(key, "1" if enabled else "0")
+
+
 def get_number_info(number: str) -> dict | bool:
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
