@@ -11,7 +11,7 @@ import platform
 
 from pyrogram.types import Message
 from pyrogram import Client, filters
-from pyrogram.errors import FloodWait
+from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import CallbackQuery
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -34,10 +34,30 @@ DEFAULT_ADMIN_BACK_KEYBOARD = InlineKeyboardMarkup(
 )
 
 
+async def _safe_edit(msg, text=None, **kwargs):
+    """Edit message; ignore MessageNotModified to avoid log spam."""
+    try:
+        if text is not None:
+            return await msg.edit_text(text, **kwargs)
+        return await msg.edit(**kwargs)
+    except MessageNotModified:
+        return None
+
+
 # ===================== Callback Query Handler ===================== #
 
 @Bot.on_callback_query()
 async def callback_handler(client: Client, query: CallbackQuery):
+    try:
+        await _callback_handler_impl(client, query)
+    except MessageNotModified:
+        try:
+            await query.answer()
+        except Exception:
+            pass
+
+
+async def _callback_handler_impl(client: Client, query: CallbackQuery):
     user_id = query.from_user.id
     data = query.data
 
@@ -57,10 +77,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         ]
         keyboard.append([InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")])
 
-        await query.message.edit_text(
-            t(user_id, "your_rentals"),
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await _safe_edit(query.message, t(user_id, "your_rentals"), reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data.startswith("num_"):
         raw = data.replace("num_", "")
@@ -78,10 +95,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         time_left = format_remaining_time(rent_date, hours)
         date_str = format_date(str(rent_date)) if rent_date else "N/A"
         keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
-        await query.message.edit_text(
-            t(user_id, "number", num=num_text, time=time_left, date=date_str),
-            reply_markup=keyboard,
-        )
+        await _safe_edit(query.message, t(user_id, "number", num=num_text, time=time_left, date=date_str), reply_markup=keyboard)
 
     elif data.startswith("transfer_confirm"):
         # Parse using | separator to avoid conflicts with phone number format
@@ -127,10 +141,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             temp.RENTED_NUMS.remove(number)
         temp.RENTED_NUMS.append(number)
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
-        await query.message.edit_text(
-            f"✅ Number <b>{num_text}</b> has been transferred successfully.",
-            reply_markup=keyboard
-        )
+        await _safe_edit(query.message, f"✅ Number <b>{num_text}</b> has been transferred successfully.", reply_markup=keyboard)
         try:
             to_user = await client.get_users(to_user_id)
             duration = format_remaining_time(rented_data.get("rent_date"), rented_data.get("hours", 0))
@@ -213,11 +224,10 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 InlineKeyboardButton(t(user_id, "cancel"), callback_data=f"num_{number}"),
             ]
         ])
-        await query.message.edit_text(
+        await _safe_edit(query.message,
             f"Transfer <b>{num_text}</b> to {recipient_name} (ID: <code>{to_user.id}</code>)?\n\n"
             f"They will get full control: get code, renew, transfer.",
-            reply_markup=keyboard
-        )
+            reply_markup=keyboard)
         return
 
     elif data.startswith("getcode_"):
@@ -298,10 +308,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         keyboard = InlineKeyboardMarkup(rows)
 
-        await query.message.edit(
-            t(user.id, "welcome", name=user.mention),
-            reply_markup=keyboard
-        )
+        await _safe_edit(query.message, t(user.id, "welcome", name=user.mention), reply_markup=keyboard)
 
     elif data == "setpayment_tron" or data == "setpayment_cryptobot" or data == "setpayment_tonkeeper" or data.startswith("setpayment_"):
         method = data.replace("setpayment_", "")
@@ -592,7 +599,7 @@ Details:
             [InlineKeyboardButton("🔒 Restricted Auto-Deletion", callback_data="restricted_disabled")],
             [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
         ])
-        await query.message.edit_text(text, reply_markup=keyboard)
+        await _safe_edit(query.message, text, reply_markup=keyboard)
 
     elif data == "admin_tools" and query.from_user.id in ADMINS:
         text = """🛠️ **Admin Tools**
@@ -612,7 +619,7 @@ Details:
             ],
             [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
         ])
-        await query.message.edit_text(text, reply_markup=keyboard)
+        await _safe_edit(query.message, text, reply_markup=keyboard)
 
     elif data == "admin_numbers" and query.from_user.id in ADMINS:
         await show_numbers(query, page=1)
@@ -626,13 +633,8 @@ Details:
         return
 
     elif data == "toggle_restricted_del" and query.from_user.id in ADMINS:
-        current_status = is_restricted_del_enabled()
-        new_status = restricted_del_toggle()
-        status_text = "enabled" if new_status else "disabled"
-        await query.message.edit_text(
-            f"✅ Restricted numbers auto-deletion has been {status_text}.",
-            reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD
-        )
+        await query.answer("🔒 Feature disabled", show_alert=True)
+        return
 
     elif data.startswith("admin_numbers_page_"):
         page = int(data.split("_")[-1])
@@ -1839,7 +1841,8 @@ For support, contact the bot developer."""
             await message.reply_text(f"❌ Failed to export: {e}")
 
     elif data == "banned_numbers" and query.from_user.id in ADMINS:
-        return await query.message.reply("🔒 Banned numbers feature is disabled.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD)
+        await query.answer("🔒 Feature disabled", show_alert=True)
+        return
 
     elif data == "change_rental_date" and query.from_user.id in ADMINS:
         try:
