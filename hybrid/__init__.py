@@ -161,9 +161,7 @@ async def check_expired_numbers(client):
                     from hybrid.plugins.db import save_7day_deletion
                     save_7day_deletion(number, now + timedelta(days=7))
                 if not stat and reason == "Banned":
-                    logging.info(f"Number {number} is banned.")
-                    if number not in temp.BLOCKED_NUMS:
-                        temp.BLOCKED_NUMS.append(number)
+                    logging.info(f"Number {number} is banned (banned feature disabled, not tracking).")
                     continue
                 logging.info(f"Expired number {number} cleaned up for user {user_id}")
             except Exception as e:
@@ -265,8 +263,7 @@ async def check_7day_accs(client):
                             remove_number(num, user_id)
                         remove_7day_deletion(num)
                     elif reason == "Banned":
-                        if num not in temp.BLOCKED_NUMS:
-                            temp.BLOCKED_NUMS.append(num)
+                        pass  # Banned feature disabled
             except Exception as e:
                 logging.error(f"Error completing 7-day deletion for {num}: {e}")
                 try:
@@ -337,10 +334,7 @@ async def check_restricted_numbers(client):
                         remove_number_data(num)
                         remove_number(num, user_id)
                     if not stat and reason == "Banned":
-                        logging.info(f"Number {num} is banned.")
-                        if num not in temp.BLOCKED_NUMS:
-                            temp.BLOCKED_NUMS.append(num)
-                        continue
+                        continue  # Banned feature disabled
                     logging.info(f"Restricted number {num} cleaned up for user {user_id} after 3 days")
                 else:
                     logging.info(f"Restricted number {num} not yet cleaned up for user {user_id}")
@@ -480,8 +474,8 @@ class Bot(Client):
         logging.info("Started background task to check expired numbers.")
         asyncio.create_task(check_7day_accs(self))
         logging.info("Started background task to check 7-day deletion accounts.")
-        asyncio.create_task(check_restricted_numbers(self))
-        logging.info("Started daily task to check restricted numbers.")
+        # Restricted numbers detection/deletion DISABLED
+        # asyncio.create_task(check_restricted_numbers(self))
         asyncio.create_task(check_payments(self))
         logging.info("Started payment checker (CryptoBot + Tonkeeper).")
 
