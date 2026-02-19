@@ -17,7 +17,7 @@ if not (_redis_uri.startswith("redis://") or _redis_uri.startswith("rediss://") 
     _redis_uri = "redis://" + _redis_uri.lstrip("/")
 _use_tls_env = os.environ.get("REDIS_USE_TLS", "").lower()
 _is_redislabs = "redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri
-_use_tls = _use_tls_env in ("1", "true", "yes") if _use_tls_env else (not _is_redislabs)
+_use_tls = _use_tls_env in ("1", "true", "yes") if _use_tls_env else _is_redislabs
 
 if not _use_tls and _redis_uri.startswith("rediss://"):
     _redis_uri = "redis://" + _redis_uri[9:]
