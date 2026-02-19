@@ -226,16 +226,27 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         ])
         
         caption_text = (
-            f"Transfer <b>{num_text}</b> to {recipient_name} (ID: <code>{to_user.id}</code>)?\n\n"
-            f"They will get full control: get code, renew, transfer."
+            f"<b>Transfer {num_text} to {recipient_name}</b>\n"
+            f"<b>ID:</b> <code>{to_user.id}</code>\n\n"
+            f"<b>They can:</b>\n"
+            f"🔑 Get code\n"
+            f"🔄 Renew\n"
+            f"📤 Transfer\n\n"
+            f"⚠️ <b>Note:</b>\n"
+            f"Once you transfer the number, you will have no access to it.\n"
+            f"Please check the username twice before transferring.\n\n"
+            f"❗ If you transferred to the wrong person, please contact: @Aress immediately."
         )
         
         # Try to get and send user's profile photo
         try:
-            photos = await client.get_chat_photos(to_user.id, limit=1)
+            photos = [p async for p in client.get_chat_photos(to_user.id, limit=1)]
             if photos:
                 # Delete the old message
-                await query.message.delete()
+                try:
+                    await query.message.delete()
+                except Exception:
+                    pass
                 # Send photo with caption and buttons
                 await client.send_photo(
                     chat_id=user_id,
