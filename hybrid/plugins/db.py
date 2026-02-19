@@ -25,11 +25,17 @@ if not _use_tls and _redis_uri.startswith("rediss://"):
 if _is_redislabs and _use_tls:
     if _redis_uri.startswith("redis://"):
         _redis_uri = "rediss://" + _redis_uri[8:]
+    
+    # Create custom SSL context for Azure Redis
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    
     _kwargs = {
         "decode_responses": True,
-        "ssl_cert_reqs": ssl.CERT_NONE,
-        "ssl_check_hostname": False,
-        "ssl_ca_certs": None
+        "ssl": True,
+        "ssl_cert_reqs": None,
+        "connection_class": redis.connection.SSLConnection
     }
     client = redis.Redis.from_url(_redis_uri, **_kwargs)
 else:
