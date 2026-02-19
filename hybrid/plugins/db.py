@@ -25,13 +25,12 @@ if not _use_tls and _redis_uri.startswith("rediss://"):
 if _is_redislabs and _use_tls:
     if _redis_uri.startswith("redis://"):
         _redis_uri = "rediss://" + _redis_uri[8:]
-    try:
-        _tls_v12 = ssl.TLSVersion.TLSv1_2
-    except AttributeError:
-        _tls_v12 = None
-    _kwargs = {"decode_responses": True, "ssl_cert_reqs": ssl.CERT_NONE, "ssl_check_hostname": False}
-    if _tls_v12 is not None:
-        _kwargs["ssl_min_version"] = _tls_v12
+    _kwargs = {
+        "decode_responses": True,
+        "ssl_cert_reqs": ssl.CERT_NONE,
+        "ssl_check_hostname": False,
+        "ssl_ca_certs": None
+    }
     client = redis.Redis.from_url(_redis_uri, **_kwargs)
 else:
     client = redis.Redis.from_url(_redis_uri, decode_responses=True)
