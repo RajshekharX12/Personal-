@@ -15,31 +15,12 @@ def _now():
 _redis_uri = (getattr(config, "REDIS_URI", None) or os.environ.get("REDIS_URL", "redis://localhost:6379/0")).strip()
 if not (_redis_uri.startswith("redis://") or _redis_uri.startswith("rediss://") or _redis_uri.startswith("unix://")):
     _redis_uri = "redis://" + _redis_uri.lstrip("/")
-_use_tls_env = os.environ.get("REDIS_USE_TLS", "").lower()
-_is_redislabs = "redislabs.com" in _redis_uri or "azure.cloud" in _redis_uri
-_use_tls = _use_tls_env in ("1", "true", "yes") if _use_tls_env else _is_redislabs
 
-if not _use_tls and _redis_uri.startswith("rediss://"):
-    _redis_uri = "redis://" + _redis_uri[9:]
+# Force non-SSL for Azure Redis (port 18639 doesn't support SSL)
+if "azure.cloud.redislabs.com" in _redis_uri and _redis_uri.startswith("rediss://"):
+    _redis_uri = "redis://" + _redis_uri[8:]
 
-if _is_redislabs and _use_tls:
-    if _redis_uri.startswith("redis://"):
-        _redis_uri = "rediss://" + _redis_uri[8:]
-    
-    # Create custom SSL context for Azure Redis
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-    
-    _kwargs = {
-        "decode_responses": True,
-        "ssl": True,
-        "ssl_cert_reqs": None,
-        "connection_class": redis.connection.SSLConnection
-    }
-    client = redis.Redis.from_url(_redis_uri, **_kwargs)
-else:
-    client = redis.Redis.from_url(_redis_uri, decode_responses=True)
+client = redis.Redis.from_url(_redis_uri, decode_responses=True)
 
 def _parse_dt(s):
     if s is None:
