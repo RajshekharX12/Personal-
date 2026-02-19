@@ -224,10 +224,32 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 InlineKeyboardButton(t(user_id, "cancel"), callback_data=f"num_{number}"),
             ]
         ])
-        await _safe_edit(query.message,
+        
+        caption_text = (
             f"Transfer <b>{num_text}</b> to {recipient_name} (ID: <code>{to_user.id}</code>)?\n\n"
-            f"They will get full control: get code, renew, transfer.",
-            reply_markup=keyboard)
+            f"They will get full control: get code, renew, transfer."
+        )
+        
+        # Try to get and send user's profile photo
+        try:
+            photos = await client.get_chat_photos(to_user.id, limit=1)
+            if photos:
+                # Delete the old message
+                await query.message.delete()
+                # Send photo with caption and buttons
+                await client.send_photo(
+                    chat_id=user_id,
+                    photo=photos[0].file_id,
+                    caption=caption_text,
+                    reply_markup=keyboard
+                )
+            else:
+                # No profile photo, send text message
+                await _safe_edit(query.message, caption_text, reply_markup=keyboard)
+        except Exception as e:
+            logging.error(f"Failed to get profile photo: {e}")
+            # Fallback to text message
+            await _safe_edit(query.message, caption_text, reply_markup=keyboard)
         return
 
     elif data.startswith("getcode_"):
