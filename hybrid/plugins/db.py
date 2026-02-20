@@ -5,7 +5,7 @@ import json
 import os
 import ssl
 import time
-import redis
+import redis.asyncio as redis
 import config
 from datetime import datetime, timezone, timedelta
 
@@ -28,7 +28,7 @@ if "azure.cloud.redislabs.com" in _redis_uri and _redis_uri.startswith("rediss:/
 
 # Use a connection pool so multiple concurrent requests don't queue on a single connection.
 # Avoids blocking under load when many users hit the bot at once.
-client = redis.Redis.from_url(_redis_uri, decode_responses=True, max_connections=20)
+client = redis.from_url(_redis_uri, decode_responses=True, max_connections=20)
 
 def _parse_dt(s):
     if s is None:
@@ -51,14 +51,14 @@ def _norm_num(n):
         return "+" + s
     return s if s.startswith("+888") else None
 
-def save_number(number: str, user_id: int, hours: int, date: datetime = None, extend: bool = False):
-    """Save rental for user. Stores number in canonical +888 form and updates num_to_user for fast lookup."""
+async def save_number(number: str, user_id: int, hours: int, date: datetime = None, extend: bool = False):
+    """Save rental for user. Stores number in canonical +888 form and updates num_owner for fast lookup."""
     if date is None:
         date = _now()
     number = _norm_num(number) or number
 
     key = f"user:{user_id}"
-    numbers_raw = client.hget(key, "numbers")
+    numbers_raw = await client.hget(key, "numbers")
     numbers = json.loads(numbers_raw) if numbers_raw else []
 
     for i, n in enumerate(numbers):
@@ -67,28 +67,27 @@ def save_number(number: str, user_id: int, hours: int, date: datetime = None, ex
                 return False, "ALREADY"
             numbers[i]["hours"] = hours
             numbers[i]["date"] = date.isoformat()
-            client.hset(key, "numbers", json.dumps(numbers))
+            await client.hset(key, "numbers", json.dumps(numbers))
             return True, "UPDATED"
 
     numbers.append({"number": number, "hours": hours, "date": date.isoformat()})
-    if not client.exists(key):
-        client.hset(key, mapping={"user_id": user_id, "balance": 0, "numbers": json.dumps(numbers)})
-        client.sadd("users:all", user_id)
+    if not await client.exists(key):
+        await client.hset(key, mapping={"user_id": user_id, "balance": 0, "numbers": json.dumps(numbers)})
+        await client.sadd("users:all", user_id)
     else:
-        client.hset(key, "numbers", json.dumps(numbers))
+        await client.hset(key, "numbers", json.dumps(numbers))
     # Reverse index: number -> user_id so get_user_by_number() is O(1) instead of scanning all users.
-    client.hset("num_to_user", number, user_id)
-    client.hset("num_owner", number, user_id)
+    await client.hset("num_owner", number, user_id)
     return True, "SAVED"
 
 
-def get_user_by_number(number: str):
+async def get_user_by_number(number: str):
     number = _norm_num(number) or number
-    uid = client.hget("num_owner", number)
+    uid = await client.hget("num_owner", number)
     if not uid:
         return False
     key = f"user:{uid}"
-    numbers_raw = client.hget(key, "numbers")
+    numbers_raw = await client.hget(key, "numbers")
     if not numbers_raw:
         return False
     numbers = json.loads(numbers_raw)
@@ -99,21 +98,21 @@ def get_user_by_number(number: str):
     return False
 
 
-def get_numbers_by_user(user_id: int):
+async def get_numbers_by_user(user_id: int):
     key = f"user:{user_id}"
-    numbers_raw = client.hget(key, "numbers")
+    numbers_raw = await client.hget(key, "numbers")
     if not numbers_raw:
         return []
     numbers = json.loads(numbers_raw)
     return [n.get("number", str(n)) for n in numbers if isinstance(n, dict) and "number" in n]
 
 
-def remove_number(number: str, user_id: int):
+async def remove_number(number: str, user_id: int):
     number = _norm_num(number) or number
     num_canon = number
 
     key = f"user:{user_id}"
-    numbers_raw = client.hget(key, "numbers")
+    numbers_raw = await client.hget(key, "numbers")
     if not numbers_raw:
         return False, "NOT_FOUND"
     numbers = json.loads(numbers_raw)
@@ -129,14 +128,13 @@ def remove_number(number: str, user_id: int):
         new_numbers.append(n)
     if len(new_numbers) == len(numbers):
         return False, "NOT_FOUND"
-    client.hset(key, "numbers", json.dumps(new_numbers))
-    client.hdel("num_to_user", num_canon)
-    client.hdel("num_owner", num_canon)
+    await client.hset(key, "numbers", json.dumps(new_numbers))
+    await client.hdel("num_owner", num_canon)
     return True, "REMOVED"
 
 
-def get_remaining_rent_days(number: str):
-    user_data = get_user_by_number(number)
+async def get_remaining_rent_days(number: str):
+    user_data = await get_user_by_number(number)
     if not user_data:
         return None
     user_id, hours, rented_date = user_data
@@ -150,10 +148,9 @@ def get_remaining_rent_days(number: str):
 
 
 # =========== Number Rent Data ============
-def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int):
+async def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int):
     """
     Store rental by canonical +888 number so get_number_data() fast path (rental:{number}) always hits.
-    Also updates num_to_user for O(1) get_user_by_number().
     """
     hours = int(hours)
     number = _norm_num(number) or str(number or "").strip().replace(" ", "").replace("-", "")
@@ -161,18 +158,17 @@ def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int)
         number = "+" + number
     expiry_date = rent_date + timedelta(hours=hours)
     key = f"rental:{number}"
-    client.hset(key, mapping={
+    await client.hset(key, mapping={
         "number": number,
         "user_id": user_id,
         "rent_date": rent_date.isoformat(),
         "hours": hours,
         "expiry_date": expiry_date.isoformat(),
     })
-    client.zadd("rentals:expiry", {number: expiry_date.timestamp()})
-    client.sadd("rentals:all", number)
-    client.sadd(f"rentals:user:{user_id}", number)
-    client.hset("num_to_user", number, user_id)
-    client.expire(key, int(hours * 3600) + 86400)
+    await client.zadd("rentals:expiry", {number: expiry_date.timestamp()})
+    await client.sadd("rentals:all", number)
+    await client.sadd(f"rentals:user:{user_id}", number)
+    await client.expire(key, int(hours * 3600) + 86400)
     global _rentals_cache
     _rentals_cache = (0.0, [])  # Invalidate cache so get_all_rentals() sees new rental
 
@@ -199,7 +195,7 @@ def _normalize_for_lookup(s):
     return None
 
 
-def get_number_data(number: str):
+async def get_number_data(number: str):
     n = str(number or "").strip().replace(" ", "").replace("-", "")
     if not n:
         return None
@@ -215,21 +211,21 @@ def get_number_data(number: str):
     data = None
     n_norm = _normalize_for_lookup(n)
     for cand in candidates:
-        data = client.hgetall(f"rental:{cand}")
+        data = await client.hgetall(f"rental:{cand}")
         if data:
             break
     if not data and n_norm:
-        for stored in (client.smembers("rentals:all") or []):
+        for stored in (await client.smembers("rentals:all") or []):
             stored = str(stored).strip() if stored else ""
             if _normalize_for_lookup(stored) == n_norm:
-                data = client.hgetall(f"rental:{stored}")
+                data = await client.hgetall(f"rental:{stored}")
                 if data:
                     break
     # Avoid client.keys("rental:*") — it's a full Redis scan and blocks under load.
     # All writes use canonical number (save_number_data), so fast path above should hit.
     # Only fall back to full rental scan via get_all_rentals() for legacy/migrated data.
     if not data and n_norm:
-        for doc in get_all_rentals():
+        for doc in await get_all_rentals():
             stored_num = (doc.get("number") or "")
             if _normalize_for_lookup(stored_num) == n_norm:
                 data = {
@@ -254,34 +250,34 @@ def get_number_data(number: str):
     return out
 
 
-def get_rented_data_for_number(number: str):
+async def get_rented_data_for_number(number: str):
     """Get rental data - tries get_number_data first, then get_all_rentals (same as admin export)."""
-    data = get_number_data(number)
+    data = await get_number_data(number)
     if data:
         return data
     n_norm = _normalize_for_lookup(number)
     if not n_norm:
         return None
-    for doc in get_all_rentals():
+    for doc in await get_all_rentals():
         if _normalize_for_lookup(doc.get("number")) == n_norm:
             return doc
     return None
 
 
-def get_rental_by_owner(user_id: int, number: str):
+async def get_rental_by_owner(user_id: int, number: str):
     """Find rental for this user+number. Uses get_all_rentals only - same source as admin export."""
     uid = int(user_id)
     num_clean = str(number or "").strip().replace(" ", "").replace("-", "")
     if not num_clean:
         return None
     # First try the tolerant lookup which checks rental keys and normalizes forms
-    rented = get_rented_data_for_number(num_clean)
+    rented = await get_rented_data_for_number(num_clean)
     if rented and int(rented.get("user_id") or 0) == uid:
         return rented
 
     # normalize lookup form for comparisons
     num_norm = _normalize_for_lookup(num_clean)
-    for doc in get_all_rentals():
+    for doc in await get_all_rentals():
         if int(doc.get("user_id") or 0) != uid:
             continue
         doc_num = (doc.get("number") or "").strip()
@@ -300,12 +296,12 @@ def get_rental_by_owner(user_id: int, number: str):
     return None
 
 
-def get_user_numbers(user_id: int):
+async def get_user_numbers(user_id: int):
     """Return numbers rented by user. Merges rentals:user with get_all_rentals for consistency."""
-    members = client.smembers(f"rentals:user:{user_id}")
+    members = await client.smembers(f"rentals:user:{user_id}")
     nums = list(members) if members else []
     uid = int(user_id)
-    for doc in get_all_rentals():
+    for doc in await get_all_rentals():
         if int(doc.get("user_id") or 0) == uid:
             n = doc.get("number")
             if n and n not in nums:
@@ -313,7 +309,7 @@ def get_user_numbers(user_id: int):
     return nums
 
 
-def remove_number_data(number: str):
+async def remove_number_data(number: str):
     n = _norm_num(number) or str(number or "").strip()
     candidates = [n]
     if n.startswith("+888"):
@@ -322,34 +318,32 @@ def remove_number_data(number: str):
         candidates.append("+" + n)
     for cand in candidates:
         key = f"rental:{cand}"
-        if client.exists(key):
-            data = client.hgetall(key)
+        if await client.exists(key):
+            data = await client.hgetall(key)
             user_id = data.get("user_id")
             stored = data.get("number") or n
-            pipe = client.pipeline()
-            pipe.delete(key)
-            pipe.zrem("rentals:expiry", n)
-            pipe.zrem("rentals:expiry", stored)
-            pipe.srem("rentals:all", n)
-            pipe.srem("rentals:all", stored)
-            pipe.hdel("num_to_user", n)
-            pipe.hdel("num_to_user", stored)
-            pipe.hdel("num_owner", n)
-            pipe.hdel("num_owner", stored)
-            if user_id:
-                pipe.srem(f"rentals:user:{user_id}", n)
-                pipe.srem(f"rentals:user:{user_id}", stored)
-            pipe.execute()
+            async with client.pipeline() as pipe:
+                pipe.delete(key)
+                pipe.zrem("rentals:expiry", n)
+                pipe.zrem("rentals:expiry", stored)
+                pipe.srem("rentals:all", n)
+                pipe.srem("rentals:all", stored)
+                pipe.hdel("num_owner", n)
+                pipe.hdel("num_owner", stored)
+                if user_id:
+                    pipe.srem(f"rentals:user:{user_id}", n)
+                    pipe.srem(f"rentals:user:{user_id}", stored)
+                await pipe.execute()
             global _rentals_cache
             _rentals_cache = (0.0, [])  # Invalidate cache after removal
             return True, "REMOVED"
     return False, "NOT_FOUND"
 
 
-def transfer_number(number: str, from_user_id: int, to_user_id: int):
+async def transfer_number(number: str, from_user_id: int, to_user_id: int):
     """Transfer a rented number to another user. Returns (True, None) or (False, error_msg)."""
     try:
-        rented = get_rental_by_owner(from_user_id, number)
+        rented = await get_rental_by_owner(from_user_id, number)
         if not rented:
             return False, "Number not found"
         canon = _norm_num(rented.get("number") or number) or (rented.get("number") or number)
@@ -357,10 +351,10 @@ def transfer_number(number: str, from_user_id: int, to_user_id: int):
         hours = int(rented.get("hours", 0) or 0)
         if not rent_date or not hours:
             return False, "Invalid rental data"
-        remove_number(canon, from_user_id)
-        remove_number_data(canon)
-        save_number(canon, to_user_id, hours, date=rent_date, extend=False)
-        save_number_data(canon, to_user_id, rent_date, hours)
+        await remove_number(canon, from_user_id)
+        await remove_number_data(canon)
+        await save_number(canon, to_user_id, hours, date=rent_date, extend=False)
+        await save_number_data(canon, to_user_id, rent_date, hours)
         return True, None
     except Exception as e:
         import logging
@@ -368,12 +362,12 @@ def transfer_number(number: str, from_user_id: int, to_user_id: int):
         return False, str(e)
 
 
-def get_expired_numbers():
+async def get_expired_numbers():
     now = datetime.now(timezone.utc).timestamp()
-    return list(client.zrangebyscore("rentals:expiry", 0, now))
+    return list(await client.zrangebyscore("rentals:expiry", 0, now))
 
 
-def get_all_rentals():
+async def get_all_rentals():
     """
     Return all rentals. Cached for 30s so get_user_numbers(), get_rental_by_owner(), get_rented_data_for_number()
     don't each trigger a full rentals:all scan + N hgetalls in the same request.
@@ -382,11 +376,11 @@ def get_all_rentals():
     now = time.monotonic()
     if now - _rentals_cache[0] < _RENTALS_CACHE_TTL and _rentals_cache[1]:
         return _rentals_cache[1]
-    numbers = client.smembers("rentals:all")
+    numbers = await client.smembers("rentals:all")
     out = []
     for number in numbers or []:
         key = f"rental:{number}"
-        data = client.hgetall(key)
+        data = await client.hgetall(key)
         if not data:
             continue
         doc = {
@@ -404,47 +398,47 @@ def get_all_rentals():
 
 
 # ========= USER IDS =========
-def save_user_id(user_id: int):
+async def save_user_id(user_id: int):
     key = f"user:{user_id}"
-    if client.exists(key):
+    if await client.exists(key):
         return False, "EXISTS"
-    client.hset(key, mapping={"user_id": user_id, "numbers": "[]", "balance": 0})
-    client.sadd("users:all", user_id)
+    await client.hset(key, mapping={"user_id": user_id, "numbers": "[]", "balance": 0})
+    await client.sadd("users:all", user_id)
     return True, "SAVED"
 
 
-def get_all_user_ids():
-    members = client.smembers("users:all")
+async def get_all_user_ids():
+    members = await client.smembers("users:all")
     return [int(x) for x in (members or [])]
 
 
 # ========= BALANCES =========
-def save_user_balance(user_id: int, balance: float | int):
+async def save_user_balance(user_id: int, balance: float | int):
     key = f"user:{user_id}"
-    if not client.exists(key):
-        client.hset(key, mapping={"user_id": user_id, "balance": balance, "numbers": "[]"})
-        client.sadd("users:all", user_id)
+    if not await client.exists(key):
+        await client.hset(key, mapping={"user_id": user_id, "balance": balance, "numbers": "[]"})
+        await client.sadd("users:all", user_id)
         return "CREATED"
-    client.hset(key, "balance", balance)
+    await client.hset(key, "balance", balance)
     return "UPDATED"
 
 
-def get_user_balance(user_id: int):
-    balance = client.hget(f"user:{user_id}", "balance")
+async def get_user_balance(user_id: int):
+    balance = await client.hget(f"user:{user_id}", "balance")
     return float(balance) if balance is not None else None
 
 
-def get_total_balance():
+async def get_total_balance():
     """
     Sum of all user balances. Uses a single Redis pipeline instead of N round-trips (one per user).
     """
-    uids = list(client.smembers("users:all") or [])
+    uids = list(await client.smembers("users:all") or [])
     if not uids:
         return 0.0, 0
-    pipe = client.pipeline()
-    for uid in uids:
-        pipe.hget(f"user:{uid}", "balance")
-    results = pipe.execute()
+    async with client.pipeline() as pipe:
+        for uid in uids:
+            pipe.hget(f"user:{uid}", "balance")
+        results = await pipe.execute()
     total = 0.0
     count = 0
     for b in results:
@@ -455,27 +449,27 @@ def get_total_balance():
 
 
 # ========= ADMINS =========
-def add_admin(user_id: int):
-    added = client.sadd("admins:all", user_id)
+async def add_admin(user_id: int):
+    added = await client.sadd("admins:all", user_id)
     return (True, "ADDED") if added else (False, "ALREADY")
 
 
-def remove_admin(user_id: int):
-    removed = client.srem("admins:all", user_id)
+async def remove_admin(user_id: int):
+    removed = await client.srem("admins:all", user_id)
     return (True, "REMOVED") if removed else (False, "NOT_FOUND")
 
 
-def is_admin(user_id: int):
-    return client.sismember("admins:all", user_id)
+async def is_admin(user_id: int):
+    return await client.sismember("admins:all", user_id)
 
 
-def get_all_admins():
-    members = client.smembers("admins:all")
+async def get_all_admins():
+    members = await client.smembers("admins:all")
     return [int(x) for x in (members or [])]
 
 
 # ========= NUMBERS POOL =========
-def save_number_info(number: str, price_30: float, price_60: float, price_90: float, available: bool = True):
+async def save_number_info(number: str, price_30: float, price_60: float, price_90: float, available: bool = True):
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
 
@@ -488,37 +482,37 @@ def save_number_info(number: str, price_30: float, price_60: float, price_90: fl
         "updated_at": now.isoformat(),
     }
     key = f"number:{number}"
-    existed = client.exists(key)
-    client.hset(key, mapping={
+    existed = await client.exists(key)
+    await client.hset(key, mapping={
         "number": number,
         "prices": json.dumps(data["prices"]),
         "hours": json.dumps(data["hours"]),
         "available": str(available).lower(),
         "updated_at": data["updated_at"],
     })
-    client.sadd("pool:numbers", number)
+    await client.sadd("pool:numbers", number)
     return "UPDATED" if existed else "CREATED"
 
 
-def edit_number_info(number: str, **kwargs):
+async def edit_number_info(number: str, **kwargs):
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
 
     key = f"number:{number}"
-    if not client.exists(key):
+    if not await client.exists(key):
         return False, "NO_CHANGES"
 
     updates = {}
     if "price_30" in kwargs:
-        prices = json.loads(client.hget(key, "prices") or "{}")
+        prices = json.loads(await client.hget(key, "prices") or "{}")
         prices["30d"] = kwargs["price_30"]
         updates["prices"] = json.dumps(prices)
     if "price_60" in kwargs:
-        prices = json.loads(client.hget(key, "prices") or "{}")
+        prices = json.loads(await client.hget(key, "prices") or "{}")
         prices["60d"] = kwargs["price_60"]
         updates["prices"] = json.dumps(prices)
     if "price_90" in kwargs:
-        prices = json.loads(client.hget(key, "prices") or "{}")
+        prices = json.loads(await client.hget(key, "prices") or "{}")
         prices["90d"] = kwargs["price_90"]
         updates["prices"] = json.dumps(prices)
     if "available" in kwargs:
@@ -526,16 +520,16 @@ def edit_number_info(number: str, **kwargs):
     if not updates:
         return False, "NO_CHANGES"
     updates["updated_at"] = _now().isoformat()
-    client.hset(key, mapping=updates)
+    await client.hset(key, mapping=updates)
     return True, "UPDATED"
 
 
-def get_number_info(number: str) -> dict | bool:
+async def get_number_info(number: str) -> dict | bool:
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
 
     key = f"number:{number}"
-    data = client.hgetall(key)
+    data = await client.hgetall(key)
     if not data:
         return False
     return {
@@ -547,27 +541,27 @@ def get_number_info(number: str) -> dict | bool:
     }
 
 
-def get_all_pool_numbers():
-    members = client.smembers("pool:numbers")
+async def get_all_pool_numbers():
+    members = await client.smembers("pool:numbers")
     return list(members or [])
 
 
 # ===================== language =====================
-def save_user_language(user_id: int, lang: str):
-    client.hset(f"lang:{user_id}", "language", lang)
+async def save_user_language(user_id: int, lang: str):
+    await client.hset(f"lang:{user_id}", "language", lang)
 
 
-def get_user_language(user_id: int):
-    return client.hget(f"lang:{user_id}", "language")
+async def get_user_language(user_id: int):
+    return await client.hget(f"lang:{user_id}", "language")
 
 
 # ========= User Payment Method =========
-def save_user_payment_method(user_id: int, method: str):
-    client.set(f"payment:{user_id}", method)
+async def save_user_payment_method(user_id: int, method: str):
+    await client.set(f"payment:{user_id}", method)
 
 
-def get_user_payment_method(user_id: int):
-    method = client.get(f"payment:{user_id}") or "cryptobot"
+async def get_user_payment_method(user_id: int):
+    method = await client.get(f"payment:{user_id}") or "cryptobot"
     return method if method != "tron" else "cryptobot"
 
 
@@ -575,19 +569,19 @@ def get_user_payment_method(user_id: int):
 USDT_JETTON_MASTER = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"  # USDT on TON mainnet
 
 
-def _gen_order_ref() -> str:
+async def _gen_order_ref() -> str:
     """Generate unique alphanumeric order ref (e.g. PayEFoT3YAg). No # to avoid URL encoding issues."""
     import random
     import string
     chars = string.ascii_letters + string.digits
     for _ in range(10):
         ref = "Pay" + "".join(random.choices(chars, k=8))
-        if not client.exists(f"ton_order:{ref}"):
+        if not await client.exists(f"ton_order:{ref}"):
             return ref
     return "Pay" + "".join(random.choices(chars, k=8)) + str(_now().timestamp())[-4:]
 
 
-def save_ton_order(order_ref: str, user_id: int, amount_usdt: float, amount_ton: float, payload: str, msg_id: int, chat_id: int, created_at=None):
+async def save_ton_order(order_ref: str, user_id: int, amount_usdt: float, amount_ton: float, payload: str, msg_id: int, chat_id: int, created_at=None):
     """order_ref: unique alphanumeric (e.g. PayEFoT3YAg). No # in memo for Tonkeeper compatibility."""
     if created_at is None:
         created_at = _now()
@@ -600,12 +594,12 @@ def save_ton_order(order_ref: str, user_id: int, amount_usdt: float, amount_ton:
         "chat_id": chat_id,
         "created_at": created_at.isoformat(),
     }
-    client.hset(f"ton_order:{order_ref}", mapping=data)
-    client.zadd("ton_orders:pending", {order_ref: created_at.timestamp()})
+    await client.hset(f"ton_order:{order_ref}", mapping=data)
+    await client.zadd("ton_orders:pending", {order_ref: created_at.timestamp()})
 
 
-def get_ton_order(order_ref: str):
-    data = client.hgetall(f"ton_order:{order_ref}")
+async def get_ton_order(order_ref: str):
+    data = await client.hgetall(f"ton_order:{order_ref}")
     if not data:
         return None
     return {
@@ -619,20 +613,20 @@ def get_ton_order(order_ref: str):
     }
 
 
-def get_all_pending_ton_orders(max_age_seconds=1800):
+async def get_all_pending_ton_orders(max_age_seconds=1800):
     """Return pending orders. Expired ones (>max_age_seconds) are removed."""
     now = _now().timestamp()
-    refs = client.zrange("ton_orders:pending", 0, -1)
+    refs = await client.zrange("ton_orders:pending", 0, -1)
     orders = []
     for ref in refs:
         try:
-            o = get_ton_order(ref)
+            o = await get_ton_order(ref)
             if not o:
-                delete_ton_order(ref)
+                await delete_ton_order(ref)
                 continue
             created = o.get("created_at")
             if created and (now - created.timestamp()) > max_age_seconds:
-                delete_ton_order(ref)
+                await delete_ton_order(ref)
                 continue
             orders.append((ref, o))
         except (ValueError, TypeError):
@@ -640,91 +634,91 @@ def get_all_pending_ton_orders(max_age_seconds=1800):
     return orders
 
 
-def delete_ton_order(order_ref: str):
-    client.delete(f"ton_order:{order_ref}")
-    client.zrem("ton_orders:pending", order_ref)
+async def delete_ton_order(order_ref: str):
+    await client.delete(f"ton_order:{order_ref}")
+    await client.zrem("ton_orders:pending", order_ref)
 
 
 # ========= RULES =========
-def save_rules(rules: str, lang: str = "en"):
-    client.hset(f"rules:{lang}", mapping={"text": rules, "language": lang})
+async def save_rules(rules: str, lang: str = "en"):
+    await client.hset(f"rules:{lang}", mapping={"text": rules, "language": lang})
 
 
-def get_rules(lang: str = "en") -> str:
-    text = client.hget(f"rules:{lang}", "text")
+async def get_rules(lang: str = "en") -> str:
+    text = await client.hget(f"rules:{lang}", "text")
     return text if text else "No rules set."
 
 
 # ========= DELETE ACCOUNT =========
-def save_7day_deletion(number: str, date: datetime):
-    client.hset(f"deletion:{number}", "deletion_date", date.isoformat())
-    client.zadd("deletions:expiry", {number: date.timestamp()})
+async def save_7day_deletion(number: str, date: datetime):
+    await client.hset(f"deletion:{number}", "deletion_date", date.isoformat())
+    await client.zadd("deletions:expiry", {number: date.timestamp()})
 
 
-def get_7day_deletions():
+async def get_7day_deletions():
     now = _now().timestamp()
-    return list(client.zrangebyscore("deletions:expiry", 0, now))
+    return list(await client.zrangebyscore("deletions:expiry", 0, now))
 
 
-def remove_7day_deletion(number: str):
+async def remove_7day_deletion(number: str):
     key = f"deletion:{number}"
-    if not client.exists(key):
+    if not await client.exists(key):
         return False
-    client.delete(key)
-    client.zrem("deletions:expiry", number)
+    await client.delete(key)
+    await client.zrem("deletions:expiry", number)
     return True
 
 
-def get_7day_date(number: str):
-    raw = client.hget(f"deletion:{number}", "deletion_date")
+async def get_7day_date(number: str):
+    raw = await client.hget(f"deletion:{number}", "deletion_date")
     return _parse_dt(raw) if raw else None
 
 
 # ========= RESTRICTED NOTIFY =========
-def save_restricted_number(number: str, date=None):
+async def save_restricted_number(number: str, date=None):
     if date is None:
         date = _now()
-    if client.sismember("restricted:all", number):
+    if await client.sismember("restricted:all", number):
         return False, "ALREADY"
-    client.sadd("restricted:all", number)
-    client.set(f"restricted:{number}", date.isoformat())
+    await client.sadd("restricted:all", number)
+    await client.set(f"restricted:{number}", date.isoformat())
     return True, "SAVED"
 
 
-def get_restricted_numbers():
-    return list(client.smembers("restricted:all") or [])
+async def get_restricted_numbers():
+    return list(await client.smembers("restricted:all") or [])
 
 
-def remove_restricted_number(number: str):
-    if not client.sismember("restricted:all", number):
+async def remove_restricted_number(number: str):
+    if not await client.sismember("restricted:all", number):
         return False, "NOT_FOUND"
-    client.srem("restricted:all", number)
-    client.delete(f"restricted:{number}")
+    await client.srem("restricted:all", number)
+    await client.delete(f"restricted:{number}")
     return True, "REMOVED"
 
 
-def get_rest_num_date(number: str):
-    raw = client.get(f"restricted:{number}")
+async def get_rest_num_date(number: str):
+    raw = await client.get(f"restricted:{number}")
     return _parse_dt(raw) if raw else None
 
 
-def restricted_del_toggle():
+async def restricted_del_toggle():
     key = "rest_toggle"
-    raw = client.get(key)
+    raw = await client.get(key)
     if raw is not None:
         new_state = not (raw == "1")
-        client.set(key, "1" if new_state else "0")
+        await client.set(key, "1" if new_state else "0")
         return new_state
-    client.set(key, "1")
+    await client.set(key, "1")
     return True
 
 
-def is_restricted_del_enabled():
-    return client.get("rest_toggle") == "1"
+async def is_restricted_del_enabled():
+    return await client.get("rest_toggle") == "1"
 
 
 # ========= MAINTENANCE =========
-def delete_all_data():
-    for key in client.scan_iter("*"):
-        client.delete(key)
+async def delete_all_data():
+    async for key in client.scan_iter("*"):
+        await client.delete(key)
     return True, "ALL DATA DELETED"
