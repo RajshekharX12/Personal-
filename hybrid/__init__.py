@@ -66,8 +66,8 @@ def gen_4letters():
 
 async def load_num_data():
     logging.info("Loading numbers from Fragment API...")
-    from hybrid.plugins.fragment import get_fragment_numbers
-    NU_MS, stat = get_fragment_numbers()
+    from hybrid.plugins.fragment import get_fragment_numbers_async
+    NU_MS, stat = await get_fragment_numbers_async()
     if not stat:
         logging.error("Failed to load numbers from Fragment API.")
         return
@@ -92,91 +92,102 @@ async def load_num_data():
 from hybrid.plugins.db import get_number_data, get_remaining_rent_days, is_restricted_del_enabled, remove_number, remove_number_data, save_restricted_number, get_all_rentals, get_expired_numbers
 from hybrid.plugins.func import get_current_datetime, check_number_conn, delete_account
 
+# Reminder hours (UTC) to check when running the 30-minute reminder loop.
+REMINDER_HOURS = (8, 12, 16, 20, 23)
+REMINDER_INTERVAL_SEC = 30 * 60  # Run reminder loop every 30 minutes
+
 async def schedule_reminders(client):
-    """Schedule reminders for numbers expiring within 3 days."""
-    now = get_current_datetime().replace(tzinfo=timezone.utc)  # ✅ ensure aware
-    rented = get_all_rentals()
+    """
+    Single loop that runs every 30 minutes and sends due reminders.
+    Avoids creating thousands of asyncio.create_task(sleep(...)) on startup (one per reminder).
+    """
+    from hybrid.plugins.func import format_remaining_time, t
+    while True:
+        try:
+            now = get_current_datetime().replace(tzinfo=timezone.utc)
+            rented = get_all_rentals()
+            for doc in rented:
+                number = doc["number"]
+                user_id = doc["user_id"]
+                expiry = doc.get("expiry_date")
+                if not expiry:
+                    continue
+                expiry = expiry.replace(tzinfo=timezone.utc)
+                remaining = expiry - now
+                if remaining.total_seconds() <= 0 or remaining > timedelta(days=3):
+                    continue
+                # Reminder is due if a (day, hour) slot falls in [now, now+30min) and is before expiry
+                window_end = now + timedelta(seconds=REMINDER_INTERVAL_SEC)
+                today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                for day in range(3):
+                    for hour in REMINDER_HOURS:
+                        remind_at = (today_start + timedelta(days=day)).replace(hour=hour, minute=0, second=0, microsecond=0)
+                        if now <= remind_at < window_end and remind_at < expiry:
+                            try:
+                                start_date = doc.get("rent_date")
+                                t_hours = doc.get("hours", 0)
+                                remaining_str = format_remaining_time(start_date, t_hours)
+                                text = t(user_id, "expire_soon").format(number=number, remaining_days=remaining_str)
+                                await client.send_message(user_id, text)
+                            except Exception as e:
+                                logging.error(f"Failed to send reminder to {user_id} for {number}: {e}")
+                            break  # at most one reminder per number per run
+                    else:
+                        continue
+                    break
+        except Exception as e:
+            logging.error(f"schedule_reminders error: {e}")
+        await asyncio.sleep(REMINDER_INTERVAL_SEC)
 
-    for doc in rented:
-        number = doc["number"]
-        user_id = doc["user_id"]
-        expiry = doc.get("expiry_date")
-        t_hours = doc.get("hours", 0)
+# Limit concurrent delete_account calls so we don't overload Fragment/Telegram with many connections.
+EXPIRED_DELETE_SEMAPHORE = asyncio.Semaphore(3)
 
-        if not expiry:
-            continue
-
-        expiry = expiry.replace(tzinfo=timezone.utc)  # ✅ normalize
-        remaining = expiry - now
-        if remaining.total_seconds() <= 0:
-            continue  # already expired
-
-        if remaining <= timedelta(days=3):
-            for day in range(3):
-                remind_time = now + timedelta(days=day)
-                for hour in [8, 12, 16, 20, 23]:
-                    remind_at = remind_time.replace(hour=hour, minute=0, second=0, microsecond=0)
-                    if remind_at < expiry:
-                        delay = (remind_at - now).total_seconds()
-                        asyncio.create_task(send_reminder_later(client, user_id, number, delay))
-
-async def send_reminder_later(client, user_id, number, delay):
-    """Send reminder after delay."""
-    await asyncio.sleep(delay)
+async def _process_one_expired(number: str, client, now):
+    """Handle one expired number: terminate sessions, delete account, cleanup, notify. Used concurrently with semaphore."""
+    num_data = get_number_data(number)
+    user_id = num_data.get("user_id") if num_data else None
+    if not user_id:
+        remove_number_data(number)
+        return
     try:
-        from hybrid.plugins.db import get_number_data
-        num_data = get_number_data(number)
-        start_date = num_data.get("rent_date")
-        t_hours = num_data.get("hours", 0)
-
-        from hybrid.plugins.func import format_remaining_time, t
-        remaining_days = format_remaining_time(start_date, t_hours)
-        text = t(user_id, "expire_soon").format(number=number, remaining_days=remaining_days)
-        await client.send_message(user_id, text)
+        async with EXPIRED_DELETE_SEMAPHORE:
+            try:
+                from hybrid.plugins.fragment import terminate_all_sessions_async
+                await terminate_all_sessions_async(number)
+            except Exception:
+                pass
+            stat, reason = await delete_account(number, client)
+        if stat:
+            remove_number_data(number)
+            remove_number(number, user_id)
+        if reason == "7Days":
+            from hybrid.plugins.db import save_7day_deletion
+            save_7day_deletion(number, now + timedelta(days=7))
+        if not stat and reason == "Banned":
+            logging.info(f"Number {number} is banned (banned feature disabled, not tracking).")
+            return
+        logging.info(f"Expired number {number} cleaned up for user {user_id}")
     except Exception as e:
-        logging.error(f"Failed to send reminder to {user_id} for {number}: {e}")
+        logging.error(f"Error handling expired number {number}: {e}")
+    finally:
+        if number in temp.RENTED_NUMS:
+            temp.RENTED_NUMS.remove(number)
+        if number not in temp.AVAILABLE_NUM:
+            temp.AVAILABLE_NUM.append(number)
+        from hybrid.plugins.func import t
+        text = t(user_id, "expired_notify").format(number=number)
+        try:
+            await client.send_message(user_id, text)
+        except Exception as e:
+            logging.error(f"Failed to notify user {user_id} about expired number {number}: {e}")
 
 async def check_expired_numbers(client):
-    """Background checker to remove expired numbers (uses Redis sorted set)."""
+    """Background checker: remove expired numbers. Processes multiple expired numbers concurrently (semaphore-limited)."""
     while True:
         now = get_current_datetime().replace(tzinfo=timezone.utc)
         expired_list = get_expired_numbers()
-        for number in expired_list:
-            num_data = get_number_data(number)
-            user_id = num_data.get("user_id") if num_data else None
-            if not user_id:
-                remove_number_data(number)
-                continue
-            try:
-                try:
-                    from hybrid.plugins.fragment import terminate_all_sessions
-                    terminate_all_sessions(number)
-                except Exception:
-                    pass
-                stat, reason = await delete_account(number, client)
-                if stat:
-                    remove_number_data(number)
-                    remove_number(number, user_id)
-                if reason == "7Days":
-                    from hybrid.plugins.db import save_7day_deletion
-                    save_7day_deletion(number, now + timedelta(days=7))
-                if not stat and reason == "Banned":
-                    logging.info(f"Number {number} is banned (banned feature disabled, not tracking).")
-                    continue
-                logging.info(f"Expired number {number} cleaned up for user {user_id}")
-            except Exception as e:
-                logging.error(f"Error handling expired number {number}: {e}")
-            finally:
-                if number in temp.RENTED_NUMS:
-                    temp.RENTED_NUMS.remove(number)
-                if number not in temp.AVAILABLE_NUM:
-                    temp.AVAILABLE_NUM.append(number)
-                from hybrid.plugins.func import t
-                text = t(user_id, "expired_notify").format(number=number)
-                try:
-                    await client.send_message(user_id, text)
-                except Exception as e:
-                    logging.error(f"Failed to notify user {user_id} about expired number {number}: {e}")
+        if expired_list:
+            await asyncio.gather(*[_process_one_expired(number, client, now) for number in expired_list], return_exceptions=True)
         await asyncio.sleep(600)
 
 async def check_7day_accs(client):
@@ -288,8 +299,8 @@ async def check_7day_accs(client):
 async def check_restricted_numbers(client):
     """Check and log restricted numbers from Fragment. Runs once a day"""
     while True:
-        from hybrid.plugins.fragment import get_restricted_numbers
-        restricted = get_restricted_numbers()
+        from hybrid.plugins.fragment import get_restricted_numbers_async
+        restricted, _ = await get_restricted_numbers_async()
         if not restricted:
             logging.error("No Restricted numbers found or failed to fetch.")
             return
@@ -320,8 +331,8 @@ async def check_restricted_numbers(client):
                         continue
 
                     try:
-                        from hybrid.plugins.fragment import terminate_all_sessions
-                        terminate_all_sessions(num)
+                        from hybrid.plugins.fragment import terminate_all_sessions_async
+                        await terminate_all_sessions_async(num)
                     except Exception:
                         pass
 
