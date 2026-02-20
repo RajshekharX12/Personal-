@@ -65,11 +65,21 @@ def gen_4letters():
     return ''.join(random.choices(string.ascii_letters, k=4))
 
 async def load_num_data():
+    """
+    Load numbers from Fragment at startup. Runs sync get_fragment_numbers() in a thread
+    so the event loop is not blocked, and we keep the same cookie/request behavior that
+    was working before (httpx async path can differ re cookies and may return empty).
+    """
     logging.info("Loading numbers from Fragment API...")
-    from hybrid.plugins.fragment import get_fragment_numbers_async
-    NU_MS, stat = await get_fragment_numbers_async()
-    if not stat:
-        logging.error("Failed to load numbers from Fragment API.")
+    from hybrid.plugins.fragment import get_fragment_numbers
+    loop = asyncio.get_event_loop()
+    try:
+        NU_MS, stat = await loop.run_in_executor(None, lambda: get_fragment_numbers())
+    except Exception as e:
+        logging.error("Failed to load numbers from Fragment API: %s", e, exc_info=True)
+        return
+    if not stat or stat.get("message") != "OK":
+        logging.error("Failed to load numbers from Fragment API (stat: %s).", stat)
         return
     for n in NU_MS:
         if n not in temp.NUMBE_RS:
