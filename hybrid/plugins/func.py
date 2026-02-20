@@ -176,7 +176,7 @@ async def show_numbers(query, page: int = 1):
     kb.append([InlineKeyboardButton("Back to Admin Menu", callback_data="admin_panel")])
 
     await query.message.edit_text(
-        f"📞 **Available Numbers** (Page {page}/{pages})",
+        f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji> **Available Numbers** (Page {page}/{pages})",
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
@@ -198,7 +198,7 @@ def t(user_id: int, key: str, **kwargs):
     lang = get_user_language(user_id) or "en"
     text = LANGUAGES.get(lang, LANGUAGES["en"]).get(key, key)
     # Replace {{e:key}} with Unicode fallback (premium emoji disabled)
-    _emoji_fallback = {"success":"✅","error":"❌","warning":"⚠️","phone":"📞","money":"💰","renew":"🔄","get_code":"📨","back":"⬅️","date":"📅","loading":"⌛","time":"🕒","timeout":"⏰"}
+    _emoji_fallback = {"success":"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji>","error":"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji>","warning":"⚠️","phone":"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>","money":"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>","renew":"<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji>","get_code":"<tg-emoji emoji-id=\"5433811242135331842\">📨</tg-emoji>","back":"⬅️","date":"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji>","loading":"<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>","time":"<tg-emoji emoji-id=\"5413704112220949842\">🕒</tg-emoji>","timeout":"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji>"}
     text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: _emoji_fallback.get(m.group(1), ""), text)
     text = _md_to_html(text)
     if kwargs:
@@ -278,7 +278,7 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
         [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
-        f"💸 **Invoice Created**\n\n"
+        f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> **Invoice Created**\n\n"
         f"Amount: `{amount}` USDT\n"
         f"Description: `{description}`\n"
         f"Pay using the button below.",
@@ -318,25 +318,25 @@ async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: floa
     """Create Tonkeeper payment screen. Converts USDT to TON, memo auto-filled in Pay link."""
     from hybrid.plugins.db import _gen_order_ref, save_ton_order
     if not TON_WALLET:
-        await msg.edit("❌ Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
     ton_price = await get_ton_price_usd()
     if not ton_price or ton_price <= 0:
-        await msg.edit("❌ Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
     amount_ton = amount_usdt / ton_price
     order_ref = _gen_order_ref()
     save_ton_order(order_ref, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
     pay_url = create_tonkeeper_link(amount_ton, order_ref)
     if not pay_url:
-        await msg.edit("❌ Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
     keyboard = [
         [InlineKeyboardButton("💳 Pay", url=pay_url)],
         [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
-        f"💸 **Tonkeeper Payment**\n\n"
+        f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> **Tonkeeper Payment**\n\n"
         f"• Amount: {amount_usdt} USDT (~{amount_ton:.4f} TON)\n"
         f"• Description: {description}\n"
         f"• Order ID (memo): `{order_ref}`\n\n"
@@ -441,7 +441,7 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
                 user_id = order["user_id"]
                 payload = (order.get("payload") or "").strip()
                 try:
-                    await client.edit_message_text(order["chat_id"], order["msg_id"], "⌛")
+                    await client.edit_message_text(order["chat_id"], order["msg_id"], "<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>")
                 except Exception:
                     pass
                 current_bal = get_user_balance(user_id) or 0.0
