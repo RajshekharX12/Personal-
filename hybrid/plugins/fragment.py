@@ -1,7 +1,6 @@
 # (©) @Hybrid_Vamp - https://github.com/hybridvamp
 # Fragment.com interaction library by Hybrid_Vamp
 # Requires cookies exported from browser in Chromium JSON format (frag.json)
-#
 # Performance: All HTTP calls use httpx.AsyncClient so they do not block the asyncio
 # event loop. Sync wrappers exist for backward compatibility and run async in executor if needed.
 
