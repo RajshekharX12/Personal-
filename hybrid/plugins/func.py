@@ -47,22 +47,21 @@ def restart(session_name, m: Message):
         restart_handler(session_name, m.id,  m.chat.id)
     execvp(executable, [executable, "-m", "hybrid"])
 
-def check_proxy(pro_xy):
-    proxy = {
-        "http": f"{pro_xy}",
-        "https": f"{pro_xy}"
-    }
-
-    url = "http://httpbin.org/ip"
-
+async def check_proxy_async(pro_xy: str) -> bool:
+    """Check proxy reachability without blocking the event loop (uses httpx)."""
     try:
-        response = requests.get(url, proxies=proxy, timeout=10)
-        if response.status_code == 200:
-            return True
-        else:
-            return False
-    except Exception as e:
+        import httpx
+        async with httpx.AsyncClient(proxy=pro_xy, timeout=10.0) as client:
+            response = await client.get("http://httpbin.org/ip")
+            return response.status_code == 200
+    except Exception:
         return False
+
+
+def check_proxy(pro_xy):
+    """Sync wrapper. Prefer check_proxy_async from async code."""
+    import asyncio
+    return asyncio.run(check_proxy_async(pro_xy))
 
 def restart_handler(session_name, msg_id=None, user_id=None):
     try:
@@ -558,12 +557,12 @@ async def delete_account(number: str, app: Client, two_fa_password: str = None) 
         else:
             logging.warning("No Fragment type available (type=%s, next_type=%s). Proceeding anyway.", type_str, next_type_str)
 
-        # Step 3: Fetch OTP from Fragment
-        from hybrid.plugins.fragment import get_login_code
+        # Step 3: Fetch OTP from Fragment (async to avoid blocking the event loop)
+        from hybrid.plugins.fragment import get_login_code_async
         otp = None
         for attempt in range(6):
             try:
-                otp = get_login_code(number)
+                otp = await get_login_code_async(number)
             except Exception as e:
                 logging.error("get_login_code failed: %s", e)
                 otp = None
