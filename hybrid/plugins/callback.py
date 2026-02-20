@@ -34,13 +34,18 @@ DEFAULT_ADMIN_BACK_KEYBOARD = InlineKeyboardMarkup(
 )
 
 
-async def _safe_edit(msg, text=None, **kwargs):
-    """Edit message; ignore MessageNotModified to avoid log spam."""
+async def _safe_edit(msg, text=None, reply_markup=None, parse_mode="html", **kwargs):
+    """Edit message; use edit_caption for photo messages so navigation works after transfer confirmation."""
     try:
         if text is not None:
-            return await msg.edit_text(text, **kwargs)
-        return await msg.edit(**kwargs)
+            if getattr(msg, "photo", None):
+                return await msg.edit_caption(caption=text, reply_markup=reply_markup, parse_mode=parse_mode, **kwargs)
+            return await msg.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode, **kwargs)
+        return await msg.edit(reply_markup=reply_markup, **kwargs)
     except MessageNotModified:
+        return None
+    except Exception as e:
+        logging.error(f"Safe edit failed: {e}")
         return None
 
 
