@@ -70,12 +70,12 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
     data = query.data
 
     if data == "my_rentals":
-        numbers = get_user_numbers(user_id)
+        numbers = await get_user_numbers(user_id)
         if not numbers:
             return await query.message.edit_text(
-                t(user_id, "no_rentals"),
+                await t(user_id, "no_rentals"),
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")]]
+                    [[InlineKeyboardButton(await t(user_id, "back"), callback_data="back_home")]]
                 ),
                 parse_mode=ParseMode.HTML,
             )
@@ -84,20 +84,20 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             [InlineKeyboardButton(format_number(normalize_phone(n) or n), callback_data=f"num_{normalize_phone(n) or n}")]
             for n in numbers
         ]
-        keyboard.append([InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")])
+        keyboard.append([InlineKeyboardButton(await t(user_id, "back"), callback_data="back_home")])
 
-        await _safe_edit(query.message, t(user_id, "your_rentals"), reply_markup=InlineKeyboardMarkup(keyboard), client=client)
+        await _safe_edit(query.message, await t(user_id, "your_rentals"), reply_markup=InlineKeyboardMarkup(keyboard), client=client)
 
     elif data.startswith("num_"):
         raw = data.replace("num_", "")
         number = normalize_phone(raw) or raw
         num_text = format_number(number)
-        rented_data = get_rented_data_for_number(number)
+        rented_data = await get_rented_data_for_number(number)
         owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
         if not rented_data or owner_id != int(user_id):
             return await query.message.edit_text(
-                t(user_id, "no_rentals"),
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]]),
+                await t(user_id, "no_rentals"),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data="my_rentals")]]),
                 parse_mode=ParseMode.HTML,
             )
         hours = rented_data.get("hours", 0)
@@ -105,44 +105,44 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         time_left = format_remaining_time(rent_date, hours)
         date_str = format_date(str(rent_date)) if rent_date else "N/A"
         keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
-        await _safe_edit(query.message, t(user_id, "number", num=num_text, time=time_left, date=date_str), reply_markup=keyboard, client=client)
+        await _safe_edit(query.message, await t(user_id, "number", num=num_text, time=time_left, date=date_str), reply_markup=keyboard, client=client)
 
     elif data.startswith("transfer_confirm"):
         # Parse using | separator to avoid conflicts with phone number format
         if "|" in data:
             parts = data.split("|")
             if len(parts) < 3:
-                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+                return await query.answer(await t(user_id, "error_occurred"), show_alert=True)
             raw_num = parts[1]
             try:
                 to_user_id = int(parts[2])
             except (ValueError, TypeError):
-                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+                return await query.answer(await t(user_id, "error_occurred"), show_alert=True)
         else:
             # Fallback to old format for backward compatibility
             parts = data.replace("transfer_confirm_", "").split("_", 1)
             if len(parts) < 2:
-                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+                return await query.answer(await t(user_id, "error_occurred"), show_alert=True)
             raw_num, rest = parts[0], parts[1]
             try:
                 to_user_id = int(rest.split("_")[0] if "_" in rest else rest)
             except (ValueError, TypeError):
-                return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+                return await query.answer(await t(user_id, "error_occurred"), show_alert=True)
         
         number = normalize_phone(raw_num) or raw_num
         logging.info(f"Transfer confirm: user_id={user_id}, raw_num={raw_num}, normalized={number}, to_user_id={to_user_id}")
-        rented_data = get_rental_by_owner(user_id, number)
+        rented_data = await get_rental_by_owner(user_id, number)
         logging.info(f"Rental data for transfer: {rented_data}")
         if not rented_data:
             # Try alternative lookup
-            alt_data = get_number_data(number)
+            alt_data = await get_number_data(number)
             logging.info(f"Alternative lookup for transfer: {alt_data}")
             if alt_data and int(alt_data.get("user_id", 0)) == user_id:
                 rented_data = alt_data
             else:
                 return await query.answer(f"Number not found for transfer. Debug: raw={raw_num}, norm={number}, uid={user_id}", show_alert=True)
         number = rented_data.get("number") or number
-        success, err = transfer_number(number, user_id, to_user_id)
+        success, err = await transfer_number(number, user_id, to_user_id)
         if not success:
             msg = err if err else "Transfer failed."
             return await query.answer(msg, show_alert=True)
@@ -150,7 +150,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         if number in temp.RENTED_NUMS:
             temp.RENTED_NUMS.remove(number)
         temp.RENTED_NUMS.append(number)
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data="my_rentals")]])
         await _safe_edit(query.message, f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Number <b>{num_text}</b> has been transferred successfully.", reply_markup=keyboard, client=client)
         try:
             to_user = await client.get_users(to_user_id)
@@ -176,11 +176,11 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             return await query.answer("Invalid request.", show_alert=True)
         number = normalize_phone(raw) or raw
         logging.info(f"Transfer attempt: user_id={user_id}, raw={raw}, normalized={number}")
-        rented_data = get_rental_by_owner(user_id, number)
+        rented_data = await get_rental_by_owner(user_id, number)
         logging.info(f"Rental data found: {rented_data}")
         if not rented_data:
             # Try alternative lookup
-            alt_data = get_number_data(number)
+            alt_data = await get_number_data(number)
             logging.info(f"Alternative lookup (get_number_data): {alt_data}")
             if alt_data and int(alt_data.get("user_id", 0)) == user_id:
                 rented_data = alt_data
@@ -195,7 +195,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 timeout=120
             )
         except Exception:
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=f"num_{number}")]])
             return await query.message.edit_text(
                 "<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout. Please try again.",
                 reply_markup=keyboard,
@@ -221,14 +221,14 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             except (ValueError, TypeError):
                 pass
         if not to_user or to_user.is_bot:
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=f"num_{number}")]])
             return await query.message.edit_text(
                 "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> User not found. They must have started this bot first.",
                 reply_markup=keyboard,
                 parse_mode=ParseMode.HTML,
             )
         if to_user.id == user_id:
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]])
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=f"num_{number}")]])
             return await query.message.edit_text(
                 "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> You cannot transfer to yourself.",
                 reply_markup=keyboard,
@@ -238,8 +238,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         # Use | as separator to avoid conflicts with phone number format
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"transfer_confirm|{number}|{to_user.id}"),
-                InlineKeyboardButton(t(user_id, "cancel"), callback_data=f"num_{number}"),
+                InlineKeyboardButton(await t(user_id, "confirm"), callback_data=f"transfer_confirm|{number}|{to_user.id}"),
+                InlineKeyboardButton(await t(user_id, "cancel"), callback_data=f"num_{number}"),
             ]
         ])
         
@@ -280,40 +280,40 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         raw = data.replace("getcode_", "")
         number = normalize_phone(raw) or raw
         num_text = format_number(number)
-        # await query.message.edit_text(f"{t(user_id, 'getting_code')} `{num_text}`...")
+        # await query.message.edit_text(f"{await t(user_id, 'getting_code')} `{num_text}`...")
         from hybrid.plugins.fragment import get_login_code_async
         code = await get_login_code_async(number)
         await asyncio.sleep(2)  # Simulate waiting for the code
         if code and code.isdigit():
             keyboard = [
-                [InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]
+                [InlineKeyboardButton(await t(user_id, "back"), callback_data=f"num_{number}")]
             ]
             await query.message.reply(
-                t(user_id, "here_is_code", code=code),
+                await t(user_id, "here_is_code", code=code),
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML,
             )
         else:
             # keyboard = [
-            #     [InlineKeyboardButton(t(user_id, "back"), callback_data=f"num_{number}")]
+            #     [InlineKeyboardButton(await t(user_id, "back"), callback_data=f"num_{number}")]
             # ]
             # await query.message.edit_text(
-            #     t(user_id, "no_code"),
+            #     await t(user_id, "no_code"),
             #     reply_markup=InlineKeyboardMarkup(keyboard)
             # )
-            await query.answer(t(user_id, "no_code"), show_alert=True)
+            await query.answer(await t(user_id, "no_code"), show_alert=True)
 
     elif data == "profile":
         user = query.from_user
-        balance = get_user_balance(user.id) or 0.0
-        method = get_user_payment_method(user.id)
+        balance = await get_user_balance(user.id) or 0.0
+        method = await get_user_payment_method(user.id)
         if method == "cryptobot":
             payment_method = "CryptoBot (@send)"
         elif method == "tonkeeper":
             payment_method = "Tonkeeper"
         else:
             payment_method = "Not set"
-        text = t(
+        text = await t(
             user.id,
             "profile_text",
             id=user.id,
@@ -323,10 +323,10 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             payment_method=payment_method
         )
         keyboard = [
-            [InlineKeyboardButton(t(user.id, "add_balance"), callback_data="add_balance")],
-            [InlineKeyboardButton(t(user.id, "change_payment_method"), callback_data="change_payment_method")],
-            [InlineKeyboardButton(t(user.id, "language"), callback_data="language")],
-            [InlineKeyboardButton(t(user.id, "back"), callback_data="back_home")],
+            [InlineKeyboardButton(await t(user.id, "add_balance"), callback_data="add_balance")],
+            [InlineKeyboardButton(await t(user.id, "change_payment_method"), callback_data="change_payment_method")],
+            [InlineKeyboardButton(await t(user.id, "language"), callback_data="language")],
+            [InlineKeyboardButton(await t(user.id, "back"), callback_data="back_home")],
         ]
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
 
@@ -334,20 +334,20 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="setpayment_cryptobot")]]
         if TON_WALLET:
             rows.append([InlineKeyboardButton("Tonkeeper", callback_data="setpayment_tonkeeper")])
-        rows.append([InlineKeyboardButton(t(user_id, "back"), callback_data="profile")])
+        rows.append([InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")])
         keyboard = InlineKeyboardMarkup(rows)
-        await query.message.edit_text(t(user_id, "choose_payment_method"), reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        await query.message.edit_text(await t(user_id, "choose_payment_method"), reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     elif data == "back_home":
         user = query.from_user
         rows = [
             [
-                InlineKeyboardButton(t(user.id, "rent"), callback_data="rentnum"),
-                InlineKeyboardButton(t(user.id, "my_rentals"), callback_data="my_rentals"),
+                InlineKeyboardButton(await t(user.id, "rent"), callback_data="rentnum"),
+                InlineKeyboardButton(await t(user.id, "my_rentals"), callback_data="my_rentals"),
             ],
             [
-                InlineKeyboardButton(t(user.id, "profile"), callback_data="profile"),
-                InlineKeyboardButton(t(user.id, "help"), callback_data="help"),
+                InlineKeyboardButton(await t(user.id, "profile"), callback_data="profile"),
+                InlineKeyboardButton(await t(user.id, "help"), callback_data="help"),
             ],
         ]
 
@@ -356,21 +356,21 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
 
         keyboard = InlineKeyboardMarkup(rows)
 
-        await _safe_edit(query.message, t(user.id, "welcome", name=user.mention), reply_markup=keyboard, client=client)
+        await _safe_edit(query.message, await t(user.id, "welcome", name=user.mention), reply_markup=keyboard, client=client)
 
     elif data == "setpayment_tron" or data == "setpayment_cryptobot" or data == "setpayment_tonkeeper" or data.startswith("setpayment_"):
         method = data.replace("setpayment_", "")
         if method == "cryptobot":
-            save_user_payment_method(user_id, "cryptobot")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
+            await save_user_payment_method(user_id, "cryptobot")
+            await query.message.edit_text(await t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
                                           reply_markup=InlineKeyboardMarkup(
-                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                                              [[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]]
                                           ), parse_mode=ParseMode.HTML)
         elif method == "tonkeeper":
-            save_user_payment_method(user_id, "tonkeeper")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="Tonkeeper"),
+            await save_user_payment_method(user_id, "tonkeeper")
+            await query.message.edit_text(await t(user_id, "selected_payment_method", method="Tonkeeper"),
                                           reply_markup=InlineKeyboardMarkup(
-                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                                              [[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]]
                                           ), parse_mode=ParseMode.HTML)
         else:
             await query.answer("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid payment method selected.", show_alert=True)
@@ -378,18 +378,18 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
     elif data.startswith("set_payment_"):
         method = data.replace("set_payment_", "")
         if method == "cryptobot":
-            save_user_payment_method(user_id, "cryptobot")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
+            await save_user_payment_method(user_id, "cryptobot")
+            await query.message.edit_text(await t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
                                           reply_markup=InlineKeyboardMarkup(
-                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                                              [[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]]
                                           ), parse_mode=ParseMode.HTML)
             await asyncio.sleep(3)
             await query.message.delete()
         elif method == "tonkeeper":
-            save_user_payment_method(user_id, "tonkeeper")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="Tonkeeper"),
+            await save_user_payment_method(user_id, "tonkeeper")
+            await query.message.edit_text(await t(user_id, "selected_payment_method", method="Tonkeeper"),
                                           reply_markup=InlineKeyboardMarkup(
-                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                                              [[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]]
                                           ), parse_mode=ParseMode.HTML)
             await asyncio.sleep(3)
             await query.message.delete()
@@ -399,16 +399,16 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             await query.message.delete()
 
     elif data == "add_balance":
-        method = get_user_payment_method(user_id)
+        method = await get_user_payment_method(user_id)
         if not method:
             return await give_payment_option(client, query.message, user_id)
         chat = query.message.chat
 
         if method == "tonkeeper":
             try:
-                response = await chat.ask(t(user_id, "enter_amount"), timeout=120)
+                response = await chat.ask(await t(user_id, "enter_amount"), timeout=120)
             except Exception:
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]])
                 return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=keyboard, parse_mode=ParseMode.HTML)
             try:
                 amount = float(response.text.strip())
@@ -423,7 +423,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         elif method == "cryptobot":
             if not CRYPTO_STAT:
                 keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                    [[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]]
                 )
                 return await query.message.edit_text(
                     "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> CryptoBot payments are currently disabled. Please choose another method.",
@@ -434,12 +434,12 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             else:
                 try:
                     response = await chat.ask(
-                        t(user_id, "enter_amount"),
+                        await t(user_id, "enter_amount"),
                         timeout=120
                     )
                 except Exception:
                     keyboard = InlineKeyboardMarkup(
-                        [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                        [[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]]
                     )
                     return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
@@ -481,11 +481,11 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 pay_url = invoice.bot_invoice_url
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("💳 Pay", url=pay_url)],
-                    [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
+                    [InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")],
                 ])
 
                 await query.message.edit_text(
-                    t(user_id, "payment_pending", amount=amount, inv=invoice.invoice_id),
+                    await t(user_id, "payment_pending", amount=amount, inv=invoice.invoice_id),
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML,
                 )
@@ -502,7 +502,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         inv_id = data.replace("check_payment_", "")
         invoice = await cp.get_invoice(inv_id)
         if not invoice or inv_id not in temp.PENDING_INV:
-            await query.answer(t(user_id, "payment_not_found"), show_alert=True)
+            await query.answer(await t(user_id, "payment_not_found"), show_alert=True)
             temp.PAID_LOCK.remove(user_id)
             return
 
@@ -513,38 +513,38 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 if len(parts) >= 3:
                     _, number, hours = parts[0], parts[1], parts[2]
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
+                        InlineKeyboardButton(await t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
                     ]])
                 else:
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]])
             elif payload.startswith("numinfo:"):
                 keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]
+                    [[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]
                 )
             else:
                 keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+                    [[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]]
                 )
-            current_bal = get_user_balance(user_id) or 0.0
+            current_bal = await get_user_balance(user_id) or 0.0
             new_bal = current_bal + float(invoice.amount)
-            save_user_balance(user_id, new_bal)
+            await save_user_balance(user_id, new_bal)
 
             await query.message.edit_text(
-                t(user_id, "payment_confirmed"),
+                await t(user_id, "payment_confirmed"),
                 reply_markup=keyboard,
                 parse_mode=ParseMode.HTML,
             )
             temp.PAID_LOCK.remove(user_id)
             temp.PENDING_INV.remove(inv_id)
         else:
-            await query.answer(t(user_id, "payment_not_found"), show_alert=True)
+            await query.answer(await t(user_id, "payment_not_found"), show_alert=True)
             temp.PAID_LOCK.remove(user_id)
 
     elif data == "help":
         keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")]]
+            [[InlineKeyboardButton(await t(user_id, "back"), callback_data="back_home")]]
         )
-        await query.message.edit_text(t(user_id, "help_text"), reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        await query.message.edit_text(await t(user_id, "help_text"), reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     elif data.startswith("lang_"):
         lang = query.data.split("_")[1]
@@ -560,7 +560,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
             [InlineKeyboardButton("🇰🇷 한국어", callback_data="lang_ko")],
             [InlineKeyboardButton("🇨🇳 中文", callback_data="lang_zh")],
-            [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]
+            [InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]
         ])
         await query.message.edit("<tg-emoji emoji-id=\"5399898266265475100\">🌍</tg-emoji> Please choose your language:", reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
@@ -695,19 +695,19 @@ Details:
         _, _, number, page = data.split("_")
         page = int(page)
 
-        number_data = get_number_info(number)
+        number_data = await get_number_info(number)
         if not number_data:
             # save default data if not found
-            save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
+            await save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
             logging.info(f"Number {number} not found in DB. Created with default prices.")
         if number not in temp.AVAILABLE_NUM:
             temp.AVAILABLE_NUM.append(number)
-        number_data = get_number_info(number)
+        number_data = await get_number_info(number)
         price_30d = number_data.get("prices", {}).get("30d", 0.0)
         price_60d = number_data.get("prices", {}).get("60d", 0.0)
         price_90d = number_data.get("prices", {}).get("90d", 0.0)
         available = number_data.get("available", True)
-        rented_user = get_user_by_number(number)
+        rented_user = await get_user_by_number(number)
         if rented_user:
             rented_status = f"<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji> Rented by User ID: {rented_user[0]}"   
         else:
@@ -754,7 +754,7 @@ Details:
         except ValueError:
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid input. Please enter valid numbers.", parse_mode=ParseMode.HTML)
 
-        status = save_number_info(number, price_30d, price_60d, price_90d)
+        status = await save_number_info(number, price_30d, price_60d, price_90d)
         await response.delete()
         await response.sent_message.delete()
 
@@ -770,13 +770,13 @@ Details:
         _, _, number, page = data.split("_")
         page = int(page)
 
-        number_data = get_number_info(number)
+        number_data = await get_number_info(number)
         if not number_data:
             return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Number not found in database.", parse_mode=ParseMode.HTML)
 
         current_status = number_data.get("available", True)
         new_status = not current_status
-        save_number_info(
+        await save_number_info(
             number,
             number_data.get("prices", {}).get("30d", 0.0),
             number_data.get("prices", {}).get("60d", 0.0),
@@ -826,21 +826,21 @@ Details:
         await response.sent_message.delete()
         if identifier.startswith("+888"):
             number = identifier
-            user_data = get_user_by_number(number)
+            user_data = await get_user_by_number(number)
             if not user_data:
                 return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
             user_id = user_data[0]
         elif identifier.startswith("888") and identifier.isdigit():
             number = f"+{identifier}"
-            user_data = get_user_by_number(number)
+            user_data = await get_user_by_number(number)
             if not user_data:
                 return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
             user_id = user_data[0]
         else:
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid input. Please enter a valid User ID or Number.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         user = await client.get_users(user_id)
-        success, status = remove_number(number, user_id)
-        remove_number_data(number)
+        success, status = await remove_number(number, user_id)
+        await remove_number_data(number)
 
 
         if success:
@@ -849,11 +849,12 @@ Details:
 
 
         if success:
+            _bal = await get_user_balance(user.id) or 0.0
             TEXT = f"""<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rental for number **{number}** has been cancelled.
 • User ID: {user.id}
 • Username: @{user.username if user.username else 'N/A'}
 • Name: {user.first_name if user.first_name else 'N/A'}
-• Balance: {get_user_balance(user.id) or 0.0}
+• Balance: {_bal}
 • Rented On: {user_data[2]}
 • Time Left: {format_remaining_time(user_data[2], user_data[1])}
 • Cancelled By: {query.from_user.mention} (ID: {query.from_user.id})
@@ -891,13 +892,13 @@ Details:
         await response.sent_message.delete()
         if identifier.startswith("+888"):
             number = identifier
-            user_data = get_user_by_number(number)
+            user_data = await get_user_by_number(number)
             if not user_data:
                 return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
             user_id = user_data[0]
         elif identifier.startswith("888") and identifier.isdigit():
             number = f"+{identifier}"
-            user_data = get_user_by_number(number)
+            user_data = await get_user_by_number(number)
             if not user_data:
                 return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
             user_id = user_data[0]
@@ -921,15 +922,16 @@ Details:
         amount, unit = match.groups()
         amount = int(amount)
         hours = amount * 24 if unit == "d" else amount
-        success, status = save_number(number, user_id, hours, extend=True)
+        success, status = await save_number(number, user_id, hours, extend=True)
         if success:
             new_time_left = format_remaining_time(user_data[1], user_data[2] + hours)
             h_days = hours // 24
+            _bal = await get_user_balance(user.id) or 0.0
             TEXT = f"""<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rental for number **{number}** has been extended by **{h_days} days**.
 • User ID: {user.id}
 • Username: @{user.username if user.username else 'N/A'}
 • Name: {user.first_name if user.first_name else 'N/A'}
-• Balance: {get_user_balance(user.id) or 0.0}
+• Balance: {_bal}
 • Rented On: {user_data[1].strftime('%Y-%m-%d %H:%M:%S UTC')}
 • New Time Left: {new_time_left}
 • Extended By: {query.from_user.mention} (ID: {query.from_user.id})
@@ -951,7 +953,7 @@ Details:
                 pass
 
     elif data == "admin_balances" and query.from_user.id in ADMINS:
-        to_tal, to_user = get_total_balance()
+        to_tal, to_user = await get_total_balance()
         text = f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji> **Total User Balances:**\n\n• Total Balance: **{to_tal} USDT**\n• Total Users with Balance: **{to_user}**"
         keyboard = [
             [InlineKeyboardButton("➕ Add Balance", callback_data="admin_add_balance")],
@@ -995,9 +997,9 @@ Details:
                 return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Amount must be greater than 0.5 USDT.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         except ValueError:
             return await query.message.reply("❌ Invalid input. Please enter a valid number.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        current_bal = get_user_balance(user.id) or 0.0
+        current_bal = await get_user_balance(user.id) or 0.0
         new_bal = current_bal + amount
-        save_user_balance(user.id, new_bal)
+        await save_user_balance(user.id, new_bal)
         await response.delete()
         await response.sent_message.delete()
         keyboard = [
@@ -1038,8 +1040,8 @@ Details:
         user = await client.get_users(user_id)
         if not user:
             return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> User not found/invalid User ID. (User must start this bot first)", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        balance = get_user_balance(user.id) or 0.0
-        numbers = get_user_numbers(user.id)
+        balance = await get_user_balance(user.id) or 0.0
+        numbers = await get_user_numbers(user.id)
         text = (
             f"<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> **User Info**\n\n"
             f"<tg-emoji emoji-id=\"5190458330719461749\">🆔</tg-emoji> User ID: `{user.id}`\n"
@@ -1257,7 +1259,7 @@ For support, contact the bot developer."""
         new_rules = response.text.strip()
         await response.delete()
         await response.sent_message.delete()
-        save_rules(new_rules, lang="en")
+        await save_rules(new_rules, lang="en")
 
         try:
             response = await query.message.chat.ask(
@@ -1270,7 +1272,7 @@ For support, contact the bot developer."""
         new_rules = response.text.strip()
         await response.delete()
         await response.sent_message.delete()
-        save_rules(new_rules, lang="ru")
+        await save_rules(new_rules, lang="ru")
 
         try:
             response = await query.message.chat.ask(
@@ -1283,7 +1285,7 @@ For support, contact the bot developer."""
         new_rules = response.text.strip()
         await response.delete()
         await response.sent_message.delete()
-        save_rules(new_rules, lang="ko")
+        await save_rules(new_rules, lang="ko")
 
         try:
             response = await query.message.chat.ask(
@@ -1296,13 +1298,13 @@ For support, contact the bot developer."""
         new_rules = response.text.strip()
         await response.delete()
         await response.sent_message.delete()
-        save_rules(new_rules, lang="zh")
+        await save_rules(new_rules, lang="zh")
         
         await query.message.edit_text("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rules updated successfully in all languages.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data.startswith("delacc_") and query.from_user.id in ADMINS:
         number = data.replace("delacc_", "")
-        user_data = get_user_by_number(number)
+        user_data = await get_user_by_number(number)
         if not user_data:
             return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         user_id = user_data[0]
@@ -1340,14 +1342,14 @@ For support, contact the bot developer."""
     elif data == "rentnum":
         await query.message.edit("<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>", parse_mode=ParseMode.HTML)
         await query.message.edit_text(
-            t(user_id, "choose_number"),
+            await t(user_id, "choose_number"),
             reply_markup=build_rentnum_keyboard(user_id, page=0),
             parse_mode=ParseMode.HTML,
         )
 
     elif data.startswith("rentnum_page:"):
         user_id = query.from_user.id
-        await query.message.edit(t(user_id, "choose_number"), parse_mode=ParseMode.HTML)
+        await query.message.edit(await t(user_id, "choose_number"), parse_mode=ParseMode.HTML)
         page = int(data.split(":")[1])
         await query.message.edit_reply_markup(
             build_rentnum_keyboard(user_id, page=page)
@@ -1366,7 +1368,7 @@ For support, contact the bot developer."""
             number = normalize_phone(query.data.split(":")[1]) or query.data.split(":")[1]
             num_text = format_number(number)
             page = 0
-            rented_data = get_rented_data_for_number(number)
+            rented_data = await get_rented_data_for_number(number)
             if rented_data and rented_data.get("user_id") == user_id:
                 rent_date = rented_data.get("rent_date")
                 hours = rented_data.get("hours", 0)
@@ -1374,14 +1376,14 @@ For support, contact the bot developer."""
                 date_str = format_date(str(rent_date)) if rent_date else "N/A"
                 keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
                 await query.message.edit_text(
-                    t(user_id, "number", num=num_text, time=time_left, date=date_str),
+                    await t(user_id, "number", num=num_text, time=time_left, date=date_str),
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML,
                 )
                 return
-            info = get_number_info(number)
+            info = await get_number_info(number)
             if not info:
-                await query.answer(t(user_id, "no_info"), show_alert=True)
+                await query.answer(await t(user_id, "no_info"), show_alert=True)
                 return
             if rented_data and rented_data.get("user_id"):
                 rent_date = rented_data.get("rent_date")
@@ -1389,43 +1391,43 @@ For support, contact the bot developer."""
                 date_str = format_date(str(rent_date))
                 txt = (
                     f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n"
-                    f"<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {t(user_id, 'unavailable')}\n\n"
-                    f"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> {t(user_id, 'days')}: {remaining_days}\n"
-                    f"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji> {t(user_id, 'date')}: {date_str}"
+                    f"<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {await t(user_id, 'unavailable')}\n\n"
+                    f"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> {await t(user_id, 'days')}: {remaining_days}\n"
+                    f"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji> {await t(user_id, 'date')}: {date_str}"
                 )
                 keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
+                    [[InlineKeyboardButton(await t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
                 )
                 await query.message.edit_text(txt, reply_markup=keyboard, parse_mode=ParseMode.HTML)
             elif info and info.get("available", True):
                 prices = info.get("prices", {})
                 txt = (
                     f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n"
-                    f"<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji>: {t(user_id, 'available')}\n"
-                    f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>: {t(user_id, 'rent_now')}"
+                    f"<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji>: {await t(user_id, 'available')}\n"
+                    f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>: {await t(user_id, 'rent_now')}"
                 )
                 keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(f"30 {t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT", callback_data=f"rentfor:{number}:720")],
-                    [InlineKeyboardButton(f"60 {t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT", callback_data=f"rentfor:{number}:1440")],
-                    [InlineKeyboardButton(f"90 {t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT", callback_data=f"rentfor:{number}:2160")],
-                    [InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")],
+                    [InlineKeyboardButton(f"30 {await t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT", callback_data=f"rentfor:{number}:720")],
+                    [InlineKeyboardButton(f"60 {await t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT", callback_data=f"rentfor:{number}:1440")],
+                    [InlineKeyboardButton(f"90 {await t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT", callback_data=f"rentfor:{number}:2160")],
+                    [InlineKeyboardButton(await t(user_id, "back"), callback_data=f"rentnum_page:{page}")],
                 ])
                 await query.message.edit_text(txt, reply_markup=keyboard, parse_mode=ParseMode.HTML)
             else:
-                txt = f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {t(user_id, 'unavailable')}"
+                txt = f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {await t(user_id, 'unavailable')}"
                 keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
+                    [[InlineKeyboardButton(await t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
                 )
                 await query.message.edit_text(txt, reply_markup=keyboard, parse_mode=ParseMode.HTML)
         else:
             user = query.from_user
             rows = [
-                [InlineKeyboardButton(t(user.id, "rent"), callback_data="rentnum"), InlineKeyboardButton(t(user.id, "my_rentals"), callback_data="my_rentals")],
-                [InlineKeyboardButton(t(user.id, "profile"), callback_data="profile"), InlineKeyboardButton(t(user.id, "help"), callback_data="help")],
+                [InlineKeyboardButton(await t(user.id, "rent"), callback_data="rentnum"), InlineKeyboardButton(await t(user.id, "my_rentals"), callback_data="my_rentals")],
+                [InlineKeyboardButton(await t(user.id, "profile"), callback_data="profile"), InlineKeyboardButton(await t(user.id, "help"), callback_data="help")],
             ]
             if user.id in ADMINS:
                 rows.insert(0, [InlineKeyboardButton("🛠️ Admin Panel", callback_data="admin_panel")])
-            await query.message.edit_text(t(user.id, "welcome", name=user.first_name or ""), reply_markup=InlineKeyboardMarkup(rows), parse_mode=ParseMode.HTML)
+            await query.message.edit_text(await t(user.id, "welcome", name=user.first_name or ""), reply_markup=InlineKeyboardMarkup(rows), parse_mode=ParseMode.HTML)
 
     elif data.startswith("numinfo:"):
         number = normalize_phone(data.split(":")[1]) or data.split(":")[1]
@@ -1433,8 +1435,8 @@ For support, contact the bot developer."""
         page = int(data.split(":")[2])
         user_id = query.from_user.id
 
-        info = get_number_info(number)  # main DB record
-        rented_data = get_rented_data_for_number(number)  # rental state (if rented to user)
+        info = await get_number_info(number)  # main DB record
+        rented_data = await get_rented_data_for_number(number)  # rental state (if rented to user)
 
         if rented_data and rented_data.get("user_id"):  # Already rented
             rent_date = rented_data.get("rent_date")
@@ -1442,24 +1444,24 @@ For support, contact the bot developer."""
             remaining_days = format_remaining_time(rent_date, rented_data.get("hours", 0))
             txt = (
                 f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n"
-                f"<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {t(user_id, 'unavailable')}\n\n"
-                f"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> {t(user_id, 'days')}: {remaining_days}\n"
-                f"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji> {t(user_id, 'date')}: {date_str}"
+                f"<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {await t(user_id, 'unavailable')}\n\n"
+                f"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> {await t(user_id, 'days')}: {remaining_days}\n"
+                f"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji> {await t(user_id, 'date')}: {date_str}"
             )
             keyboard = InlineKeyboardMarkup(
-                [[InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
+                [[InlineKeyboardButton(await t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
             )
             await query.message.edit_text(txt, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
         else:  # Available
             if not info:  # if no record exists at all
-                await query.answer(t(user_id, "no_info"), show_alert=True)
+                await query.answer(await t(user_id, "no_info"), show_alert=True)
                 return
 
             if not info.get("available", True):
-                txt = f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {t(user_id, 'unavailable')}"
+                txt = f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {await t(user_id, 'unavailable')}"
                 keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
+                    [[InlineKeyboardButton(await t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
                 )
                 await query.message.edit_text(txt, reply_markup=keyboard, parse_mode=ParseMode.HTML)
                 return
@@ -1468,18 +1470,18 @@ For support, contact the bot developer."""
             prices = info.get("prices", {})
             txt = (
                 f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n"
-                f"<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji>: {t(user_id, 'available')}\n"
-                f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>: {t(user_id, 'rent_now')}"
+                f"<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji>: {await t(user_id, 'available')}\n"
+                f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>: {await t(user_id, 'rent_now')}"
             )
 
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(f"30 {t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT",
+                [InlineKeyboardButton(f"30 {await t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT",
                                       callback_data=f"rentfor:{number}:720")],
-                [InlineKeyboardButton(f"60 {t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT",
+                [InlineKeyboardButton(f"60 {await t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT",
                                       callback_data=f"rentfor:{number}:1440")],
-                [InlineKeyboardButton(f"90 {t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT",
+                [InlineKeyboardButton(f"90 {await t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT",
                                       callback_data=f"rentfor:{number}:2160")],
-                [InlineKeyboardButton(t(user_id, "back"), callback_data="rentnum_page:" + str(page))],
+                [InlineKeyboardButton(await t(user_id, "back"), callback_data="rentnum_page:" + str(page))],
             ])
             await query.message.edit_text(txt, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
@@ -1525,13 +1527,13 @@ For support, contact the bot developer."""
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No valid numbers provided.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         enabled = []
         for number in numbers:
-            number_data = get_number_info(number)
+            number_data = await get_number_info(number)
             if not number_data:
-                save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
+                await save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
                 enabled.append(number)
             else:
                 if not number_data.get("available", True):
-                    save_number_info(
+                    await save_number_info(
                         number,
                         number_data.get("prices", {}).get("30d", D30_RATE),
                         number_data.get("prices", {}).get("60d", D60_RATE),
@@ -1589,13 +1591,13 @@ For support, contact the bot developer."""
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No valid numbers provided.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         disabled = []
         for number in numbers:
-            number_data = get_number_info(number)
+            number_data = await get_number_info(number)
             if not number_data:
-                save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=False)
+                await save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=False)
                 disabled.append(number)
             else:
                 if number_data.get("available", True):
-                    save_number_info(
+                    await save_number_info(
                         number,
                         number_data.get("prices", {}).get("30d", D30_RATE),
                         number_data.get("prices", {}).get("60d", D60_RATE),
@@ -1618,13 +1620,13 @@ For support, contact the bot developer."""
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No numbers found in the database.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         enabled = []
         for number in all_numbers:
-            number_data = get_number_info(number)
+            number_data = await get_number_info(number)
             if not number_data:
-                save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
+                await save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
                 enabled.append(number)
             else:
                 if not number_data.get("available", True):
-                    save_number_info(
+                    await save_number_info(
                         number,
                         number_data.get("prices", {}).get("30d", D30_RATE),
                         number_data.get("prices", {}).get("60d", D60_RATE),
@@ -1677,14 +1679,14 @@ For support, contact the bot developer."""
         await response.sent_message.delete()
         if not number.startswith("+888") or not number[1:].isdigit():
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid number format. It should start with +888 followed by digits.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        number_data = get_number_info(number)
+        number_data = await get_number_info(number)
         if not number_data:
-            save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
+            await save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
             logging.info(f"Number {number} not found in DB. Created with default prices.")
-        number_data = get_number_info(number)
+        number_data = await get_number_info(number)
         if not number_data.get("available", True):
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This number is currently marked as unavailable. Cannot assign.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        rented_data = get_rented_data_for_number(number)
+        rented_data = await get_rented_data_for_number(number)
         if rented_data and rented_data.get("user_id"):
             return await query.message.reply("❌ This number is already rented to another user.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         try:
@@ -1704,9 +1706,9 @@ For support, contact the bot developer."""
         if hours <= 0:
             return await query.message.reply("❌ Invalid input. Please enter a positive number of hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         # Assign the number to the user (add to pool so it appears in exports)
-        save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=False)
-        save_number(number, user.id, hours)
-        save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=hours)
+        await save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=False)
+        await save_number(number, user.id, hours)
+        await save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=hours)
         if number not in temp.RENTED_NUMS:
             temp.RENTED_NUMS.append(number)
         await query.message.reply(f"✅ Assigned number **{number}** to user {user.first_name} (ID: {user.id}) for **{hours} hours**.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
@@ -1725,29 +1727,29 @@ For support, contact the bot developer."""
         user_id = query.from_user.id
         user = await client.get_users(user_id)
 
-        info = get_number_info(number)
+        info = await get_number_info(number)
         if not info or not info.get("available", True):
-            return await query.answer(t(user_id, "unavailable"), show_alert=True)
+            return await query.answer(await t(user_id, "unavailable"), show_alert=True)
 
         prices = info.get("prices", {})
         price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
         price = price_map.get(hours, None)
         if price is None:
-            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
+            return await query.answer(await t(user_id, "error_occurred"), show_alert=True)
 
-        balance = get_user_balance(user.id) or 0.0
+        balance = await get_user_balance(user.id) or 0.0
         if balance < price:
             # await query.message.edit_text(
-            #     t(user_id, "insufficient_balance").format(balance=balance, price=price),
+            #     await t(user_id, "insufficient_balance").format(balance=balance, price=price),
             #     reply_markup=InlineKeyboardMarkup(
             #         [
-            #             [InlineKeyboardButton(t(user_id, "add_balance"), callback_data="add_balance")],
-            #             [InlineKeyboardButton(t(user_id, "back"), callback_data=f"numinfo:{number}:0")]
+            #             [InlineKeyboardButton(await t(user_id, "add_balance"), callback_data="add_balance")],
+            #             [InlineKeyboardButton(await t(user_id, "back"), callback_data=f"numinfo:{number}:0")]
             #         ]
             #     )
             # )
             amount = price - balance
-            method = get_user_payment_method(user.id)
+            method = await get_user_payment_method(user.id)
             if not method:
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
@@ -1768,13 +1770,13 @@ For support, contact the bot developer."""
         keyboard = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"rule:{number}:{hours}"),
-                    InlineKeyboardButton(t(user_id, "cancel"), callback_data=f"numinfo:{number}:0")
+                    InlineKeyboardButton(await t(user_id, "confirm"), callback_data=f"rule:{number}:{hours}"),
+                    InlineKeyboardButton(await t(user_id, "cancel"), callback_data=f"numinfo:{number}:0")
                 ]
             ]
         )
         await query.message.edit_text(
-            t(user_id, "confirm_rent").format(number=num_text, days=days, price=price),
+            (await t(user_id, "confirm_rent")).format(number=num_text, days=days, price=price),
             reply_markup=keyboard
         )
 
@@ -1782,17 +1784,17 @@ For support, contact the bot developer."""
         _, number, hours = data.split(":")
         hours = int(hours)
         user_id = query.from_user.id
-        rules = get_rules(lang="en")
+        rules = await get_rules(lang="en")
         keyboard = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton(t(user_id, "accept"), callback_data=f"confirmrent:{number}:{hours}"),
-                    InlineKeyboardButton(t(user_id, "decline"), callback_data=f"numinfo:{number}:0")
+                    InlineKeyboardButton(await t(user_id, "accept"), callback_data=f"confirmrent:{number}:{hours}"),
+                    InlineKeyboardButton(await t(user_id, "decline"), callback_data=f"numinfo:{number}:0")
                 ]
             ]
         )
         await query.message.edit_text(
-            t(user_id, "rules").format(rules=rules),
+            (await t(user_id, "rules")).format(rules=rules),
             reply_markup=keyboard
         )
 
@@ -1802,27 +1804,27 @@ For support, contact the bot developer."""
         hours = int(hours)
         user_id = query.from_user.id
         user = await client.get_users(user_id)
-        info = get_number_info(number)
+        info = await get_number_info(number)
         if not info or not info.get("available", True):
-            return await query.answer(t(user_id, "unavailable"), show_alert=True)
+            return await query.answer(await t(user_id, "unavailable"), show_alert=True)
         prices = info.get("prices", {})
         price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
         price = price_map.get(hours, None)
         if price is None:
-            return await query.answer(t(user_id, "error_occurred"), show_alert=True)
-        balance = get_user_balance(user.id) or 0.0
+            return await query.answer(await t(user_id, "error_occurred"), show_alert=True)
+        balance = await get_user_balance(user.id) or 0.0
         if balance < price:
             # await query.message.edit_text(
-            #     t(user_id, "insufficient_balance").format(balance=balance, price=price),
+            #     await t(user_id, "insufficient_balance").format(balance=balance, price=price),
             #     reply_markup=InlineKeyboardMarkup(
             #         [
-            #             [InlineKeyboardButton(t(user_id, "add_balance"), callback_data="add_balance")],
-            #             [InlineKeyboardButton(t(user_id, "back"), callback_data=f"numinfo:{number}:0")]
+            #             [InlineKeyboardButton(await t(user_id, "add_balance"), callback_data="add_balance")],
+            #             [InlineKeyboardButton(await t(user_id, "back"), callback_data=f"numinfo:{number}:0")]
             #         ]
             #     )
             # )
             amount = price - balance
-            method = get_user_payment_method(user.id)
+            method = await get_user_payment_method(user.id)
             if not method:
                 return await give_payment_option(client, query.message, user.id)
             if method == "cryptobot":
@@ -1831,9 +1833,9 @@ For support, contact the bot developer."""
                 return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             return
         # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
-        rented_data = get_rented_data_for_number(number)
+        rented_data = await get_rented_data_for_number(number)
         if rented_data and rented_data.get("user_id") and rented_data.get("user_id") != user.id:
-            return await query.answer(t(user_id, "unavailable"), show_alert=True)
+            return await query.answer(await t(user_id, "unavailable"), show_alert=True)
 
 
         rent_date = rented_data.get("rent_date", get_current_datetime()) if rented_data else get_current_datetime()
@@ -1846,12 +1848,12 @@ For support, contact the bot developer."""
         # if already remaining hours exist, extend from current time
         # else start new rental from now
         if remaining_hours > 0:
-            save_number(number, user.id, new_hours, extend=True)
+            await save_number(number, user.id, new_hours, extend=True)
         else:
-            save_number(number, user.id, new_hours)
+            await save_number(number, user.id, new_hours)
 
-        save_user_balance(user.id, new_balance)
-        save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=new_hours)
+        await save_user_balance(user.id, new_balance)
+        await save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=new_hours)
 
         if number not in temp.RENTED_NUMS:
             temp.RENTED_NUMS.append(number)
@@ -1859,7 +1861,7 @@ For support, contact the bot developer."""
 
         keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
         await query.message.edit_text(
-            t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
+            await t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
             reply_markup=keyboard
         )
 
@@ -1869,26 +1871,26 @@ For support, contact the bot developer."""
         num_text = format_number(number)
         user_id = query.from_user.id
         user = await client.get_users(user_id)
-        rented_data = get_rented_data_for_number(number)
+        rented_data = await get_rented_data_for_number(number)
         owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
         if not rented_data or owner_id != int(user.id):
             msg = "Number not found." if not rented_data else "You do not own this number."
             return await query.answer(msg, show_alert=True)
-        info = get_number_info(number)
+        info = await get_number_info(number)
         if not info or not info.get("available", True):
-            return await query.answer(t(user_id, "unavailable"), show_alert=True)
+            return await query.answer(await t(user_id, "unavailable"), show_alert=True)
         prices = info.get("prices", {})
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"30 {t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT",
+            [InlineKeyboardButton(f"30 {await t(user_id, 'days')} - {prices.get('30d', D30_RATE)} USDT",
                                   callback_data=f"rentfor:{number}:720")],
-            [InlineKeyboardButton(f"60 {t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT",
+            [InlineKeyboardButton(f"60 {await t(user_id, 'days')} - {prices.get('60d', D60_RATE)} USDT",
                                   callback_data=f"rentfor:{number}:1440")],
-            [InlineKeyboardButton(f"90 {t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT",
+            [InlineKeyboardButton(f"90 {await t(user_id, 'days')} - {prices.get('90d', D90_RATE)} USDT",
                                   callback_data=f"rentfor:{number}:2160")],
-            [InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")],
+            [InlineKeyboardButton(await t(user_id, "back"), callback_data="back_home")],
         ])
         await query.message.edit_text(
-            t(user_id, "choose_renew").format(number=num_text),
+            (await t(user_id, "choose_renew")).format(number=num_text),
             reply_markup=keyboard
         )
 
@@ -1896,7 +1898,7 @@ For support, contact the bot developer."""
         try:
             message = query.message
             msg = await message.reply("⏳ **Exporting numbers data to CSV...**")
-            filename = export_numbers_csv(f"numbers_export_{gen_4letters()}.csv")
+            filename = await export_numbers_csv(f"numbers_export_{gen_4letters()}.csv")
             await message.reply_document(filename, caption="📑 Exported Numbers Data")
             os.remove(filename)
             await msg.delete()
@@ -1925,10 +1927,10 @@ For support, contact the bot developer."""
         
         if identifier.startswith("888"):
             identifier = "+" + identifier
-        number_data = get_number_info(identifier)
+        number_data = await get_number_info(identifier)
         if not number_data:
             return await query.message.reply("❌ This number does not exist in the database.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        rented_data = get_rented_data_for_number(identifier)
+        rented_data = await get_rented_data_for_number(identifier)
         if not rented_data or not rented_data.get("user_id"):
             return await query.message.reply("❌ This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         keyboard = [
@@ -1946,7 +1948,7 @@ For support, contact the bot developer."""
 
     elif data.startswith("changerental_duration_") and query.from_user.id in ADMINS:
         identifier = data.replace("changerental_duration_", "")
-        rented_data = get_rented_data_for_number(identifier)
+        rented_data = await get_rented_data_for_number(identifier)
         user_id = rented_data.get("user_id")
         rented_date = rented_data.get("rent_date")
         user = await client.get_users(user_id)
@@ -1969,8 +1971,8 @@ For support, contact the bot developer."""
         hours = int(hours)
         if hours <= 0:
             return await query.message.reply("❌ Invalid input. Please enter a positive number of hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        save_number(identifier, user.id, hours, extend=True)
-        save_number_data(identifier, user_id=user.id, rent_date=rented_date, hours=hours)
+        await save_number(identifier, user.id, hours, extend=True)
+        await save_number_data(identifier, user_id=user.id, rent_date=rented_date, hours=hours)
         duration = format_remaining_time(rented_date, hours)
         keyboard = [
             [
@@ -1984,7 +1986,7 @@ For support, contact the bot developer."""
 
     elif data.startswith("changerental_date_") and query.from_user.id in ADMINS:
         identifier = data.replace("changerental_date_", "")
-        rented_data = get_rented_data_for_number(identifier)
+        rented_data = await get_rented_data_for_number(identifier)
         user_id = rented_data.get("user_id")
         rented_date = rented_data.get("rent_date")
         hours = rented_data.get("hours", 0)
@@ -2011,8 +2013,8 @@ For support, contact the bot developer."""
         if new_rent_date > now:
             return await query.message.reply("❌ Rental date cannot be in the future.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
-        save_number(identifier, user.id, hours, date=new_rent_date, extend=True)
-        save_number_data(identifier, user_id=user.id, rent_date=new_rent_date, hours=hours)
+        await save_number(identifier, user.id, hours, date=new_rent_date, extend=True)
+        await save_number_data(identifier, user_id=user.id, rent_date=new_rent_date, hours=hours)
         duration = format_remaining_time(new_rent_date, hours)
         keyboard = [
             [
