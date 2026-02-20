@@ -206,7 +206,7 @@ def t(user_id: int, key: str, **kwargs):
         return text.format(**kwargs)
     return text
 
-from hybrid.plugins.db import get_number_data, get_number_info, save_number_info
+from hybrid.plugins.db import get_number_data, get_number_info, save_number_info, save_7day_deletion
 
 NUMBERS_PER_PAGE = 8
 
@@ -475,6 +475,25 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
         logging.error(f"Tonkeeper check error: {e}")
 
 
+async def run_7day_deletion_scheduler(app: Client):
+    from hybrid.plugins.db import get_7day_deletions, remove_7day_deletion
+    logging.info("7-day deletion scheduler started.")
+    while True:
+        try:
+            due_numbers = get_7day_deletions()
+            for number in due_numbers:
+                logging.info("7-day window passed for %s. Re-attempting deletion...", number)
+                remove_7day_deletion(number)
+                try:
+                    success, reason = await delete_account(number, app, two_fa_password=None)
+                    logging.info("Re-deletion result for %s: success=%s reason=%s", number, success, reason)
+                except Exception as e:
+                    logging.error("Re-deletion failed for %s: %s", number, e)
+        except Exception as e:
+            logging.error("7-day scheduler error: %s", e)
+        await asyncio.sleep(3600)
+
+
 # NOTE: return type changed to (bool, str) to preserve reason strings used elsewhere.
 async def delete_account(number: str, app: Client, two_fa_password: str = None) -> tuple[bool, str]:
     """
@@ -605,10 +624,12 @@ async def delete_account(number: str, app: Client, two_fa_password: str = None) 
             # 2FA without password = 7 day waiting period
             if "2FA_CONFIRM_WAIT" in error_text or "SESSION_PASSWORD_NEEDED" in error_text:
                 logging.info("2FA detected - Telegram scheduled deletion in 7 days.")
+                save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
                 return True, "7Days"
             # Account already scheduled for deletion
             if "ACCOUNT_DELETE_SCHEDULED" in error_text:
                 logging.info("Account deletion already scheduled.")
+                save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
                 return True, "7Days"
             logging.error("DeleteAccount RPCError: %s", e)
             return False, "DeleteError"
