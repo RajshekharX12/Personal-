@@ -34,13 +34,14 @@ DEFAULT_ADMIN_BACK_KEYBOARD = InlineKeyboardMarkup(
 )
 
 
-async def _safe_edit(msg, text=None, reply_markup=None, parse_mode="html", **kwargs):
-    """Edit message; use edit_caption for photo messages so navigation works after transfer confirmation."""
+async def _safe_edit(msg, text=None, reply_markup=None, client=None, **kwargs):
+    """Edit message; if message has photo and client given, delete and send new text so photo is removed."""
     try:
         if text is not None:
-            if getattr(msg, "photo", None):
-                return await msg.edit_caption(caption=text, reply_markup=reply_markup, parse_mode=parse_mode, **kwargs)
-            return await msg.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode, **kwargs)
+            if client and getattr(msg, "photo", None):
+                await msg.delete()
+                return await client.send_message(msg.chat.id, text, reply_markup=reply_markup, **kwargs)
+            return await msg.edit_text(text, reply_markup=reply_markup, **kwargs)
         return await msg.edit(reply_markup=reply_markup, **kwargs)
     except MessageNotModified:
         return None
@@ -82,7 +83,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         ]
         keyboard.append([InlineKeyboardButton(t(user_id, "back"), callback_data="back_home")])
 
-        await _safe_edit(query.message, t(user_id, "your_rentals"), reply_markup=InlineKeyboardMarkup(keyboard))
+        await _safe_edit(query.message, t(user_id, "your_rentals"), reply_markup=InlineKeyboardMarkup(keyboard), client=client)
 
     elif data.startswith("num_"):
         raw = data.replace("num_", "")
@@ -100,7 +101,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         time_left = format_remaining_time(rent_date, hours)
         date_str = format_date(str(rent_date)) if rent_date else "N/A"
         keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
-        await _safe_edit(query.message, t(user_id, "number", num=num_text, time=time_left, date=date_str), reply_markup=keyboard)
+        await _safe_edit(query.message, t(user_id, "number", num=num_text, time=time_left, date=date_str), reply_markup=keyboard, client=client)
 
     elif data.startswith("transfer_confirm"):
         # Parse using | separator to avoid conflicts with phone number format
@@ -146,15 +147,19 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             temp.RENTED_NUMS.remove(number)
         temp.RENTED_NUMS.append(number)
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="my_rentals")]])
-        await _safe_edit(query.message, f"✅ Number <b>{num_text}</b> has been transferred successfully.", reply_markup=keyboard)
+        await _safe_edit(query.message, f"✅ Number <b>{num_text}</b> has been transferred successfully.", reply_markup=keyboard, client=client)
         try:
             to_user = await client.get_users(to_user_id)
             duration = format_remaining_time(rented_data.get("rent_date"), rented_data.get("hours", 0))
+            prev_owner = query.from_user
+            prev_owner_name = f"@{prev_owner.username}" if prev_owner.username else (prev_owner.first_name or str(prev_owner.id))
             await client.send_message(
                 to_user_id,
-                f"✅ You have received number <b>{num_text}</b> from another user.\n\n"
-                f"Time left: <b>{duration}</b>\n\n"
-                f"You can get code, renew, or transfer it from My Rentals."
+                f"🫶 The number below has been securely transferred to your account.\n\n"
+                f"• 👤 Previous Owner: {prev_owner_name}\n\n"
+                f"• 📞 Number: {num_text}\n\n"
+                f"• ⏳ Validity: {duration}\n\n"
+                f"⚠️ The previous owner no longer has access. Good luck, Friend :)"
             )
         except Exception:
             pass
@@ -256,11 +261,11 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 )
             else:
                 # No profile photo, send text message
-                await _safe_edit(query.message, caption_text, reply_markup=keyboard)
+                await _safe_edit(query.message, caption_text, reply_markup=keyboard, client=client)
         except Exception as e:
             logging.error(f"Failed to get profile photo: {e}")
             # Fallback to text message
-            await _safe_edit(query.message, caption_text, reply_markup=keyboard)
+            await _safe_edit(query.message, caption_text, reply_markup=keyboard, client=client)
         return
 
     elif data.startswith("getcode_"):
@@ -341,7 +346,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
 
         keyboard = InlineKeyboardMarkup(rows)
 
-        await _safe_edit(query.message, t(user.id, "welcome", name=user.mention), reply_markup=keyboard)
+        await _safe_edit(query.message, t(user.id, "welcome", name=user.mention), reply_markup=keyboard, client=client)
 
     elif data == "setpayment_tron" or data == "setpayment_cryptobot" or data == "setpayment_tonkeeper" or data.startswith("setpayment_"):
         method = data.replace("setpayment_", "")
@@ -632,7 +637,7 @@ Details:
             [InlineKeyboardButton("🔒 Restricted Auto-Deletion", callback_data="restricted_disabled")],
             [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
         ])
-        await _safe_edit(query.message, text, reply_markup=keyboard)
+        await _safe_edit(query.message, text, reply_markup=keyboard, client=client)
 
     elif data == "admin_tools" and query.from_user.id in ADMINS:
         text = """🛠️ **Admin Tools**
@@ -652,7 +657,7 @@ Details:
             ],
             [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
         ])
-        await _safe_edit(query.message, text, reply_markup=keyboard)
+        await _safe_edit(query.message, text, reply_markup=keyboard, client=client)
 
     elif data == "admin_numbers" and query.from_user.id in ADMINS:
         await show_numbers(query, page=1)
