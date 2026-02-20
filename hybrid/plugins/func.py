@@ -192,10 +192,10 @@ def h(text: str) -> str:
     """Convert inline Markdown to HTML. Use for hardcoded messages."""
     return _md_to_html(text)
 
-def t(user_id: int, key: str, **kwargs):
+async def t(user_id: int, key: str, **kwargs):
     from hybrid.plugins.db import get_user_language
     import re
-    lang = get_user_language(user_id) or "en"
+    lang = await get_user_language(user_id) or "en"
     text = LANGUAGES.get(lang, LANGUAGES["en"]).get(key, key)
     # Replace {{e:key}} with Unicode fallback (premium emoji disabled)
     _emoji_fallback = {"success":"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji>","error":"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji>","warning":"⚠️","phone":"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>","money":"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>","renew":"<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji>","get_code":"<tg-emoji emoji-id=\"5433811242135331842\">📨</tg-emoji>","back":"⬅️","date":"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji>","loading":"<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>","time":"<tg-emoji emoji-id=\"5413704112220949842\">🕒</tg-emoji>","timeout":"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji>"}
@@ -325,8 +325,8 @@ async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: floa
         await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
     amount_ton = amount_usdt / ton_price
-    order_ref = _gen_order_ref()
-    save_ton_order(order_ref, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
+    order_ref = await _gen_order_ref()
+    await save_ton_order(order_ref, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
     pay_url = create_tonkeeper_link(amount_ton, order_ref)
     if not pay_url:
         await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
@@ -403,7 +403,7 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
     """Poll TonCenter getTransactions, parse in_msg comment and value. Credit on match. Same flow as CryptoBot."""
     if not TON_WALLET:
         return
-    pending = get_all_pending_ton_orders()
+    pending = await get_all_pending_ton_orders()
     if not pending:
         return
     try:
@@ -444,9 +444,9 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
                     await client.edit_message_text(order["chat_id"], order["msg_id"], "<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>")
                 except Exception:
                     pass
-                current_bal = get_user_balance(user_id) or 0.0
+                current_bal = await get_user_balance(user_id) or 0.0
                 new_bal = current_bal + float(order["amount"])
-                save_user_balance(user_id, new_bal)
+                await save_user_balance(user_id, new_bal)
                 if payload.startswith("rentpay:"):
                     parts = payload.split(":")
                     if len(parts) >= 3:
@@ -468,7 +468,7 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
                     )
                 except Exception:
                     pass
-                delete_ton_order(order_ref)
+                await delete_ton_order(order_ref)
                 break
     except Exception as e:
         logging.error(f"Tonkeeper check error: {e}")
@@ -479,10 +479,10 @@ async def run_7day_deletion_scheduler(app: Client):
     logging.info("7-day deletion scheduler started.")
     while True:
         try:
-            due_numbers = get_7day_deletions()
+            due_numbers = await get_7day_deletions()
             for number in due_numbers:
                 logging.info("7-day window passed for %s. Re-attempting deletion...", number)
-                remove_7day_deletion(number)
+                await remove_7day_deletion(number)
                 try:
                     success, reason = await delete_account(number, app, two_fa_password=None)
                     logging.info("Re-deletion result for %s: success=%s reason=%s", number, success, reason)
@@ -623,12 +623,12 @@ async def delete_account(number: str, app: Client, two_fa_password: str = None) 
             # 2FA without password = 7 day waiting period
             if "2FA_CONFIRM_WAIT" in error_text or "SESSION_PASSWORD_NEEDED" in error_text:
                 logging.info("2FA detected - Telegram scheduled deletion in 7 days.")
-                save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
+                await save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
                 return True, "7Days"
             # Account already scheduled for deletion
             if "ACCOUNT_DELETE_SCHEDULED" in error_text:
                 logging.info("Account deletion already scheduled.")
-                save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
+                await save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
                 return True, "7Days"
             logging.error("DeleteAccount RPCError: %s", e)
             return False, "DeleteError"
@@ -707,24 +707,24 @@ except ImportError:
     get_all_pool_numbers = None
 
 
-def export_numbers_csv(filename: str = "numbers_export.csv"):
+async def export_numbers_csv(filename: str = "numbers_export.csv"):
     """
     Export all numbers with rental details to a CSV file.
     Includes pool numbers + rented numbers (admin-assigned may not be in pool).
     """
-    pool = set(get_all_pool_numbers()) if get_all_pool_numbers else set()
+    pool = set(await get_all_pool_numbers()) if get_all_pool_numbers else set()
     pool = pool or set(temp.NUMBE_RS or [])
-    rented_numbers = {doc.get("number") for doc in get_all_rentals() if doc.get("number")}
+    rented_numbers = {doc.get("number") for doc in await get_all_rentals() if doc.get("number")}
     all_numbers = sorted(pool | rented_numbers)
     rows = []
 
     now = datetime.now(timezone.utc)
     for number in all_numbers:
-        rented_data = get_rented_data_for_number(number)
+        rented_data = await get_rented_data_for_number(number)
 
         if rented_data and rented_data.get("user_id"):
             user_id = rented_data.get("user_id")
-            balance = get_user_balance(user_id) or 0.0
+            balance = await get_user_balance(user_id) or 0.0
             rent_date = rented_data.get("rent_date")
             expiry_date = rented_data.get("expiry_date")
             hours = rented_data.get("hours", 0)
