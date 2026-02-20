@@ -4,9 +4,15 @@
 import json
 import os
 import ssl
+import time
 import redis
 import config
 from datetime import datetime, timezone, timedelta
+
+# Cache for get_all_rentals() to avoid repeated full scans when multiple callers need it in one request.
+# TTL 30 seconds: balances freshness with reducing N+1 calls (get_user_numbers, get_rental_by_owner, etc.).
+_RENTALS_CACHE_TTL = 30.0
+_rentals_cache = (0.0, [])
 
 def _now():
     return datetime.now(timezone.utc)
@@ -20,7 +26,9 @@ if not (_redis_uri.startswith("redis://") or _redis_uri.startswith("rediss://") 
 if "azure.cloud.redislabs.com" in _redis_uri and _redis_uri.startswith("rediss://"):
     _redis_uri = "redis://" + _redis_uri[8:]
 
-client = redis.Redis.from_url(_redis_uri, decode_responses=True)
+# Use a connection pool so multiple concurrent requests don't queue on a single connection.
+# Avoids blocking under load when many users hit the bot at once.
+client = redis.Redis.from_url(_redis_uri, decode_responses=True, max_connections=20)
 
 def _parse_dt(s):
     if s is None:
@@ -44,6 +52,7 @@ def _norm_num(n):
     return s if s.startswith("+888") else None
 
 def save_number(number: str, user_id: int, hours: int, date: datetime = None, extend: bool = False):
+    """Save rental for user. Stores number in canonical +888 form and updates num_to_user for fast lookup."""
     if date is None:
         date = _now()
     number = _norm_num(number) or number
@@ -67,12 +76,30 @@ def save_number(number: str, user_id: int, hours: int, date: datetime = None, ex
         client.sadd("users:all", user_id)
     else:
         client.hset(key, "numbers", json.dumps(numbers))
+    # Reverse index: number -> user_id so get_user_by_number() is O(1) instead of scanning all users.
+    client.hset("num_to_user", number, user_id)
     return True, "SAVED"
 
 
 def get_user_by_number(number: str):
+    """
+    Resolve number -> (user_id, hours, rent_date). Uses num_to_user reverse index for O(1) lookup
+    when the number was stored via save_number/save_number_data; falls back to scanning users for legacy data.
+    """
     number = _norm_num(number) or number
-
+    # Fast path: reverse index updated at write time by save_number and save_number_data.
+    uid_raw = client.hget("num_to_user", number)
+    if uid_raw is not None:
+        uid = int(uid_raw)
+        key = f"user:{uid}"
+        numbers_raw = client.hget(key, "numbers")
+        if numbers_raw:
+            numbers = json.loads(numbers_raw)
+            for n in numbers:
+                if n.get("number") == number:
+                    date_s = n.get("date")
+                    return uid, n.get("hours", 0), _parse_dt(date_s) if date_s else None
+    # Fallback: legacy data or num_to_user not yet populated.
     for uid in client.smembers("users:all"):
         key = f"user:{uid}"
         numbers_raw = client.hget(key, "numbers")
@@ -117,6 +144,7 @@ def remove_number(number: str, user_id: int):
     if len(new_numbers) == len(numbers):
         return False, "NOT_FOUND"
     client.hset(key, "numbers", json.dumps(new_numbers))
+    client.hdel("num_to_user", num_canon)
     return True, "REMOVED"
 
 
@@ -136,6 +164,10 @@ def get_remaining_rent_days(number: str):
 
 # =========== Number Rent Data ============
 def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int):
+    """
+    Store rental by canonical +888 number so get_number_data() fast path (rental:{number}) always hits.
+    Also updates num_to_user for O(1) get_user_by_number().
+    """
     hours = int(hours)
     number = _norm_num(number) or str(number or "").strip().replace(" ", "").replace("-", "")
     if number.startswith("888") and not number.startswith("+888") and len(number) >= 11:
@@ -152,7 +184,10 @@ def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int)
     client.zadd("rentals:expiry", {number: expiry_date.timestamp()})
     client.sadd("rentals:all", number)
     client.sadd(f"rentals:user:{user_id}", number)
+    client.hset("num_to_user", number, user_id)
     client.expire(key, int(hours * 3600) + 86400)
+    global _rentals_cache
+    _rentals_cache = (0.0, [])  # Invalidate cache so get_all_rentals() sees new rental
 
 
 def _normalize_for_lookup(s):
@@ -203,22 +238,9 @@ def get_number_data(number: str):
                 data = client.hgetall(f"rental:{stored}")
                 if data:
                     break
-    if not data and n_norm:
-        for key in (client.keys("rental:*") or []):
-            key = key if isinstance(key, str) else key.decode("utf-8", errors="ignore")
-            if not key.startswith("rental:"):
-                continue
-            data = client.hgetall(key)
-            if not data:
-                continue
-            stored_num = (data.get("number") or "")
-            if hasattr(stored_num, "decode"):
-                stored_num = stored_num.decode("utf-8", errors="ignore")
-            stored_num = str(stored_num).strip()
-            if _normalize_for_lookup(stored_num) == n_norm:
-                break
-        else:
-            data = None
+    # Avoid client.keys("rental:*") — it's a full Redis scan and blocks under load.
+    # All writes use canonical number (save_number_data), so fast path above should hit.
+    # Only fall back to full rental scan via get_all_rentals() for legacy/migrated data.
     if not data and n_norm:
         for doc in get_all_rentals():
             stored_num = (doc.get("number") or "")
@@ -323,10 +345,14 @@ def remove_number_data(number: str):
             pipe.zrem("rentals:expiry", stored)
             pipe.srem("rentals:all", n)
             pipe.srem("rentals:all", stored)
+            pipe.hdel("num_to_user", n)
+            pipe.hdel("num_to_user", stored)
             if user_id:
                 pipe.srem(f"rentals:user:{user_id}", n)
                 pipe.srem(f"rentals:user:{user_id}", stored)
             pipe.execute()
+            global _rentals_cache
+            _rentals_cache = (0.0, [])  # Invalidate cache after removal
             return True, "REMOVED"
     return False, "NOT_FOUND"
 
@@ -359,6 +385,14 @@ def get_expired_numbers():
 
 
 def get_all_rentals():
+    """
+    Return all rentals. Cached for 30s so get_user_numbers(), get_rental_by_owner(), get_rented_data_for_number()
+    don't each trigger a full rentals:all scan + N hgetalls in the same request.
+    """
+    global _rentals_cache
+    now = time.monotonic()
+    if now - _rentals_cache[0] < _RENTALS_CACHE_TTL and _rentals_cache[1]:
+        return _rentals_cache[1]
     numbers = client.smembers("rentals:all")
     out = []
     for number in numbers or []:
@@ -376,6 +410,7 @@ def get_all_rentals():
             doc["expiry_date"] = _parse_dt(data["expiry_date"])
         doc["hours"] = int(data["hours"]) if data.get("hours") else 0
         out.append(doc)
+    _rentals_cache = (now, out)
     return out
 
 
@@ -411,10 +446,19 @@ def get_user_balance(user_id: int):
 
 
 def get_total_balance():
+    """
+    Sum of all user balances. Uses a single Redis pipeline instead of N round-trips (one per user).
+    """
+    uids = list(client.smembers("users:all") or [])
+    if not uids:
+        return 0.0, 0
+    pipe = client.pipeline()
+    for uid in uids:
+        pipe.hget(f"user:{uid}", "balance")
+    results = pipe.execute()
     total = 0.0
     count = 0
-    for uid in client.smembers("users:all") or []:
-        b = client.hget(f"user:{uid}", "balance")
+    for b in results:
         if b is not None:
             total += float(b)
             count += 1
