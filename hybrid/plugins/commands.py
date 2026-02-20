@@ -103,12 +103,12 @@ async def clear_db_cmd(_, message):
             timeout=30
         )
     except Exception:
-        return await message.reply("⏰ Timeout! Please try again.")
+        return await message.reply("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.")
     if response.text.strip().upper() != "YES":
-        return await message.reply("❌ Database clear operation cancelled.")
+        return await message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Database clear operation cancelled.")
     stat, _ = delete_all_data()
     if stat:
-        await message.reply("✅ All data has been cleared from the database.")
+        await message.reply("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> All data has been cleared from the database.")
 
 @Bot.on_message(filters.command("sysinfo") & filters.user(ADMINS))
 async def sysinfo_cmd(_, message):
@@ -127,7 +127,7 @@ async def sysinfo_cmd(_, message):
         )
         await message.reply(sys_info)
     except ImportError:
-        await message.reply("❌ psutil module is not installed. Please install it to use this command.")
+        await message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> psutil module is not installed. Please install it to use this command.")
 
 @Bot.on_message(filters.command("addadmin") & filters.user(ADMINS))
 async def add_admin_cmd(_, message):
@@ -136,12 +136,12 @@ async def add_admin_cmd(_, message):
     try:
         user_id = int(message.command[1])
     except ValueError:
-        return await message.reply("❌ Invalid user ID. Please provide a valid integer.")
+        return await message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid user ID. Please provide a valid integer.")
     success, status = add_admin(user_id)
     if success:
-        await message.reply(f"✅ User {user_id} has been added as an admin.")
+        await message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> User {user_id} has been added as an admin.")
     else:
-        await message.reply(f"❌ User {user_id} could not be added. Status: {status}")
+        await message.reply(f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> User {user_id} could not be added. Status: {status}")
 
 @Bot.on_message(filters.command("remadmin") & filters.user(ADMINS))
 async def remove_admin_cmd(_, message):
@@ -150,12 +150,12 @@ async def remove_admin_cmd(_, message):
     try:
         user_id = int(message.command[1])
     except ValueError:
-        return await message.reply("❌ Invalid user ID. Please provide a valid integer.")
+        return await message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid user ID. Please provide a valid integer.")
     success, status = remove_admin(user_id)
     if success:
-        await message.reply(f"✅ User {user_id} has been removed from admins.")
+        await message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> User {user_id} has been removed from admins.")
     else:
-        await message.reply(f"❌ User {user_id} could not be removed. Status: {status}")
+        await message.reply(f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> User {user_id} could not be removed. Status: {status}")
 
 @Bot.on_message(filters.command("broadcast") & filters.user(ADMINS))
 async def broadcast_cmd(_, message):
@@ -163,7 +163,7 @@ async def broadcast_cmd(_, message):
         return await message.reply("Usage: /broadcast as reply to a message")
     broadcast_message = message.reply_to_message
     if not broadcast_message:
-        return await message.reply("❌ Please reply to a text message to broadcast.")
+        return await message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Please reply to a text message to broadcast.")
     user_ids = get_all_user_ids()
     success_count = 0
     fail_count = 0
@@ -185,7 +185,7 @@ async def broadcast_cmd(_, message):
             logging.error(f"Failed to send broadcast to {user_id}: {e}")
             fail_count += 1
 
-    await message.reply(f"📢 Broadcast completed!\n✅ Success: {success_count}\n❌ Failed: {fail_count}")
+    await message.reply(f"📢 Broadcast completed!\n<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Success: {success_count}\n<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed: {fail_count}")
 
 @Bot.on_message(filters.command("checknum") & filters.user(ADMINS))
 async def check_num_cmd(_, message):
@@ -195,16 +195,16 @@ async def check_num_cmd(_, message):
             timeout=30
         )
     except Exception:
-        return await message.reply("⏰ Timeout! Please try again.")
+        return await message.reply("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.")
     number = response.text if response.text.startswith("+888") else False
     if not number:
-        return await message.reply("❌ Invalid number format. Please send a valid number starting with +888.")
+        return await message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid number format. Please send a valid number starting with +888.")
 
     check = check_number_conn(number)
     if check:
-        return await message.reply(f"✅ Number {number} is available.")
+        return await message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Number {number} is available.")
     else:
-        return await message.reply(f"❌ Number {number} is not available.")
+        return await message.reply(f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Number {number} is not available.")
 
 @Bot.on_message(filters.command("exportcsv") & filters.user(ADMINS))
 async def export_csv_cmd(_, message: Message):
@@ -215,7 +215,7 @@ async def export_csv_cmd(_, message: Message):
         os.remove(filename)
         await msg.delete()
     except Exception as e:
-        await message.reply_text(f"❌ Failed to export: {e}")
+        await message.reply_text(f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to export: {e}")
 
 @Bot.on_message(filters.command("banned") & filters.private)
 async def banned_cmd(_, message: Message):
