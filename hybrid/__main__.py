@@ -1,9 +1,11 @@
 import asyncio
 from hybrid import Bot, CRYPTO_STAT
+from hybrid.plugins.func import run_7day_deletion_scheduler
 
 async def main():
     bot = Bot()
     await bot.start()
+    asyncio.create_task(run_7day_deletion_scheduler(bot))
     if CRYPTO_STAT:
         from hybrid.__init__ import cp
         await cp.start_polling()
