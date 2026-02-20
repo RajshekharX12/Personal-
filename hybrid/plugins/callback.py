@@ -13,7 +13,7 @@ from pyrogram.types import Message
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import CallbackQuery
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 
 from hybrid import Bot, LOG_FILE_NAME, logging, ADMINS, CRYPTO_STAT, gen_4letters
 from hybrid.plugins.temp import temp
@@ -238,20 +238,15 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             f"❗ If you transferred to the wrong person, please contact: @Aress immediately."
         )
         
-        # Try to get and send user's profile photo
+        # Try to get and show user's profile photo (edit in place to keep message ID)
         try:
             photos = [p async for p in client.get_chat_photos(to_user.id, limit=1)]
             if photos:
-                # Delete the old message
-                try:
-                    await query.message.delete()
-                except Exception:
-                    pass
-                # Send photo with caption and buttons
-                await client.send_photo(
-                    chat_id=user_id,
-                    photo=photos[0].file_id,
-                    caption=caption_text,
+                await query.message.edit_media(
+                    InputMediaPhoto(
+                        media=photos[0].file_id,
+                        caption=caption_text
+                    ),
                     reply_markup=keyboard
                 )
             else:
