@@ -86,11 +86,11 @@ async def load_num_data():
             temp.NUMBE_RS.append(n)
     from hybrid.plugins.db import get_number_data, get_number_info, save_number_info
     for num in temp.NUMBE_RS:
-        info = get_number_info(num)
+        info = await get_number_info(num)
         if not info:
-            save_number_info(num, D30_RATE, D60_RATE, D90_RATE, available=True)
-            info = get_number_info(num)
-        rented = get_number_data(num)
+            await save_number_info(num, D30_RATE, D60_RATE, D90_RATE, available=True)
+            info = await get_number_info(num)
+        rented = await get_number_data(num)
         if info and info.get("available", True):
             temp.AVAILABLE_NUM.append(num)
             logging.info(f"Number {num} is available.")
@@ -115,7 +115,7 @@ async def schedule_reminders(client):
     while True:
         try:
             now = get_current_datetime().replace(tzinfo=timezone.utc)
-            rented = get_all_rentals()
+            rented = await get_all_rentals()
             for doc in rented:
                 number = doc["number"]
                 user_id = doc["user_id"]
@@ -154,10 +154,10 @@ EXPIRED_DELETE_SEMAPHORE = asyncio.Semaphore(3)
 
 async def _process_one_expired(number: str, client, now):
     """Handle one expired number: terminate sessions, delete account, cleanup, notify. Used concurrently with semaphore."""
-    num_data = get_number_data(number)
+    num_data = await get_number_data(number)
     user_id = num_data.get("user_id") if num_data else None
     if not user_id:
-        remove_number_data(number)
+        await remove_number_data(number)
         return
     try:
         async with EXPIRED_DELETE_SEMAPHORE:
@@ -168,11 +168,11 @@ async def _process_one_expired(number: str, client, now):
                 pass
             stat, reason = await delete_account(number, client)
         if stat:
-            remove_number_data(number)
-            remove_number(number, user_id)
+            await remove_number_data(number)
+            await remove_number(number, user_id)
         if reason == "7Days":
             from hybrid.plugins.db import save_7day_deletion
-            save_7day_deletion(number, now + timedelta(days=7))
+            await save_7day_deletion(number, now + timedelta(days=7))
         if not stat and reason == "Banned":
             logging.info(f"Number {number} is banned (banned feature disabled, not tracking).")
             return
@@ -195,7 +195,7 @@ async def check_expired_numbers(client):
     """Background checker: remove expired numbers. Processes multiple expired numbers concurrently (semaphore-limited)."""
     while True:
         now = get_current_datetime().replace(tzinfo=timezone.utc)
-        expired_list = get_expired_numbers()
+        expired_list = await get_expired_numbers()
         if expired_list:
             await asyncio.gather(*[_process_one_expired(number, client, now) for number in expired_list], return_exceptions=True)
         await asyncio.sleep(600)
@@ -207,12 +207,12 @@ async def check_7day_accs(client):
     while True:
         now = get_current_datetime().replace(tzinfo=timezone.utc)
         from hybrid.plugins.db import get_7day_deletions, get_7day_date, remove_7day_deletion, save_7day_deletion, get_user_by_number
-        numbers = get_7day_deletions()
+        numbers = await get_7day_deletions()
         if not numbers:
             await asyncio.sleep(3600)
             continue
         for num in numbers:
-            date = get_7day_date(num)
+            date = await get_7day_date(num)
             if not date or date > now:
                 continue
             session_name = f"delete-{num.replace('+', '')}"
@@ -251,18 +251,18 @@ async def check_7day_accs(client):
                                     temp.RENTED_NUMS.remove(num)
                                 if num not in temp.AVAILABLE_NUM:
                                     temp.AVAILABLE_NUM.append(num)
-                                user_id, _, _ = get_user_by_number(num)
+                                user_id, _, _ = await get_user_by_number(num)
                                 if user_id:
-                                    remove_number_data(num)
-                                    remove_number(num, user_id)
-                                remove_7day_deletion(num)
+                                    await remove_number_data(num)
+                                    await remove_number(num, user_id)
+                                await remove_7day_deletion(num)
                             continue
                     # Cleanup after successful completion
-                    user_id, _, _ = get_user_by_number(num)
+                    user_id, _, _ = await get_user_by_number(num)
                     if user_id:
-                        remove_number_data(num)
-                        remove_number(num, user_id)
-                    remove_7day_deletion(num)
+                        await remove_number_data(num)
+                        await remove_number(num, user_id)
+                    await remove_7day_deletion(num)
                     if num in temp.RENTED_NUMS:
                         temp.RENTED_NUMS.remove(num)
                     if num not in temp.AVAILABLE_NUM:
@@ -272,17 +272,17 @@ async def check_7day_accs(client):
                     stat, reason = await delete_account(num, client)
                     if stat and reason == "7Days":
                         logging.info(f"Deleted account {num} after 7 days (re-login path).")
-                        save_7day_deletion(num, now)
+                        await save_7day_deletion(num, now)
                     elif stat:
                         if num in temp.RENTED_NUMS:
                             temp.RENTED_NUMS.remove(num)
                         if num not in temp.AVAILABLE_NUM:
                             temp.AVAILABLE_NUM.append(num)
-                        user_id, _, _ = get_user_by_number(num)
+                        user_id, _, _ = await get_user_by_number(num)
                         if user_id:
-                            remove_number_data(num)
-                            remove_number(num, user_id)
-                        remove_7day_deletion(num)
+                            await remove_number_data(num)
+                            await remove_number(num, user_id)
+                        await remove_7day_deletion(num)
                     elif reason == "Banned":
                         pass  # Banned feature disabled
             except Exception as e:
@@ -290,11 +290,11 @@ async def check_7day_accs(client):
                 try:
                     stat, reason = await delete_account(num, client)
                     if stat:
-                        user_id, _, _ = get_user_by_number(num)
+                        user_id, _, _ = await get_user_by_number(num)
                         if user_id:
-                            remove_number_data(num)
-                            remove_number(num, user_id)
-                        remove_7day_deletion(num)
+                            await remove_number_data(num)
+                            await remove_number(num, user_id)
+                        await remove_7day_deletion(num)
                         if num in temp.RENTED_NUMS:
                             temp.RENTED_NUMS.remove(num)
                         if num not in temp.AVAILABLE_NUM:
@@ -320,23 +320,23 @@ async def check_restricted_numbers(client):
             if num not in temp.RESTRICTED_NUMS:
                 temp.RESTRICTED_NUMS.append(num)
 
-            num_data = get_number_data(num)
+            num_data = await get_number_data(num)
             user_id = num_data.get("user_id") if num_data else None
             if not user_id:
                 continue
 
-            stat, reason = save_restricted_number(num)
+            stat, reason = await save_restricted_number(num)
             if not stat and reason == "ALREADY":
                 from hybrid.plugins.db import get_rest_num_date
                 from hybrid.plugins.func import t
-                date = get_rest_num_date(num)
+                date = await get_rest_num_date(num)
                 now = get_current_datetime()
 
                 if date and date.tzinfo is None:
                     date = date.replace(tzinfo=timezone.utc)
 
                 if date and (now - date).days >= 3:
-                    if not is_restricted_del_enabled():
+                    if not await is_restricted_del_enabled():
                         logging.info("Restricted auto-deletion is disabled. Skipping deletion.")
                         continue
 
@@ -350,10 +350,10 @@ async def check_restricted_numbers(client):
                     if stat and reason == "7Days":
                         logging.info(f"Deleted account {num} after 7 days")
                         from hybrid.plugins.db import save_7day_deletion
-                        save_7day_deletion(num, now + timedelta(days=7))
+                        await save_7day_deletion(num, now + timedelta(days=7))
                     if stat:
-                        remove_number_data(num)
-                        remove_number(num, user_id)
+                        await remove_number_data(num)
+                        await remove_number(num, user_id)
                     if not stat and reason == "Banned":
                         continue  # Banned feature disabled
                     logging.info(f"Restricted number {num} cleaned up for user {user_id} after 3 days")
@@ -387,7 +387,7 @@ async def check_payments(client):
 
     while True:
         try:
-            pending_ton = get_all_pending_ton_orders() if TON_WALLET else []
+            pending_ton = await get_all_pending_ton_orders() if TON_WALLET else []
             if TON_WALLET and pending_ton:
                 from hybrid.plugins.func import check_tonkeeper_payments
                 await check_tonkeeper_payments(
@@ -412,9 +412,9 @@ async def check_payments(client):
                             except Exception:
                                 pass
                             payload = (getattr(inv, "payload", "") or "").strip()
-                            current_bal = get_user_balance(user_id) or 0.0
+                            current_bal = await get_user_balance(user_id) or 0.0
                             new_bal = current_bal + float(inv.amount)
-                            save_user_balance(user_id, new_bal)
+                            await save_user_balance(user_id, new_bal)
                             if payload.startswith("rentpay:"):
                                 parts = payload.split(":")
                                 if len(parts) >= 3:
@@ -451,7 +451,7 @@ async def check_payments(client):
                 )
         except Exception as e:
             logging.error(f"Payment checker error: {e}")
-        pending_ton = get_all_pending_ton_orders() if TON_WALLET else []
+        pending_ton = await get_all_pending_ton_orders() if TON_WALLET else []
         await asyncio.sleep(6 if pending_ton else 12)
 
 
@@ -462,7 +462,7 @@ class Bot(Client):
             api_hash=API_HASH,
             api_id=API_ID,
             plugins=plugins,
-            workers=50,
+            workers=8,
             bot_token=BOT_TOKEN
         )
     
@@ -502,7 +502,7 @@ class Bot(Client):
         logging.info("Started payment checker (CryptoBot + Tonkeeper).")
 
         from hybrid.plugins.db import get_all_admins
-        AD_MINS = get_all_admins()
+        AD_MINS = await get_all_admins()
         for id in AD_MINS:
             if id not in ADMINS:
                 ADMINS.append(id)
