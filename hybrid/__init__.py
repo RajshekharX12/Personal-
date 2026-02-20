@@ -458,7 +458,7 @@ async def check_payments(client):
 class Bot(Client):
     def __init__(self):
         super().__init__(
-            name=f"rental-{gen_4letters()}",
+            name="rental-bot",
             api_hash=API_HASH,
             api_id=API_ID,
             plugins=plugins,
