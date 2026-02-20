@@ -273,7 +273,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         number = normalize_phone(raw) or raw
         num_text = format_number(number)
         # await query.message.edit_text(f"{t(user_id, 'getting_code')} `{num_text}`...")
-        code = get_login_code(number)
+        from hybrid.plugins.fragment import get_login_code_async
+        code = await get_login_code_async(number)
         await asyncio.sleep(2)  # Simulate waiting for the code
         if code and code.isdigit():
             keyboard = [
@@ -828,7 +829,8 @@ Details:
 
 
         if success:
-            terminate_all_sessions(number)
+            from hybrid.plugins.fragment import terminate_all_sessions_async
+            await terminate_all_sessions_async(number)
 
 
         if success:
