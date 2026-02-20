@@ -490,7 +490,8 @@ class Bot(Client):
                 logging.error(f"Failed to send restart message: {e}")
                 pass
 
-        await schedule_reminders(self)
+        asyncio.create_task(schedule_reminders(self))
+        logging.info("Started reminder scheduler (every 30 min).")
         asyncio.create_task(check_expired_numbers(self))
         logging.info("Started background task to check expired numbers.")
         asyncio.create_task(check_7day_accs(self))
