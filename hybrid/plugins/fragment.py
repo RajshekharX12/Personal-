@@ -1,7 +1,11 @@
 # (©) @Hybrid_Vamp - https://github.com/hybridvamp
 # Fragment.com interaction library by Hybrid_Vamp
 # Requires cookies exported from browser in Chromium JSON format (frag.json)
+#
+# Performance: All HTTP calls use httpx.AsyncClient so they do not block the asyncio
+# event loop. Sync wrappers exist for backward compatibility and run async in executor if needed.
 
+import asyncio
 import json
 import time
 import random
@@ -215,6 +219,72 @@ def get_fragment_numbers(
         raise RequestException(f"Failed after {max_retries} attempts: last status {meta.get('last_status_code')}")
 
 
+async def get_fragment_numbers_async(
+    cookies_file: str = "frag.json",
+    url: str = "https://fragment.com/my/numbers",
+    timeout: int = 15,
+    max_retries: int = 5,
+    backoff_base: float = 0.6,
+    user_agent: Optional[str] = None,
+    verify_ssl: bool = True,
+    verbose: bool = False,
+) -> Tuple[List[str], Dict]:
+    """
+    Async version: fetch +888 numbers from fragment.com without blocking the event loop.
+    Same contract as get_fragment_numbers; use this from async code.
+    """
+    ua = user_agent or _default_user_agent()
+    cookies = _load_cookies_from_file(cookies_file)
+    headers = {
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://fragment.com/",
+    }
+    meta = {"attempts": 0, "last_status_code": None, "message": ""}
+    last_exc = None
+    for attempt in range(1, max_retries + 1):
+        meta["attempts"] = attempt
+        try:
+            if verbose:
+                logger.info("GET %s (attempt %d)", url, attempt)
+            async with AsyncClient(cookies=cookies, timeout=float(timeout), verify=verify_ssl) as client:
+                resp = await client.get(url, headers=headers, follow_redirects=True)
+            meta["last_status_code"] = resp.status_code
+            if resp.status_code == 429:
+                retry_after = resp.headers.get("Retry-After")
+                meta["message"] = f"Rate limited (429). Retry-After: {retry_after}"
+                raise FragmentRateLimitError(meta["message"])
+            if resp.status_code in (401, 403):
+                meta["message"] = f"Auth failure HTTP {resp.status_code}"
+                raise FragmentAuthError(meta["message"])
+            if resp.status_code == 200:
+                body = resp.text
+                lower = body.lower()
+                if ("/login" in str(resp.url).lower()) or ("please log" in lower) or ("sign in" in lower and "password" in lower):
+                    meta["message"] = "Detected login page — cookies may be expired/invalid."
+                    raise FragmentAuthError("Detected login page. Cookies likely expired or invalid.")
+                numbers = _parse_numbers_from_html(body)
+                meta["message"] = "OK"
+                return numbers, meta
+            if 500 <= resp.status_code < 600:
+                sleep_for = backoff_base * (2 ** (attempt - 1)) + random.random() * 0.5
+                logger.warning("Server error %d, backing off %.1fs", resp.status_code, sleep_for)
+                await asyncio.sleep(sleep_for)
+                continue
+            meta["message"] = f"Unexpected HTTP status: {resp.status_code}"
+            raise RequestException(meta["message"])
+        except (FragmentRateLimitError, FragmentAuthError, RequestException):
+            raise
+        except Exception as exc:
+            last_exc = exc
+            sleep_for = backoff_base * (2 ** (attempt - 1)) + random.random() * 0.5
+            logger.warning("Network error on attempt %d: %s — backing off %.1fs", attempt, exc, sleep_for)
+            await asyncio.sleep(sleep_for)
+    meta["message"] = f"Exhausted {max_retries} retries"
+    raise RequestException(f"Failed after {max_retries} attempts: {last_exc}")
+
+
 def _parse_usernames_from_html(html: str) -> List[str]:
     """Extract Telegram usernames (starting with @) from the convert page."""
     soup = BeautifulSoup(html, "html.parser")
@@ -329,22 +399,20 @@ def get_fragment_usernames(
     else:
         raise RequestException(f"Failed after {max_retries} attempts, last code {meta['last_status_code']}")
 
-def get_login_code(number: str, cookies_file="frag.json") -> str:
-    """Fetch the login code for a given +888 number from fragment.com."""
+async def get_login_code_async(number: str, cookies_file: str = "frag.json") -> Optional[str]:
+    """
+    Fetch the login code for a given +888 number from fragment.com (async).
+    Does not block the event loop; use this from async handlers.
+    """
     cookies = _load_cookies_from_file(cookies_file)
-    session = requests.Session()
-    session.cookies.update(cookies)
-
     num_path = number.replace("+", "").replace(" ", "")
     url = f"https://fragment.com/number/{num_path}/code"
-
-    resp = session.get(url, timeout=15)
+    headers = {"User-Agent": _default_user_agent(), "Referer": "https://fragment.com/"}
+    async with AsyncClient(cookies=cookies, timeout=15.0) as client:
+        resp = await client.get(url, headers=headers)
     if resp.status_code != 200:
         raise Exception(f"Failed to fetch code page: HTTP {resp.status_code}")
-
     soup = BeautifulSoup(resp.text, "html.parser")
-
-    # Try to extract code
     code_div = soup.find("div", class_="tm-number-code-field")
     if code_div:
         code_text = code_div.get_text(strip=True)
@@ -352,6 +420,11 @@ def get_login_code(number: str, cookies_file="frag.json") -> str:
         if match:
             return match.group(0)
     return None
+
+
+def get_login_code(number: str, cookies_file="frag.json") -> str:
+    """Sync wrapper for non-async callers. Prefer get_login_code_async from async code."""
+    return asyncio.run(get_login_code_async(number, cookies_file))
 
 def disable_receive_login_codes(number: str, cookies_file="frag.json") -> bool:
     cookies = _load_cookies_from_file(cookies_file)
@@ -372,31 +445,25 @@ def disable_receive_login_codes(number: str, cookies_file="frag.json") -> bool:
         return True
     return False
 
-def terminate_all_sessions(number: str, cookies_file="frag.json") -> str:
-    """Terminate all active sessions for the given number."""
+async def terminate_all_sessions_async(number: str, cookies_file: str = "frag.json") -> str:
+    """Terminate all active sessions for the given number (async, non-blocking)."""
     cookies = _load_cookies_from_file(cookies_file)
-    session = requests.Session()
-    session.cookies.update(cookies)
-
     num_path = number.replace("+", "").replace(" ", "")
     url = "https://fragment.com/api"
+    headers = {"User-Agent": _default_user_agent(), "Referer": "https://fragment.com/", "Content-Type": "application/x-www-form-urlencoded"}
+    async with AsyncClient(cookies=cookies, timeout=15.0) as client:
+        resp = await client.post(url, data={"method": "terminatePhoneSessions", "number": num_path}, headers=headers)
+        data = resp.json()
+        if not data.get("ok"):
+            raise Exception("Failed to start termination")
+        terminate_hash = data.get("terminate_hash")
+        resp2 = await client.post(url, data={"method": "terminatePhoneSessions", "number": num_path, "terminate_hash": terminate_hash}, headers=headers)
+        return resp2.json().get("msg", "No message")
 
-    # Step 1: initiate
-    formdata = {
-        "method": "terminatePhoneSessions",
-        "number": num_path,
-    }
-    resp = session.post(url, data=formdata, timeout=15)
-    data = resp.json()
-    if not data.get("ok"):
-        raise Exception("Failed to start termination")
 
-    # Step 2: confirm with terminate_hash
-    terminate_hash = data.get("terminate_hash")
-    formdata["terminate_hash"] = terminate_hash
-    resp = session.post(url, data=formdata, timeout=15)
-
-    return resp.json().get("msg", "No message")
+def terminate_all_sessions(number: str, cookies_file="frag.json") -> str:
+    """Sync wrapper. Prefer terminate_all_sessions_async from async code."""
+    return asyncio.run(terminate_all_sessions_async(number, cookies_file))
 
 
 
@@ -473,57 +540,55 @@ fragment_api = FragmentAPI(
     stel_token=extract_fragment_tokens("frag.json")["stel_token"],
 )
 
-def get_restricted_numbers(
+async def get_restricted_numbers_async(
     cookies_file: str = "frag.json",
     timeout: int = 15,
     user_agent: Optional[str] = None,
     verify_ssl: bool = True,
     verbose: bool = False,
 ) -> Tuple[List[str], Dict]:
-    
+    """Async: fetch numbers from Fragment then check each for restricted status (non-blocking)."""
     ua = user_agent or _default_user_agent()
     cookies = _load_cookies_from_file(cookies_file)
-
-    session = requests.Session()
-    session.cookies.update(cookies)
-
     headers = {
         "User-Agent": ua,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": "https://fragment.com/",
     }
-
     meta = {"checked": 0, "restricted": 0, "message": ""}
     restricted_numbers = []
-
-    numbers, _ = get_fragment_numbers(
-        cookies_file=cookies_file,
-        timeout=timeout,
-        user_agent=ua,
-        verify_ssl=verify_ssl,
-        verbose=verbose,
+    numbers, _ = await get_fragment_numbers_async(
+        cookies_file=cookies_file, timeout=timeout, user_agent=ua, verify_ssl=verify_ssl, verbose=verbose,
     )
-
-    for num in numbers:
-        num_path = num.replace("+", "").replace(" ", "")
-        url = f"https://fragment.com/number/{num_path}"
-
-        if verbose:
-            logger.info("Checking %s", url)
-
-        resp = session.get(url, headers=headers, timeout=timeout, verify=verify_ssl)
-        meta["checked"] += 1
-
-        if resp.status_code != 200:
-            continue
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        if soup.select_one("blockquote.tm-section-blockquote.tm-warning"):
-            restricted_numbers.append(num)
-
+    async with AsyncClient(cookies=cookies, timeout=float(timeout), verify=verify_ssl) as client:
+        for num in numbers:
+            num_path = num.replace("+", "").replace(" ", "")
+            url = f"https://fragment.com/number/{num_path}"
+            if verbose:
+                logger.info("Checking %s", url)
+            resp = await client.get(url, headers=headers)
+            meta["checked"] += 1
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+            if soup.select_one("blockquote.tm-section-blockquote.tm-warning"):
+                restricted_numbers.append(num)
     meta["restricted"] = len(restricted_numbers)
     meta["message"] = "OK"
+    return restricted_numbers, meta
 
-    return restricted_numbers
+
+def get_restricted_numbers(
+    cookies_file: str = "frag.json",
+    timeout: int = 15,
+    user_agent: Optional[str] = None,
+    verify_ssl: bool = True,
+    verbose: bool = False,
+) -> List[str]:
+    """Sync wrapper; returns list of restricted numbers. Prefer get_restricted_numbers_async from async code."""
+    restricted, _ = asyncio.run(
+        get_restricted_numbers_async(cookies_file=cookies_file, timeout=timeout, user_agent=user_agent, verify_ssl=verify_ssl, verbose=verbose)
+    )
+    return restricted
 
