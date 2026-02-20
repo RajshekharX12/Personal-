@@ -51,9 +51,9 @@ DEFAULT_ADMIN_BACK_KEYBOARD = InlineKeyboardMarkup(
 @Bot.on_message(filters.command('start') & filters.private)
 async def start_command(client: Client, message: Message):
     user = message.from_user
-    save_user_id(user.id)
+    await save_user_id(user.id)
 
-    lang = get_user_language(user.id)
+    lang = await get_user_language(user.id)
     if not lang:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")],
@@ -61,20 +61,20 @@ async def start_command(client: Client, message: Message):
             [InlineKeyboardButton("🇰🇷 한국어", callback_data="lang_ko")],
             [InlineKeyboardButton("🇨🇳 中文", callback_data="lang_zh")],
         ])
-        return await message.reply_text(t(user.id, "choose_lang"), reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        return await message.reply_text(await t(user.id, "choose_lang"), reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     rows = [
-        [InlineKeyboardButton(t(user.id, "rent"), callback_data="rentnum"),
-         InlineKeyboardButton(t(user.id, "my_rentals"), callback_data="my_rentals")],
-        [InlineKeyboardButton(t(user.id, "profile"), callback_data="profile"),
-         InlineKeyboardButton(t(user.id, "help"), callback_data="help")],
-        [InlineKeyboardButton(t(user.id, "contact_support"), url="https://t.me/aress")]
+        [InlineKeyboardButton(await t(user.id, "rent"), callback_data="rentnum"),
+         InlineKeyboardButton(await t(user.id, "my_rentals"), callback_data="my_rentals")],
+        [InlineKeyboardButton(await t(user.id, "profile"), callback_data="profile"),
+         InlineKeyboardButton(await t(user.id, "help"), callback_data="help")],
+        [InlineKeyboardButton(await t(user.id, "contact_support"), url="https://t.me/aress")]
     ]
 
     if user.id in ADMINS:
         rows.insert(0, [InlineKeyboardButton("🛠️ Admin Panel", callback_data="admin_panel")])
 
-    await message.reply_text(t(user.id, "welcome", name=user.mention), reply_markup=InlineKeyboardMarkup(rows), parse_mode=ParseMode.HTML)
+    await message.reply_text(await t(user.id, "welcome", name=user.mention), reply_markup=InlineKeyboardMarkup(rows), parse_mode=ParseMode.HTML)
 
 @Bot.on_message(filters.command("update") & filters.user(ADMINS))
 async def update_restart(_, message):
@@ -108,7 +108,7 @@ async def clear_db_cmd(_, message):
         return await message.reply_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", parse_mode=ParseMode.HTML)
     if response.text.strip().upper() != "YES":
         return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Database clear operation cancelled.", parse_mode=ParseMode.HTML)
-    stat, _ = delete_all_data()
+    stat, _ = await delete_all_data()
     if stat:
         await message.reply_text("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> All data has been cleared from the database.", parse_mode=ParseMode.HTML)
 
@@ -139,7 +139,7 @@ async def add_admin_cmd(_, message):
         user_id = int(message.command[1])
     except ValueError:
         return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid user ID. Please provide a valid integer.", parse_mode=ParseMode.HTML)
-    success, status = add_admin(user_id)
+    success, status = await add_admin(user_id)
     if success:
         await message.reply_text(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> User {user_id} has been added as an admin.", parse_mode=ParseMode.HTML)
     else:
@@ -153,7 +153,7 @@ async def remove_admin_cmd(_, message):
         user_id = int(message.command[1])
     except ValueError:
         return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid user ID. Please provide a valid integer.", parse_mode=ParseMode.HTML)
-    success, status = remove_admin(user_id)
+    success, status = await remove_admin(user_id)
     if success:
         await message.reply_text(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> User {user_id} has been removed from admins.", parse_mode=ParseMode.HTML)
     else:
@@ -166,7 +166,7 @@ async def broadcast_cmd(_, message):
     broadcast_message = message.reply_to_message
     if not broadcast_message:
         return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Please reply to a text message to broadcast.", parse_mode=ParseMode.HTML)
-    user_ids = get_all_user_ids()
+    user_ids = await get_all_user_ids()
     success_count = 0
     fail_count = 0
 
