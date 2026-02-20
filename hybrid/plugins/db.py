@@ -78,38 +78,24 @@ def save_number(number: str, user_id: int, hours: int, date: datetime = None, ex
         client.hset(key, "numbers", json.dumps(numbers))
     # Reverse index: number -> user_id so get_user_by_number() is O(1) instead of scanning all users.
     client.hset("num_to_user", number, user_id)
+    client.hset("num_owner", number, user_id)
     return True, "SAVED"
 
 
 def get_user_by_number(number: str):
-    """
-    Resolve number -> (user_id, hours, rent_date). Uses num_to_user reverse index for O(1) lookup
-    when the number was stored via save_number/save_number_data; falls back to scanning users for legacy data.
-    """
     number = _norm_num(number) or number
-    # Fast path: reverse index updated at write time by save_number and save_number_data.
-    uid_raw = client.hget("num_to_user", number)
-    if uid_raw is not None:
-        uid = int(uid_raw)
-        key = f"user:{uid}"
-        numbers_raw = client.hget(key, "numbers")
-        if numbers_raw:
-            numbers = json.loads(numbers_raw)
-            for n in numbers:
-                if n.get("number") == number:
-                    date_s = n.get("date")
-                    return uid, n.get("hours", 0), _parse_dt(date_s) if date_s else None
-    # Fallback: legacy data or num_to_user not yet populated.
-    for uid in client.smembers("users:all"):
-        key = f"user:{uid}"
-        numbers_raw = client.hget(key, "numbers")
-        if not numbers_raw:
-            continue
-        numbers = json.loads(numbers_raw)
-        for n in numbers:
-            if n.get("number") == number:
-                date_s = n.get("date")
-                return int(uid), n.get("hours", 0), _parse_dt(date_s) if date_s else None
+    uid = client.hget("num_owner", number)
+    if not uid:
+        return False
+    key = f"user:{uid}"
+    numbers_raw = client.hget(key, "numbers")
+    if not numbers_raw:
+        return False
+    numbers = json.loads(numbers_raw)
+    for n in numbers:
+        if (_norm_num(n.get("number")) or n.get("number")) == number:
+            date_s = n.get("date")
+            return int(uid), n.get("hours", 0), _parse_dt(date_s) if date_s else None
     return False
 
 
@@ -145,6 +131,7 @@ def remove_number(number: str, user_id: int):
         return False, "NOT_FOUND"
     client.hset(key, "numbers", json.dumps(new_numbers))
     client.hdel("num_to_user", num_canon)
+    client.hdel("num_owner", num_canon)
     return True, "REMOVED"
 
 
@@ -347,6 +334,8 @@ def remove_number_data(number: str):
             pipe.srem("rentals:all", stored)
             pipe.hdel("num_to_user", n)
             pipe.hdel("num_to_user", stored)
+            pipe.hdel("num_owner", n)
+            pipe.hdel("num_owner", stored)
             if user_id:
                 pipe.srem(f"rentals:user:{user_id}", n)
                 pipe.srem(f"rentals:user:{user_id}", stored)
@@ -507,6 +496,7 @@ def save_number_info(number: str, price_30: float, price_60: float, price_90: fl
         "available": str(available).lower(),
         "updated_at": data["updated_at"],
     })
+    client.sadd("pool:numbers", number)
     return "UPDATED" if existed else "CREATED"
 
 
@@ -558,8 +548,8 @@ def get_number_info(number: str) -> dict | bool:
 
 
 def get_all_pool_numbers():
-    keys = client.keys("number:*")
-    return [k.replace("number:", "", 1) for k in (keys or [])]
+    members = client.smembers("pool:numbers")
+    return list(members or [])
 
 
 # ===================== language =====================
