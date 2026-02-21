@@ -467,7 +467,7 @@ async def check_payments(client):
     import requests
     from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from hybrid.plugins.temp import temp
-    from hybrid.plugins.db import get_user_balance, save_user_balance, get_ton_order, delete_ton_order, get_all_pending_ton_orders
+    from hybrid.plugins.db import get_user_balance, save_user_balance, get_ton_order, delete_ton_order, get_all_pending_ton_orders, is_payment_processed_crypto, mark_payment_processed_crypto
     from hybrid.plugins.func import t, resolve_payment_keyboard
     from config import TON_WALLET, TON_API_TOKEN
 
@@ -493,6 +493,11 @@ async def check_payments(client):
                     try:
                         inv = await cp_client.get_invoice(inv_id)
                         if inv and getattr(inv, "status", None) == "paid":
+                            if await is_payment_processed_crypto(str(inv_id)):
+                                temp.INV_DICT.pop(user_id, None)
+                                if inv_id in temp.PENDING_INV:
+                                    temp.PENDING_INV.remove(inv_id)
+                                continue
                             try:
                                 await client.edit_message_text(user_id, msg_id, "⌛")
                             except Exception:
@@ -501,6 +506,7 @@ async def check_payments(client):
                             current_bal = await get_user_balance(user_id) or 0.0
                             new_bal = current_bal + float(inv.amount)
                             await save_user_balance(user_id, new_bal)
+                            await mark_payment_processed_crypto(str(inv_id))
                             keyboard = await resolve_payment_keyboard(user_id, payload)
                             try:
                                 await client.edit_message_text(
@@ -561,6 +567,56 @@ async def cleanup_expired_invoices(client):
         await asyncio.sleep(300)  # Run every 5 minutes
 
 
+def _build_startup_message(bot_username: str, start_timestamp) -> str:
+    """Build admin startup notification with version and changelog from git."""
+    import subprocess
+    version = "1.0.0"
+    last_updated = getattr(start_timestamp, "strftime", lambda x: str(start_timestamp))( "%d/%m/%Y" )
+    changelog_lines = []
+    try:
+        ver = subprocess.check_output(
+            ["git", "describe", "--tags", "--always"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            text=True,
+            timeout=2,
+        ).strip()
+        if ver:
+            version = ver
+    except Exception:
+        pass
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log = subprocess.check_output(
+            ["git", "log", "-5", "--oneline", "--no-decorate"],
+            cwd=root,
+            text=True,
+            timeout=2,
+        ).strip()
+        if log:
+            for line in log.split("\n")[:5]:
+                changelog_lines.append(f"• {line}")
+        desc = subprocess.check_output(
+            ["git", "log", "-1", "--format=%s"],
+            cwd=root,
+            text=True,
+            timeout=2,
+        ).strip()
+        if desc and not changelog_lines:
+            changelog_lines.append(f"• {desc}")
+    except Exception:
+        changelog_lines = ["• (changelog from git unavailable)"]
+    changelog = "\n".join(changelog_lines) if changelog_lines else "• —"
+    return (
+        f"<b>Rent +888:</b>\n\n"
+        f"🤖 <b>Bot Version Info</b>\n\n"
+        f"<b>Version:</b> <code>{version}</code>\n"
+        f"<b>Last Updated:</b> <code>{last_updated}</code>\n\n"
+        f"<b>📋 Changelog:</b>\n\n"
+        f"{changelog}\n\n"
+        f"@{bot_username} Started — {start_timestamp}"
+    )
+
+
 class Bot(Client):
     def __init__(self):
         super().__init__(
@@ -616,10 +672,11 @@ class Bot(Client):
                 ADMINS.append(id)
                 logging.info(f"Added {id} to ADMINS list from DB")
         await load_num_data()
+        startup_text = _build_startup_message(self.username, self.start_timestamp)
         for id in ADMINS:
             try:
-                await self.send_message(id, f"@{self.username} Started\n{self.start_timestamp}")
-            except:
+                await self.send_message(id, startup_text)
+            except Exception:
                 pass
 
     async def stop(self, *args):
