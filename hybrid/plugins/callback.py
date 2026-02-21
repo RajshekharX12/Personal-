@@ -559,7 +559,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         await query.message.edit("<tg-emoji emoji-id=\"5399898266265475100\">🌍</tg-emoji> Please choose your language:", reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     elif data == "admin_panel" and query.from_user.id in ADMINS:
-        text = "<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> **Admin Panel**\n\nSelect an option below:"
+        text = "<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Admin Panel\n\nSelect an option below:"
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("👤 User Management", callback_data="user_management"),
@@ -578,7 +578,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
     
     elif data == "user_management" and query.from_user.id in ADMINS:
-        text = """<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> **User Management**
+        text = """<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> User Management
         
 Details:
 - User Info: Get detailed information about a user by User ID.
@@ -594,7 +594,7 @@ Details:
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     elif data == "rental_management" and query.from_user.id in ADMINS:
-        text = """<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> **Rental Management**
+        text = """<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> Rental Management
 
 Details:
 - Numbers: View all rented numbers and their details.
@@ -622,7 +622,7 @@ Details:
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     elif data == "number_control" and query.from_user.id in ADMINS:
-        text = """🔢 **Number Control**
+        text = """🔢 Number Control
 
 Details:
 - Enable/Disable Numbers: Toggle the availability of numbers for rent.
@@ -647,7 +647,7 @@ Details:
         await _safe_edit(query.message, text, reply_markup=keyboard, client=client)
 
     elif data == "admin_tools" and query.from_user.id in ADMINS:
-        text = """<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> **Admin Tools**
+        text = """<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Admin Tools
 
 Details:
 - Change Rules: Update the rental rules text in multiple languages.
@@ -707,15 +707,15 @@ Details:
             rented_status = f"<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji> Rented by User ID: {rented_user[0]}"   
         else:
             rented_status = "<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji> Available"
-        text = f"""<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji> **Number:** {number}
+        text = f"""<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji> Number: {number}
 {rented_status}
-• <tg-emoji emoji-id=\"5197434882321567830\">💵</tg-emoji> **Prices:**
+• <tg-emoji emoji-id=\"5197434882321567830\">💵</tg-emoji> Prices:
     • 30 days: {price_30d} USDT
     • 60 days: {price_60d} USDT
     • 90 days: {price_90d} USDT
-• 📦 **Available:** {"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes" if available else "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No"}
-• <tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> **Last Updated:** {number_data.get("updated_at", "N/A").strftime('%Y-%m-%d %H:%M:%S UTC')}
-• <tg-emoji emoji-id=\"5190458330719461749\">🆔</tg-emoji> **In Database:** {"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes" if number_data else "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No"}
+• 📦 Available: {"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes" if available else "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No"}
+• <tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Last Updated: {number_data.get("updated_at", "N/A").strftime('%Y-%m-%d %H:%M:%S UTC')}
+• <tg-emoji emoji-id=\"5190458330719461749\">🆔</tg-emoji> In Database: {"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes" if number_data else "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No"}
 """
         kb = [
             [InlineKeyboardButton("💵 Change Price", callback_data=f"change_price_{number}_{page}")],
@@ -735,7 +735,7 @@ Details:
 
         try:
             response = await query.message.chat.ask(
-                f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji> Enter new prices for **{number}** in USDT as `30d,60d,90d` (within 120s):",
+                f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji> Enter new prices for {number} in USDT as 30d,60d,90d (within 120s):",
                 timeout=120
             )
         except Exception:
@@ -756,7 +756,7 @@ Details:
         keyboard = [
             [InlineKeyboardButton("⬅️ Back", callback_data=f"admin_number_{number}_{page}")]
         ]
-        await query.message.edit_text(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Prices for <b>{number}</b> updated successfully ({status}).",
+        await query.message.edit_text(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Prices for {number} updated successfully ({status}).",
                                       reply_markup=InlineKeyboardMarkup(keyboard),
                                       parse_mode=ParseMode.HTML)
         return
@@ -780,7 +780,7 @@ Details:
         )
 
         await query.message.edit_text(
-            f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Availability for <b>{number}</b> set to {'<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes' if new_status else '<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No'}.",
+            f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Availability for {number} set to {'<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes' if new_status else '<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No'}.",
             parse_mode=ParseMode.HTML,
         )
         # change in temp.AVAILABLE_NUM
@@ -846,7 +846,7 @@ Details:
 
         if success:
             _bal = await get_user_balance(user.id) or 0.0
-            TEXT = f"""<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rental for number **{number}** has been cancelled.
+            TEXT = f"""<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rental for number {number} has been cancelled.
 • User ID: {user.id}
 • Username: @{user.username if user.username else 'N/A'}
 • Name: {user.first_name if user.first_name else 'N/A'}
@@ -863,7 +863,7 @@ Details:
             try:
                 await client.send_message(
                     user.id,
-                    f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Your rental for number <b>{number}</b> has been cancelled by the admin.\n"
+                    f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Your rental for number {number} has been cancelled by the admin.\n"
                     f"• Rented On: {user_data[2]}\n"
                     f"• Time Left: {format_remaining_time(user_data[2], user_data[1])}\n"
                     f"For more info, contact support.",
@@ -903,7 +903,7 @@ Details:
         user = await client.get_users(user_id)
         try:
             response = await query.message.chat.ask(
-                f"⚠️ Enter the number of hours/days (6h or 2d format) to extend for **{number}** (within 120s):",
+                f"⚠️ Enter the number of hours/days (6h or 2d format) to extend for {number} (within 120s):",
                 timeout=120
             )
         except Exception:
@@ -924,7 +924,7 @@ Details:
             new_time_left = format_remaining_time(user_data[1], user_data[2] + hours)
             h_days = hours // 24
             _bal = await get_user_balance(user.id) or 0.0
-            TEXT = f"""<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rental for number **{number}** has been extended by **{h_days} days**.
+            TEXT = f"""<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rental for number {number} has been extended by {h_days} days.
 • User ID: {user.id}
 • Username: @{user.username if user.username else 'N/A'}
 • Name: {user.first_name if user.first_name else 'N/A'}
@@ -940,7 +940,7 @@ Details:
             try:
                 await client.send_message(
                     user.id,
-                    f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Your rental for number <b>{number}</b> has been extended by <b>{h_days} days</b> by the admin.\n"
+                    f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Your rental for number {number} has been extended by {h_days} days by the admin.\n"
                     f"• Rented On: {user_data[1].strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
                     f"• New Time Left: {new_time_left}\n"
                     f"For more info, contact support.",
@@ -951,7 +951,7 @@ Details:
 
     elif data == "admin_balances" and query.from_user.id in ADMINS:
         to_tal, to_user = await get_total_balance()
-        text = f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji> **Total User Balances:**\n\n• Total Balance: **{to_tal} USDT**\n• Total Users with Balance: **{to_user}**"
+        text = f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji> Total User Balances:\n\n• Total Balance: {to_tal} USDT\n• Total Users with Balance: {to_user}"
         keyboard = [
             [InlineKeyboardButton("➕ Add Balance", callback_data="admin_add_balance")],
             [InlineKeyboardButton("⬅️ Back", callback_data="admin_panel")]
@@ -982,7 +982,7 @@ Details:
             return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> User not found/invalid User ID. (User must start this bot first)", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         try:
             response = await query.message.chat.ask(
-                f"⚠️ Enter the amount in **USDT** to add to user {user.first_name} (ID: {user.id}) (within 120s):",
+                f"⚠️ Enter the amount in USDT to add to user {user.first_name} (ID: {user.id}) (within 120s):",
                 timeout=120
             )
         except Exception:
@@ -1004,15 +1004,15 @@ Details:
             [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
         ]
         await query.message.edit_text(
-            f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Added <b>{amount} USDT</b> to user {user.first_name} (ID: {user.id}). New Balance: <b>{new_bal} USDT</b>",
+            f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Added {amount} USDT to user {user.first_name} (ID: {user.id}). New Balance: {new_bal} USDT",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.HTML,
         )
         try:
             await client.send_message(
                 user.id,
-                f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> An admin has added <b>{amount} USDT</b> to your balance.\n"
-                f"• New Balance: <b>{new_bal} USDT</b>\n"
+                f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> An admin has added {amount} USDT to your balance.\n"
+                f"• New Balance: {new_bal} USDT\n"
                 f"For more info, contact support.",
                 parse_mode=ParseMode.HTML,
             )
@@ -1041,11 +1041,11 @@ Details:
         balance = await get_user_balance(user.id) or 0.0
         numbers = await get_user_numbers(user.id)
         text = (
-            f"<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> **User Info**\n\n"
-            f"<tg-emoji emoji-id=\"5190458330719461749\">🆔</tg-emoji> User ID: `{user.id}`\n"
+            f"<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> User Info\n\n"
+            f"<tg-emoji emoji-id=\"5190458330719461749\">🆔</tg-emoji> User ID: {user.id}\n"
             f"<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> First Name: {user.first_name or 'N/A'}\n"
             f"<tg-emoji emoji-id=\"5318757666800031348\">🔗</tg-emoji> Username: @{user.username if user.username else 'N/A'}\n"
-            f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji> Balance: **{balance} USDT**\n"
+            f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji> Balance: {balance} USDT\n"
             f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji> Active Rentals: {len(numbers)}\n"
         )
         if numbers:
@@ -1076,11 +1076,11 @@ Details:
             try:
                 is_free = await fragment_api.check_is_number_free(identifier)
                 if is_free:
-                    msg = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Account associated with number **{identifier}** has been deleted."
+                    msg = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Account associated with number {identifier} has been deleted."
                 else:
-                    msg = f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Account is not deleted. 7-day step two verification activated for **{identifier}**."
+                    msg = f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Account is not deleted. 7-day step two verification activated for {identifier}."
             except Exception:
-                msg = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Account associated with number **{identifier}** has been deleted/deletion counter for one week started successfully."
+                msg = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Account associated with number {identifier} has been deleted/deletion counter for one week started successfully."
             await query.message.edit_text(msg, reply_markup=keyboard, parse_mode=ParseMode.HTML)
         else:
             keyboard = [
@@ -1107,123 +1107,121 @@ Details:
             except ValueError:
                 page = 0
         ADMIN_HELP_PAGES = [
-            """📘 **Admin Help — Page 1/5: Overview & User Management**
+            """📘 Admin Help — Page 1/5: Overview & User Management
 
-**<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Admin Panel**
-▎ User Management — User info, add balance
-▎ Rental Management — Numbers, assign/cancel/extend, change date, export CSV
-▎ Number Control — Enable/disable numbers, delete accounts, banned list, restricted auto-deletion
-▎ Admin Tools — Check Tx, Change Rules, this Help
+<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Admin Panel
+User Management — User info, add balance
+Rental Management — Numbers, assign/cancel/extend, change date, export CSV
+Number Control — Enable/disable numbers, delete accounts, banned list, restricted auto-deletion
+Admin Tools — Check Tx, Change Rules, this Help
 
-━━━━━━━━━━━━━━━━━━━━
-**<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> 1. User Info**
-▎ **Path:** Admin Panel → User Management → User Info
-▎ **How to use:** Click the button → bot asks *Enter the User ID* → send a Telegram User ID.
-▎ **Example:** You send `1412909688`
-▎ **What happens:** Bot shows: name, username, balance (USDT), count of active rentals, list of rented numbers (e.g. +88801497213). User must have started the bot at least once; otherwise you get "User not found".
+<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> 1. User Info
+Path: Admin Panel → User Management → User Info
+How to use: Click the button → bot asks Enter the User ID → send a Telegram User ID.
+Example: You send 1412909688
+What happens: Bot shows: name, username, balance (USDT), count of active rentals, list of rented numbers (e.g. +88801497213). User must have started the bot at least once; otherwise you get "User not found".
 
-**<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> 2. User Balances**
-▎ **Path:** Admin Panel → User Management → User Balances
-▎ **How to use:** Opens a screen with total balance (all users) in USDT and total users with balance. Use **➕ Add Balance** to credit a user.
-▎ **Example:** Click Add Balance → send `1412909688` → then send `25` (USDT). Minimum 0.5 USDT.
-▎ **What happens:** That user's balance increases by 25 USDT; they get a notification. Bot confirms the new balance.""",
-            """📘 **Admin Help — Page 2/5: Rental Management (1/2)**
+<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> 2. User Balances
+Path: Admin Panel → User Management → User Balances
+How to use: Opens a screen with total balance (all users) in USDT and total users with balance. Use ➕ Add Balance to credit a user.
+Example: Click Add Balance → send 1412909688 → then send 25 (USDT). Minimum 0.5 USDT.
+What happens: That user's balance increases by 25 USDT; they get a notification. Bot confirms the new balance.""",
+            """📘 Admin Help — Page 2/5: Rental Management (1/2)
 
-**<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 1. Numbers**
-▎ **Path:** Admin Panel → Rental Management → Numbers
-▎ **How to use:** Browse paginated list of all numbers (e.g. +88801497213). Click a number for details.
-▎ **On number screen:** Status (<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji> Available / <tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji> Rented), 30/60/90 day prices (USDT), availability. **💵 Change Price** → send `30d,60d,90d` (e.g. `80,152,224`). **🟢 Toggle Availability** → hide/show from rent list.
-▎ **What happens:** Price or visibility updates immediately; users see new prices when renting.
+<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 1. Numbers
+Path: Admin Panel → Rental Management → Numbers
+How to use: Browse paginated list of all numbers (e.g. +88801497213). Click a number for details.
+On number screen: Status (<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji> Available / <tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji> Rented), 30/60/90 day prices (USDT), availability. 💵 Change Price → send 30d,60d,90d (e.g. 80,152,224). 🟢 Toggle Availability → hide/show from rent list.
+What happens: Price or visibility updates immediately; users see new prices when renting.
 
-**<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 2. Assign Number**
-▎ **Path:** Rental Management → Assign Number
-▎ **How to use:** Step 1 — enter **User ID** (e.g. `1412909688`). Step 2 — enter **Number** (e.g. `+88801497213` or `88801497213`). Step 3 — enter **Hours**: `720` (30d), `1440` (60d), `2160` (90d).
-▎ **Example:** User ID `1412909688`, Number `+88801497213`, Hours `720` → 30 days rental.
-▎ **What happens:** Number is assigned to that user; they receive a message with rental details. Number disappears from public rent list.
+<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 2. Assign Number
+Path: Rental Management → Assign Number
+How to use: Step 1 — enter User ID (e.g. 1412909688). Step 2 — enter Number (e.g. +88801497213 or 88801497213). Step 3 — enter Hours: 720 (30d), 1440 (60d), 2160 (90d).
+Example: User ID 1412909688, Number +88801497213, Hours 720 → 30 days rental.
+What happens: Number is assigned to that user; they receive a message with rental details. Number disappears from public rent list.
 
-**<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 3. Cancel Rent**
-▎ **Path:** Rental Management → Cancel Rent
-▎ **How to use:** Send the **number** to cancel (e.g. `+88801497213` or `88801497213`).
-▎ **What happens:** Rental is removed; user is notified. A **🗑️ Delete Account** button appears — use it to delete the Telegram account linked to that number (SMS code and optional 2FA required).""",
-            """📘 **Admin Help — Page 3/5: Rental Management (2/2)**
+<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 3. Cancel Rent
+Path: Rental Management → Cancel Rent
+How to use: Send the number to cancel (e.g. +88801497213 or 88801497213).
+What happens: Rental is removed; user is notified. A 🗑️ Delete Account button appears — use it to delete the Telegram account linked to that number (SMS code and optional 2FA required).""",
+            """📘 Admin Help — Page 3/5: Rental Management (2/2)
 
-**<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 4. Extend Rent**
-▎ **Path:** Rental Management → Extend Rent
-▎ **How to use:** Send **number** (e.g. `+88801497213`) → then **duration** in `6h` or `2d` format (e.g. `6h`, `2d`).
-▎ **Example:** Number `+88801497213`, duration `2d` → adds 2 days to current expiry.
-▎ **What happens:** Remaining time is extended; user gets a notification with new time left.
+<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 4. Extend Rent
+Path: Rental Management → Extend Rent
+How to use: Send number (e.g. +88801497213) → then duration in 6h or 2d format (e.g. 6h, 2d).
+Example: Number +88801497213, duration 2d → adds 2 days to current expiry.
+What happens: Remaining time is extended; user gets a notification with new time left.
 
-**<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 5. Change Rental Date**
-▎ **Path:** Rental Management → Change Rental Date
-▎ **How to use:** Send **number** (e.g. `+88801497213`) → choose **Change Rental Duration** or **Change Rented date**.
-▎ **Duration:** Enter e.g. `3d` or `72h` — total rental length from the original rent date is set to this.
-▎ **Date:** Enter DD/MM/YYYY (e.g. `14/02/2026`) — rent start date is changed; cannot be in the future.
-▎ **What happens:** Rental data is updated; expiry recalculates accordingly.
+<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 5. Change Rental Date
+Path: Rental Management → Change Rental Date
+How to use: Send number (e.g. +88801497213) → choose Change Rental Duration or Change Rented date.
+Duration: Enter e.g. 3d or 72h — total rental length from the original rent date is set to this.
+Date: Enter DD/MM/YYYY (e.g. 14/02/2026) — rent start date is changed; cannot be in the future.
+What happens: Rental data is updated; expiry recalculates accordingly.
 
-**<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 6. Export CSV**
-▎ **Path:** Rental Management → 📑 Export CSV (or command `/exportcsv`)
-▎ **How to use:** Click once; no input.
-▎ **What happens:** Bot sends a CSV file with: Number, Rented (Yes/No), User ID, Balance, Rent Date, Expiry, Days/Hours Left.""",
-            """📘 **Admin Help — Page 4/5: Number Control**
+<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 6. Export CSV
+Path: Rental Management → 📑 Export CSV (or command /exportcsv)
+How to use: Click once; no input.
+What happens: Bot sends a CSV file with: Number, Rented (Yes/No), User ID, Balance, Rent Date, Expiry, Days/Hours Left.""",
+            """📘 Admin Help — Page 4/5: Number Control
 
-**🔢 1. Enable Numbers**
-▎ **Path:** Number Control → Enable Numbers
-▎ **How to use:** Send one or more numbers, comma-separated: `+88801497213` or `88801497213` or `1497213`. Example: `+88801497213, +88801547639`.
-▎ **What happens:** Those numbers become visible in the rent list (if they exist in DB).
+🔢 1. Enable Numbers
+Path: Number Control → Enable Numbers
+How to use: Send one or more numbers, comma-separated: +88801497213 or 88801497213 or 1497213. Example: +88801497213, +88801547639.
+What happens: Those numbers become visible in the rent list (if they exist in DB).
 
-**🔢 2. Disable Numbers**
-▎ **Path:** Number Control → Disable Numbers
-▎ **How to use:** Same format as Enable; send number(s) to hide.
-▎ **What happens:** Numbers are hidden from the rent list (not deleted from DB).
+🔢 2. Disable Numbers
+Path: Number Control → Disable Numbers
+How to use: Same format as Enable; send number(s) to hide.
+What happens: Numbers are hidden from the rent list (not deleted from DB).
 
-**🔢 3. Enable All**
-▎ **Path:** Number Control → Enable All
-▎ **What happens:** Every number in the system is set to available for rent in one action.
+🔢 3. Enable All
+Path: Number Control → Enable All
+What happens: Every number in the system is set to available for rent in one action.
 
-**🔢 4. Delete Accounts**
-▎ **Path:** Number Control → Delete Accounts → send **number** (e.g. `+88801497213`).
-▎ **How to use:** Bot asks for number → Fragment sends login code via SMS → you enter OTP (e.g. in Fragment helper) → then 2FA if enabled. Account is deleted or 7-day deletion starts.
-▎ **What happens:** Telegram account on that number is deleted. If number becomes Banned, it is added to the Banned list.
+🔢 4. Delete Accounts
+Path: Number Control → Delete Accounts → send number (e.g. +88801497213).
+How to use: Bot asks for number → Fragment sends login code via SMS → you enter OTP (e.g. in Fragment helper) → then 2FA if enabled. Account is deleted or 7-day deletion starts.
+What happens: Telegram account on that number is deleted. If number becomes Banned, it is added to the Banned list.
 
-**🔢 5. Banned Numbers**
-▎ **Path:** Number Control → Banned Numbers (or `/banned`)
-▎ **What happens:** Lists all numbers that are banned (e.g. after failed delete). No input.
+🔢 5. Banned Numbers
+Path: Number Control → Banned Numbers (or /banned)
+What happens: Lists all numbers that are banned (e.g. after failed delete). No input.
 
-**🔢 6. Restricted Auto-Deletion**
-▎ **Path:** Number Control → toggle (Enable/Disable Restricted Auto-Deletion)
-▎ **When ON:** Numbers that become restricted on Fragment are auto-deleted after 3 days; users are notified.
-▎ **When OFF:** No auto-deletion.""",
-            """📘 **Admin Help — Page 5/5: Admin Tools & Commands**
+🔢 6. Restricted Auto-Deletion
+Path: Number Control → toggle (Enable/Disable Restricted Auto-Deletion)
+When ON: Numbers that become restricted on Fragment are auto-deleted after 3 days; users are notified.
+When OFF: No auto-deletion.""",
+            """📘 Admin Help — Page 5/5: Admin Tools & Commands
 
-**<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> ADMIN TOOLS**
+<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> ADMIN TOOLS
 
-**1. Check Tx**
-▎ **Path:** Admin Panel → Admin Tools → Check Tx
-▎ **How to use:** Enter a transaction hash (e.g. from CryptoBot) to verify.
-▎ **What happens:** Bot replies whether the tx was found and shows amount/recipient (if supported).
+1. Check Tx
+Path: Admin Panel → Admin Tools → Check Tx
+How to use: Enter a transaction hash (e.g. from CryptoBot) to verify.
+What happens: Bot replies whether the tx was found and shows amount/recipient (if supported).
 
-**2. Change Rules**
-▎ **Path:** Admin Tools → Change Rules
-▎ **How to use:** Bot asks for new rules text **four times**: English → Russian → Korean → Chinese (300s each).
-▎ **What happens:** Rules are saved; users see them when they tap Accept before renting.
+2. Change Rules
+Path: Admin Tools → Change Rules
+How to use: Bot asks for new rules text four times: English → Russian → Korean → Chinese (300s each).
+What happens: Rules are saved; users see them when they tap Accept before renting.
 
-**3. Admin Help**
-▎ You are here. Use Prev/Next to move between pages.
+3. Admin Help
+You are here. Use Prev/Next to move between pages.
 
-━━━━━━━━━━━━━━━━━━━━
-**<tg-emoji emoji-id=\"5440410042773824003\">📌</tg-emoji> COMMANDS** (send in chat)
+<tg-emoji emoji-id=\"5440410042773824003\">📌</tg-emoji> COMMANDS (send in chat)
 
-▎ `/addadmin 1412909688` — Add that user as admin.
-▎ `/remadmin 1412909688` — Remove admin.
-▎ `/cleardb` — Asks confirmation; type `YES` to clear all DB.
-▎ `/broadcast` — Reply to a message → that message is sent to all users (with success/fail count).
-▎ `/checknum` — Bot asks for number (e.g. +88801497213); replies if available on Fragment.
-▎ `/exportcsv` — Same as Export CSV button; sends CSV file.
-▎ `/logs` — Bot sends the log file.
-▎ `/update` — Git pull then restart.
-▎ `/restart` — Restart bot.
-▎ `/sysinfo` — CPU, memory, disk usage.
-▎ `/banned` — List banned numbers.
+/addadmin 1412909688 — Add that user as admin.
+/remadmin 1412909688 — Remove admin.
+/cleardb — Asks confirmation; type YES to clear all DB.
+/broadcast — Reply to a message → that message is sent to all users (with success/fail count).
+/checknum — Bot asks for number (e.g. +88801497213); replies if available on Fragment.
+/exportcsv — Same as Export CSV button; sends CSV file.
+/logs — Bot sends the log file.
+/update — Git pull then restart.
+/restart — Restart bot.
+/sysinfo — CPU, memory, disk usage.
+/banned — List banned numbers.
 
 For support, contact the bot developer."""
         ]
@@ -1319,11 +1317,11 @@ For support, contact the bot developer."""
             try:
                 is_free = await fragment_api.check_is_number_free(number)
                 if is_free:
-                    msg = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Account associated with number **{number}** has been deleted."
+                    msg = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Account associated with number {number} has been deleted."
                 else:
-                    msg = f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Account is not deleted. 7-day step two verification activated for **{number}**."
+                    msg = f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Account is not deleted. 7-day step two verification activated for {number}."
             except Exception:
-                msg = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Account associated with number **{number}** has been deleted/deletion counter for one week started successfully."
+                msg = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Account associated with number {number} has been deleted/deletion counter for one week started successfully."
             await query.message.edit_text(msg, reply_markup=keyboard, parse_mode=ParseMode.HTML)
             return
         else:
@@ -1389,7 +1387,7 @@ For support, contact the bot developer."""
                 remaining_days = format_remaining_time(rent_date, rented_data.get("hours", 0))
                 date_str = format_date(str(rent_date))
                 txt = (
-                    f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n"
+                    f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: {num_text}\n"
                     f"<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {await t(user_id, 'unavailable')}\n\n"
                     f"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> {await t(user_id, 'days')}: {remaining_days}\n"
                     f"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji> {await t(user_id, 'date')}: {date_str}"
@@ -1401,7 +1399,7 @@ For support, contact the bot developer."""
             elif info and info.get("available", True):
                 prices = info.get("prices", {})
                 txt = (
-                    f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n"
+                    f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: {num_text}\n"
                     f"<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji>: {await t(user_id, 'available')}\n"
                     f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>: {await t(user_id, 'rent_now')}"
                 )
@@ -1413,7 +1411,7 @@ For support, contact the bot developer."""
                 ])
                 await query.message.edit_text(txt, reply_markup=keyboard, parse_mode=ParseMode.HTML)
             else:
-                txt = f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {await t(user_id, 'unavailable')}"
+                txt = f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: {num_text}\n<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {await t(user_id, 'unavailable')}"
                 keyboard = InlineKeyboardMarkup(
                     [[InlineKeyboardButton(await t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
                 )
@@ -1442,7 +1440,7 @@ For support, contact the bot developer."""
             date_str = format_date(str(rent_date))
             remaining_days = format_remaining_time(rent_date, rented_data.get("hours", 0))
             txt = (
-                f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n"
+                f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: {num_text}\n"
                 f"<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {await t(user_id, 'unavailable')}\n\n"
                 f"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> {await t(user_id, 'days')}: {remaining_days}\n"
                 f"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji> {await t(user_id, 'date')}: {date_str}"
@@ -1458,7 +1456,7 @@ For support, contact the bot developer."""
                 return
 
             if not info.get("available", True):
-                txt = f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {await t(user_id, 'unavailable')}"
+                txt = f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: {num_text}\n<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji>: {await t(user_id, 'unavailable')}"
                 keyboard = InlineKeyboardMarkup(
                     [[InlineKeyboardButton(await t(user_id, "back"), callback_data=f"rentnum_page:{page}")]]
                 )
@@ -1468,7 +1466,7 @@ For support, contact the bot developer."""
             # number available, show rent buttons
             prices = info.get("prices", {})
             txt = (
-                f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: `{num_text}`\n"
+                f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: {num_text}\n"
                 f"<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji>: {await t(user_id, 'available')}\n"
                 f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>: {await t(user_id, 'rent_now')}"
             )
@@ -1693,7 +1691,7 @@ For support, contact the bot developer."""
             return await query.message.reply("❌ This number is already rented to another user.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         try:
             response = await query.message.chat.ask(
-                f"⚠️ Enter the number of hours (e.g., 720 for 30 days) to assign for **{number}** \n\n 30 days - 720 hours\n 60 days - 1440 hours\n 90 days - 2160 hours\n\n (within 120s):",
+                f"⚠️ Enter the number of hours (e.g., 720 for 30 days) to assign for {number} \n\n 30 days - 720 hours\n 60 days - 1440 hours\n 90 days - 2160 hours\n\n (within 120s):",
                 timeout=120
             )
         except Exception:
@@ -1714,10 +1712,10 @@ For support, contact the bot developer."""
         async with temp.get_lock():
             if number not in temp.RENTED_NUMS:
                 temp.RENTED_NUMS.append(number)
-        await query.message.reply(f"✅ Assigned number **{number}** to user {user.first_name} (ID: {user.id}) for **{hours} hours**.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        await query.message.reply(f"✅ Assigned number {number} to user {user.first_name} (ID: {user.id}) for {hours} hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         await client.send_message(
             user.id,
-            f"✅ An admin has assigned you the number **{number}** for **{hours} hours**.\n"
+            f"✅ An admin has assigned you the number {number} for {hours} hours.\n"
             f"• Rented On: {get_current_datetime().strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
             f"For more info, contact support."
         )
@@ -1918,7 +1916,7 @@ For support, contact the bot developer."""
     elif data == "exportcsv" and query.from_user.id in ADMINS:
         try:
             message = query.message
-            msg = await message.reply("⏳ **Exporting numbers data to CSV...**")
+            msg = await message.reply("⏳ Exporting numbers data to CSV...")
             filename = await export_numbers_csv(f"numbers_export_{gen_4letters()}.csv")
             await message.reply_document(filename, caption="📑 Exported Numbers Data")
             os.remove(filename)
@@ -1959,8 +1957,8 @@ For support, contact the bot developer."""
             [InlineKeyboardButton("⬅️ Back", callback_data="rental_management")]
         ]
         await query.message.edit_text(
-            f"📞 Number: **{identifier}**\n"
-            f"👤 Rented by User ID: **{rented_data.get('user_id')}**\n"
+            f"📞 Number: {identifier}\n"
+            f"👤 Rented by User ID: {rented_data.get('user_id')}\n"
             f"⏰ Currently rented for (days): {rented_data.get('hours', 0) // 24}\n"
             f"📅 Rented On: {rented_data.get('rent_date').strftime('%Y-%m-%d %H:%M:%S')}",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -1974,7 +1972,7 @@ For support, contact the bot developer."""
         user = await client.get_users(user_id)
         try:
             response = await query.message.chat.ask(
-                f"⚠️ Enter the new rental duration in hours or days (e.g. 2h or 3d) for **{identifier}** (currently rented for {rented_data.get('hours', 0)} hours) (within 120s):",
+                f"⚠️ Enter the new rental duration in hours or days (e.g. 2h or 3d) for {identifier} (currently rented for {rented_data.get('hours', 0)} hours) (within 120s):",
                 timeout=120
             )
         except Exception:
@@ -2000,7 +1998,7 @@ For support, contact the bot developer."""
             ]
         ]
         await query.message.reply(
-            f"✅ Updated rental duration for number **{identifier}** to **{hours} hours** (Duration: {duration}).",
+            f"✅ Updated rental duration for number {identifier} to {hours} hours (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
@@ -2013,7 +2011,7 @@ For support, contact the bot developer."""
         user = await client.get_users(user_id)
         try:
             response = await query.message.chat.ask(
-                f"⚠️ Enter the new rental start date for **{identifier}** in format DD/MM/YYYY (currently rented on {rented_data.get('rent_date').strftime('%Y-%m-%d %H:%M:%S')}) (within 120s):",
+                f"⚠️ Enter the new rental start date for {identifier} in format DD/MM/YYYY (currently rented on {rented_data.get('rent_date').strftime('%Y-%m-%d %H:%M:%S')}) (within 120s):",
                 timeout=120
             )
         except Exception:
@@ -2042,6 +2040,9 @@ For support, contact the bot developer."""
             ]
         ]
         await query.message.reply(
-            f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
+            f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+
+
