@@ -1,6 +1,7 @@
 # (©) @Hybrid_Vamp - https://github.com/hybridvamp
 # Fragment.com interaction library by Hybrid_Vamp
 # Requires cookies exported from browser in Chromium JSON format (frag.json)
+#
 # Performance: All HTTP calls use httpx.AsyncClient so they do not block the asyncio
 # event loop. Sync wrappers exist for backward compatibility and run async in executor if needed.
 
@@ -19,6 +20,9 @@ from requests.exceptions import RequestException, Timeout, SSLError, ConnectionE
 # from config import FRAGMENT_API_HASH
 
 FRAGMENT_API_HASH = "38f80e92d2dbe5065b"
+
+# Limit concurrent Fragment API requests to avoid rate limits / IP bans
+FRAGMENT_API_SEMAPHORE = asyncio.Semaphore(3)
 
 DATA_T = dict[str, str | int]
 
@@ -489,11 +493,11 @@ class FragmentAPI:
         )
 
     async def _request(self, data: DATA_T) -> DATA_T:
-        response = await self.client.post(
-            url = self.BASE_URL,
-            data = data
-        )
-
+        async with FRAGMENT_API_SEMAPHORE:
+            response = await self.client.post(
+                url=self.BASE_URL,
+                data=data
+            )
         response_data = response.json()
 
         if "error" in response_data:
