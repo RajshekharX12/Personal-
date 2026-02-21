@@ -171,6 +171,8 @@ async def clear_db_cmd(_, message):
         return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Database clear operation cancelled.", parse_mode=ParseMode.HTML)
     stat, _ = await delete_all_data()
     if stat:
+        from hybrid.plugins.db import log_admin_action
+        await log_admin_action(message.from_user.id, "cleardb", "all", None)
         await message.reply_text("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> All data has been cleared from the database.", parse_mode=ParseMode.HTML)
 
 @Bot.on_message(filters.command("sysinfo") & filters.user(ADMINS))
@@ -202,6 +204,8 @@ async def add_admin_cmd(_, message):
         return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid user ID. Please provide a valid integer.", parse_mode=ParseMode.HTML)
     success, status = await add_admin(user_id)
     if success:
+        from hybrid.plugins.db import log_admin_action
+        await log_admin_action(message.from_user.id, "addadmin", str(user_id), None)
         await message.reply_text(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> User {user_id} has been added as an admin.", parse_mode=ParseMode.HTML)
     else:
         await message.reply_text(f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> User {user_id} could not be added. Status: {status}", parse_mode=ParseMode.HTML)
@@ -216,6 +220,8 @@ async def remove_admin_cmd(_, message):
         return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid user ID. Please provide a valid integer.", parse_mode=ParseMode.HTML)
     success, status = await remove_admin(user_id)
     if success:
+        from hybrid.plugins.db import log_admin_action
+        await log_admin_action(message.from_user.id, "remadmin", str(user_id), None)
         await message.reply_text(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> User {user_id} has been removed from admins.", parse_mode=ParseMode.HTML)
     else:
         await message.reply_text(f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> User {user_id} could not be removed. Status: {status}", parse_mode=ParseMode.HTML)
@@ -293,28 +299,3 @@ async def create_button_cmd(_, message: Message):
 
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data=data)]])
     await message.reply_text("Here is your button:", reply_markup=keyboard, parse_mode=ParseMode.HTML)
-
-@Bot.on_message(filters.command("version") & filters.user(ADMINS))
-async def version_cmd(_, message: Message):
-    text = (
-        "<b>🤖 Bot Version Info</b>\n\n"
-        "<b>Version:</b> <code>1.0.0</code>\n"
-        "<b>Last Updated:</b> <code>21/02/2026</code>\n\n"
-        "<b>📋 Changelog:</b>\n\n"
-        "<b>v1.0.0</b> — Initial Release\n"
-        "• Dual payment: CryptoBot + Tonkeeper\n"
-        "• 30/60/90 day rentals\n"
-        "• Atomic payment processing\n"
-        "• 7-day 2FA deletion flow\n"
-        "• Fragment availability confirmation before relist\n"
-        "• Race condition locking on shared state\n"
-        "• Payment timeout cleanup\n"
-        "• Rental conflict guard\n"
-        "• /stats dashboard\n"
-        "• Revenue tracking\n"
-        "• Smart rental reminders (72h/24h/6h/1h)\n"
-        "• Multi-language support (EN/RU/KO/ZH)\n"
-        "• Number transfer between users\n"
-        "• Admin panel with full rental management\n"
-    )
-    await message.reply_text(text, parse_mode=ParseMode.HTML)
