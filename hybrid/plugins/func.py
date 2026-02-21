@@ -58,11 +58,6 @@ async def check_proxy_async(pro_xy: str) -> bool:
         return False
 
 
-def check_proxy(pro_xy):
-    """Sync wrapper. Prefer check_proxy_async from async code."""
-    import asyncio
-    return asyncio.run(check_proxy_async(pro_xy))
-
 def restart_handler(session_name, msg_id=None, user_id=None):
     try:
         with open("restart.json", "r") as f:
@@ -209,7 +204,7 @@ from hybrid.plugins.db import get_number_data, get_number_info, save_number_info
 
 NUMBERS_PER_PAGE = 8
 
-def build_rentnum_keyboard(user_id: int, page: int = 0):
+async def build_rentnum_keyboard(user_id: int, page: int = 0):
     filtered_numbers = temp.AVAILABLE_NUM
     filtered_numbers = [num for num in filtered_numbers if num not in temp.UN_AV_NUMS]
     seen = set()
@@ -234,17 +229,17 @@ def build_rentnum_keyboard(user_id: int, page: int = 0):
 
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page-1}"))
+        nav_row.append(InlineKeyboardButton(await t(user_id, "back"), callback_data=f"rentnum_page:{page-1}"))
         nav_row.append(InlineKeyboardButton(f"Page {page+1}/{math.ceil(len(ordered_numbers) / NUMBERS_PER_PAGE)}", callback_data="pagenumber"))
     if end < len(ordered_numbers):
         if page == 0:
             nav_row.append(InlineKeyboardButton(f"Page {page+1}/{math.ceil(len(ordered_numbers) / NUMBERS_PER_PAGE)}", callback_data="pagenumber"))
-        nav_row.append(InlineKeyboardButton(t(user_id, "next"), callback_data=f"rentnum_page:{page+1}"))
+        nav_row.append(InlineKeyboardButton(await t(user_id, "next"), callback_data=f"rentnum_page:{page+1}"))
 
     if nav_row:
         keyboard.append(nav_row)
 
-    keyboard.append([InlineKeyboardButton(t(user_id, "back_home"), callback_data="back_home")])
+    keyboard.append([InlineKeyboardButton(await t(user_id, "back_home"), callback_data="back_home")])
 
     return InlineKeyboardMarkup(keyboard)
 
@@ -261,6 +256,24 @@ def build_number_actions_keyboard(user_id: int, number: str, back_data: str = "m
         [InlineKeyboardButton(t(user_id, "back"), callback_data=back_data)],
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+async def resolve_payment_keyboard(user_id: int, payload: str) -> InlineKeyboardMarkup:
+    """Single place for post-payment keyboard: rentpay -> confirm, numinfo -> back(payload), else back to profile."""
+    if payload.startswith("rentpay:"):
+        parts = payload.split(":")
+        if len(parts) >= 3:
+            number, hours = parts[1], parts[2]
+            return InlineKeyboardMarkup([[
+                InlineKeyboardButton(await t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
+            ]])
+    if payload.startswith("numinfo:"):
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)
+        ]])
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")
+    ]])
 
 
 async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, description: str, msg: Message, payload: str):
@@ -447,23 +460,11 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
                 current_bal = await get_user_balance(user_id) or 0.0
                 new_bal = current_bal + float(order["amount"])
                 await save_user_balance(user_id, new_bal)
-                if payload.startswith("rentpay:"):
-                    parts = payload.split(":")
-                    if len(parts) >= 3:
-                        _, number, hours = parts[0], parts[1], parts[2]
-                        keyboard = InlineKeyboardMarkup([[
-                            InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
-                        ]])
-                    else:
-                        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
-                elif payload.startswith("numinfo:"):
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]])
-                else:
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+                keyboard = await resolve_payment_keyboard(user_id, payload)
                 try:
                     await client.edit_message_text(
                         order["chat_id"], order["msg_id"],
-                        t(user_id, "payment_confirmed"),
+                        await t(user_id, "payment_confirmed"),
                         reply_markup=keyboard
                     )
                 except Exception:
