@@ -288,7 +288,7 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
     )
     keyboard = [
         [InlineKeyboardButton("💳 Pay", url=invoice.bot_invoice_url)],
-        [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
+        [InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
         f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> **Invoice Created**\n\n"
@@ -331,22 +331,22 @@ async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: floa
     """Create Tonkeeper payment screen. Converts USDT to TON, memo auto-filled in Pay link."""
     from hybrid.plugins.db import _gen_order_ref, save_ton_order
     if not TON_WALLET:
-        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]))
         return
     ton_price = await get_ton_price_usd()
     if not ton_price or ton_price <= 0:
-        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]))
         return
     amount_ton = amount_usdt / ton_price
     order_ref = await _gen_order_ref()
     await save_ton_order(order_ref, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
     pay_url = create_tonkeeper_link(amount_ton, order_ref)
     if not pay_url:
-        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]))
         return
     keyboard = [
         [InlineKeyboardButton("💳 Pay", url=pay_url)],
-        [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
+        [InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
         f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> **Tonkeeper Payment**\n\n"
@@ -774,10 +774,10 @@ async def give_payment_option(client, msg: Message, user_id: int):
     rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="set_payment_cryptobot")]]
     if TON_WALLET:
         rows.append([InlineKeyboardButton("Tonkeeper", callback_data="set_payment_tonkeeper")])
-    rows.append([InlineKeyboardButton(t(user_id, "back"), callback_data="profile")])
+    rows.append([InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")])
     keyboard = InlineKeyboardMarkup(rows)
     await msg.reply(
-        t(user_id, "choose_payment_method"),
+        await t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
 
