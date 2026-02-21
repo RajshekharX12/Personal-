@@ -147,9 +147,10 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             msg = err if err else "Transfer failed."
             return await query.answer(msg, show_alert=True)
         num_text = format_number(number)
-        if number in temp.RENTED_NUMS:
-            temp.RENTED_NUMS.remove(number)
-        temp.RENTED_NUMS.append(number)
+        async with temp.get_lock():
+            if number in temp.RENTED_NUMS:
+                temp.RENTED_NUMS.remove(number)
+            temp.RENTED_NUMS.append(number)
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data="my_rentals")]])
         await _safe_edit(query.message, f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Number <b>{num_text}</b> has been transferred successfully.", reply_markup=keyboard, client=client)
         try:
@@ -684,8 +685,9 @@ Details:
             # save default data if not found
             await save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
             logging.info(f"Number {number} not found in DB. Created with default prices.")
-        if number not in temp.AVAILABLE_NUM:
-            temp.AVAILABLE_NUM.append(number)
+        async with temp.get_lock():
+            if number not in temp.AVAILABLE_NUM:
+                temp.AVAILABLE_NUM.append(number)
         number_data = await get_number_info(number)
         price_30d = number_data.get("prices", {}).get("30d", 0.0)
         price_60d = number_data.get("prices", {}).get("60d", 0.0)
@@ -773,10 +775,11 @@ Details:
             parse_mode=ParseMode.HTML,
         )
         # change in temp.AVAILABLE_NUM
-        if new_status and number not in temp.AVAILABLE_NUM:
-            temp.AVAILABLE_NUM.append(number)
-        elif not new_status and number in temp.AVAILABLE_NUM:
-            temp.AVAILABLE_NUM.remove(number)
+        async with temp.get_lock():
+            if new_status and number not in temp.AVAILABLE_NUM:
+                temp.AVAILABLE_NUM.append(number)
+            elif not new_status and number in temp.AVAILABLE_NUM:
+                temp.AVAILABLE_NUM.remove(number)
         if not new_status:
             if number not in temp.UN_AV_NUMS:
                 temp.UN_AV_NUMS.append(number)
@@ -1529,8 +1532,9 @@ For support, contact the bot developer."""
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No valid numbers provided.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         
         for num in enabled:
-            if num not in temp.AVAILABLE_NUM:
-                temp.AVAILABLE_NUM.append(num)
+            async with temp.get_lock():
+                if num not in temp.AVAILABLE_NUM:
+                    temp.AVAILABLE_NUM.append(num)
         await query.message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Enabled the following numbers:\n" + "\n".join(enabled), reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data.startswith("admin_disable_numbers") and query.from_user.id in ADMINS:
@@ -1593,8 +1597,9 @@ For support, contact the bot developer."""
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No valid numbers provided.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         
         for num in disabled:
-            if num in temp.AVAILABLE_NUM:
-                temp.AVAILABLE_NUM.remove(num)
+            async with temp.get_lock():
+                if num in temp.AVAILABLE_NUM:
+                    temp.AVAILABLE_NUM.remove(num)
         await query.message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Disabled the following numbers:\n" + "\n".join(disabled), reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data == "admin_enable_all" and query.from_user.id in ADMINS:
@@ -1622,8 +1627,9 @@ For support, contact the bot developer."""
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> All numbers are already enabled.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         
         for num in enabled:
-            if num not in temp.AVAILABLE_NUM:
-                temp.AVAILABLE_NUM.append(num)
+            async with temp.get_lock():
+                if num not in temp.AVAILABLE_NUM:
+                    temp.AVAILABLE_NUM.append(num)
         await query.message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Enabled all numbers ({len(enabled)} total).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data == "admin_assign_number" and query.from_user.id in ADMINS:
@@ -1693,8 +1699,9 @@ For support, contact the bot developer."""
         await save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=False)
         await save_number(number, user.id, hours)
         await save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=hours)
-        if number not in temp.RENTED_NUMS:
-            temp.RENTED_NUMS.append(number)
+        async with temp.get_lock():
+            if number not in temp.RENTED_NUMS:
+                temp.RENTED_NUMS.append(number)
         await query.message.reply(f"✅ Assigned number **{number}** to user {user.first_name} (ID: {user.id}) for **{hours} hours**.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         await client.send_message(
             user.id,
@@ -1791,6 +1798,13 @@ For support, contact the bot developer."""
         info = await get_number_info(number)
         if not info or not info.get("available", True):
             return await query.answer(await t(user_id, "unavailable"), show_alert=True)
+
+        # Acquire checkout lock to prevent two users renting the same number simultaneously
+        lock_acquired = await lock_number_for_rent(number, user_id, ttl=60)
+        if not lock_acquired:
+            owner = await get_number_lock_owner(number)
+            if owner and owner != user_id:
+                return await query.answer(await t(user_id, "unavailable"), show_alert=True)
         prices = info.get("prices", {})
         price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
         price = price_map.get(hours, None)
@@ -1839,8 +1853,15 @@ For support, contact the bot developer."""
             await save_number(number, user.id, new_hours)
             await save_rental_atomic(user.id, number, new_balance, get_current_datetime(), new_hours)
 
-        if number not in temp.RENTED_NUMS:
-            temp.RENTED_NUMS.append(number)
+        # Release checkout lock after successful rental
+        await unlock_number_for_rent(number)
+
+        # Record revenue
+        await record_revenue(user.id, number, price, new_hours)
+
+        async with temp.get_lock():
+            if number not in temp.RENTED_NUMS:
+                temp.RENTED_NUMS.append(number)
         duration = format_remaining_time(get_current_datetime(), new_hours)
 
         keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
@@ -2008,6 +2029,5 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
 
 
