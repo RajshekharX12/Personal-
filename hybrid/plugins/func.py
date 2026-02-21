@@ -244,16 +244,16 @@ async def build_rentnum_keyboard(user_id: int, page: int = 0):
     return InlineKeyboardMarkup(keyboard)
 
 
-def build_number_actions_keyboard(user_id: int, number: str, back_data: str = "my_rentals"):
-    """Build keyboard for rented number: Renew, Get Code, Transfer, Back (plain text, no emojis)."""
+async def build_number_actions_keyboard(user_id: int, number: str, back_data: str = "my_rentals"):
+    """Build keyboard for rented number: Renew, Get Code, Transfer, Back."""
     n = normalize_phone(number) or number
     keyboard = [
         [
-            InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{n}"),
-            InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{n}"),
+            InlineKeyboardButton(await t(user_id, "renew"), callback_data=f"renew_{n}"),
+            InlineKeyboardButton(await t(user_id, "get_code"), callback_data=f"getcode_{n}"),
         ],
-        [InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{n}")],
-        [InlineKeyboardButton(t(user_id, "back"), callback_data=back_data)],
+        [InlineKeyboardButton(await t(user_id, "transfer"), callback_data=f"transfer_{n}")],
+        [InlineKeyboardButton(await t(user_id, "back"), callback_data=back_data)],
     ]
     return InlineKeyboardMarkup(keyboard)
 
