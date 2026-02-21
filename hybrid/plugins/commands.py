@@ -97,6 +97,67 @@ async def command_restart(_, message):
 async def logs_cmd(_, message):
     await message.reply_document(document=LOG_FILE_NAME)
 
+@Bot.on_message(filters.command("stats") & filters.user(ADMINS))
+async def stats_cmd(_, message: Message):
+    try:
+        msg = await message.reply_text("⏳ Gathering stats...", parse_mode=ParseMode.HTML)
+
+        # Users
+        all_users = await get_all_user_ids()
+        total_users = len(all_users)
+
+        # Rentals
+        all_rentals = await get_all_rentals()
+        active_rentals = len(all_rentals)
+
+        # Numbers
+        total_numbers = len(temp.NUMBE_RS)
+        available = len([n for n in temp.AVAILABLE_NUM if n not in temp.RENTED_NUMS and n not in temp.UN_AV_NUMS])
+        rented = len(temp.RENTED_NUMS)
+        unavailable = len(temp.UN_AV_NUMS)
+
+        # 7-day pending deletions
+        from hybrid.plugins.db import get_7day_deletions
+        pending_deletions = len(await get_7day_deletions())
+
+        # Pending TON orders
+        from hybrid.plugins.db import get_all_pending_ton_orders
+        pending_ton = len(await get_all_pending_ton_orders())
+
+        # Pending CryptoBot invoices
+        pending_crypto = len(temp.PENDING_INV)
+
+        # Revenue
+        from hybrid.plugins.db import get_total_revenue
+        total_revenue = await get_total_revenue()
+
+        # Total balances
+        total_balance, users_with_balance = await get_total_balance()
+
+        text = (
+            f"<b>📊 Bot Dashboard</b>\n\n"
+            f"<b>👥 Users</b>\n"
+            f"• Total Users: <b>{total_users}</b>\n"
+            f"• Users with Balance: <b>{users_with_balance}</b>\n"
+            f"• Total User Balances: <b>{total_balance:.2f} USDT</b>\n\n"
+            f"<b>📞 Numbers</b>\n"
+            f"• Total in Pool: <b>{total_numbers}</b>\n"
+            f"• 🟢 Available: <b>{available}</b>\n"
+            f"• 🔴 Rented: <b>{rented}</b>\n"
+            f"• 🔒 Disabled: <b>{unavailable}</b>\n\n"
+            f"<b>🛒 Rentals</b>\n"
+            f"• Active Rentals: <b>{active_rentals}</b>\n"
+            f"• Pending 7-Day Deletions: <b>{pending_deletions}</b>\n\n"
+            f"<b>💰 Revenue</b>\n"
+            f"• Total Revenue: <b>{total_revenue:.2f} USDT</b>\n\n"
+            f"<b>⏳ Pending Payments</b>\n"
+            f"• CryptoBot Invoices: <b>{pending_crypto}</b>\n"
+            f"• TON Orders: <b>{pending_ton}</b>\n"
+        )
+        await msg.edit_text(text, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await message.reply_text(f"❌ Failed to gather stats: {e}", parse_mode=ParseMode.HTML)
+
 @Bot.on_message(filters.command("cleardb") & filters.user(ADMINS))
 async def clear_db_cmd(_, message):
     try:
@@ -232,3 +293,28 @@ async def create_button_cmd(_, message: Message):
 
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data=data)]])
     await message.reply_text("Here is your button:", reply_markup=keyboard, parse_mode=ParseMode.HTML)
+
+@Bot.on_message(filters.command("version") & filters.user(ADMINS))
+async def version_cmd(_, message: Message):
+    text = (
+        "<b>🤖 Bot Version Info</b>\n\n"
+        "<b>Version:</b> <code>1.0.0</code>\n"
+        "<b>Last Updated:</b> <code>21/02/2026</code>\n\n"
+        "<b>📋 Changelog:</b>\n\n"
+        "<b>v1.0.0</b> — Initial Release\n"
+        "• Dual payment: CryptoBot + Tonkeeper\n"
+        "• 30/60/90 day rentals\n"
+        "• Atomic payment processing\n"
+        "• 7-day 2FA deletion flow\n"
+        "• Fragment availability confirmation before relist\n"
+        "• Race condition locking on shared state\n"
+        "• Payment timeout cleanup\n"
+        "• Rental conflict guard\n"
+        "• /stats dashboard\n"
+        "• Revenue tracking\n"
+        "• Smart rental reminders (72h/24h/6h/1h)\n"
+        "• Multi-language support (EN/RU/KO/ZH)\n"
+        "• Number transfer between users\n"
+        "• Admin panel with full rental management\n"
+    )
+    await message.reply_text(text, parse_mode=ParseMode.HTML)
