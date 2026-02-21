@@ -406,6 +406,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         chat = query.message.chat
 
         if method == "tonkeeper":
+            if not await check_rate_limit(user_id, "payment_create", 5, 60):
+                return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
             try:
                 response = await chat.ask(await t(user_id, "enter_amount"), timeout=120)
             except Exception:
@@ -433,6 +435,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 )
             
             else:
+                if not await check_rate_limit(user_id, "payment_create", 5, 60):
+                    return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
                 try:
                     response = await chat.ask(
                         await t(user_id, "enter_amount"),
@@ -508,11 +512,16 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             return
 
         if invoice.status == "paid":
+            if await is_payment_processed_crypto(str(inv_id)):
+                temp.PAID_LOCK.remove(user_id)
+                temp.PENDING_INV.remove(inv_id)
+                return await query.message.edit_text(await t(user_id, "payment_confirmed"), parse_mode=ParseMode.HTML)
             payload = (invoice.payload or "").strip()
             keyboard = await resolve_payment_keyboard(user_id, payload)
             current_bal = await get_user_balance(user_id) or 0.0
             new_bal = current_bal + float(invoice.amount)
             await save_user_balance(user_id, new_bal)
+            await mark_payment_processed_crypto(str(inv_id))
 
             await query.message.edit_text(
                 await t(user_id, "payment_confirmed"),
@@ -831,9 +840,9 @@ Details:
 
 
         if success:
+            await log_admin_action(query.from_user.id, "admin_cancel_rent", number, f"user_id={user_id}")
             from hybrid.plugins.fragment import terminate_all_sessions_async
             await terminate_all_sessions_async(number)
-
 
         if success:
             _bal = await get_user_balance(user.id) or 0.0
@@ -911,6 +920,7 @@ Details:
         hours = amount * 24 if unit == "d" else amount
         success, status = await save_number(number, user_id, hours, extend=True)
         if success:
+            await log_admin_action(query.from_user.id, "admin_extend_rent", number, f"user_id={user_id} hours={hours}")
             new_time_left = format_remaining_time(user_data[1], user_data[2] + hours)
             h_days = hours // 24
             _bal = await get_user_balance(user.id) or 0.0
@@ -987,6 +997,7 @@ Details:
         current_bal = await get_user_balance(user.id) or 0.0
         new_bal = current_bal + amount
         await save_user_balance(user.id, new_bal)
+        await log_admin_action(query.from_user.id, "admin_add_balance", str(user.id), f"amount={amount} new_bal={new_bal}")
         await response.delete()
         await response.sent_message.delete()
         keyboard = [
@@ -1303,6 +1314,7 @@ For support, contact the bot developer."""
             return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Cannot delete account. The number is currently in use in Fragment.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         stat, reason = await delete_account(number, app=client)
         if stat:
+            await log_admin_action(query.from_user.id, "admin_delete_acc", number, f"reason={reason}")
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
             try:
                 is_free = await fragment_api.check_is_number_free(number)
@@ -1743,12 +1755,14 @@ For support, contact the bot developer."""
             method = await get_user_payment_method(user.id)
             if not method:
                 return await give_payment_option(client, query.message, user.id)
+            if not await check_rate_limit(user_id, "payment_create", 5, 60):
+                return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             if method == "tonkeeper":
                 return await send_tonkeeper_invoice(client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             return
-        
+
         if hours == 720:
             days = 30
         elif hours == 1440:
@@ -1825,6 +1839,8 @@ For support, contact the bot developer."""
             method = await get_user_payment_method(user.id)
             if not method:
                 return await give_payment_option(client, query.message, user.id)
+            if not await check_rate_limit(user_id, "payment_create", 5, 60):
+                return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
             if method == "cryptobot":
                 return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             if method == "tonkeeper":
@@ -2029,5 +2045,3 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
-
