@@ -171,7 +171,7 @@ async def show_numbers(query, page: int = 1):
     kb.append([InlineKeyboardButton("Back to Admin Menu", callback_data="admin_panel")])
 
     await query.message.edit_text(
-        f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji> **Available Numbers** (Page {page}/{pages})",
+        f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji> Available Numbers (Page {page}/{pages})",
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
@@ -291,9 +291,9 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
         [InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
-        f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> **Invoice Created**\n\n"
-        f"Amount: `{amount}` USDT\n"
-        f"Description: `{description}`\n"
+        f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Invoice Created\n\n"
+        f"Amount: {amount} USDT\n"
+        f"Description: {description}\n"
         f"Pay using the button below.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -349,10 +349,10 @@ async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: floa
         [InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
-        f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> **Tonkeeper Payment**\n\n"
+        f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Tonkeeper Payment\n\n"
         f"• Amount: {amount_usdt} USDT (~{amount_ton:.4f} TON)\n"
         f"• Description: {description}\n"
-        f"• Order ID (memo): `{order_ref}`\n\n"
+        f"• Order ID (memo): {order_ref}\n\n"
         f"Memo is pre-filled when you tap Pay. Payment is checked automatically.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -502,7 +502,7 @@ async def run_7day_deletion_scheduler(app: Client):
 # NOTE: return type changed to (bool, str) to preserve reason strings used elsewhere.
 async def delete_account(number: str, app: Client, two_fa_password: str = None) -> tuple[bool, str]:
     """
-    Delete Telegram account linked to `number`.
+    Delete Telegram account linked to number.
 
     Logic:
     - If code type is not FRAGMENT_SMS but next_type is → force one resend to switch to Fragment.
