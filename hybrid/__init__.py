@@ -382,7 +382,7 @@ async def check_payments(client):
     from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from hybrid.plugins.temp import temp
     from hybrid.plugins.db import get_user_balance, save_user_balance, get_ton_order, delete_ton_order, get_all_pending_ton_orders
-    from hybrid.plugins.func import t
+    from hybrid.plugins.func import t, resolve_payment_keyboard
     from config import TON_WALLET, TON_API_TOKEN
 
     while True:
@@ -415,23 +415,11 @@ async def check_payments(client):
                             current_bal = await get_user_balance(user_id) or 0.0
                             new_bal = current_bal + float(inv.amount)
                             await save_user_balance(user_id, new_bal)
-                            if payload.startswith("rentpay:"):
-                                parts = payload.split(":")
-                                if len(parts) >= 3:
-                                    _, number, hours = parts[0], parts[1], parts[2]
-                                    keyboard = InlineKeyboardMarkup([[
-                                        InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
-                                    ]])
-                                else:
-                                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
-                            elif payload.startswith("numinfo:"):
-                                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]])
-                            else:
-                                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+                            keyboard = await resolve_payment_keyboard(user_id, payload)
                             try:
                                 await client.edit_message_text(
                                     user_id, msg_id,
-                                    t(user_id, "payment_confirmed"),
+                                    await t(user_id, "payment_confirmed"),
                                     reply_markup=keyboard
                                 )
                             except Exception:
