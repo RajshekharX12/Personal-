@@ -1,110 +1,68 @@
-🚀 888 Rental Bot
-A production-ready Telegram bot for managing +888 number rentals, transfers, renewals, and TON-based payments with concurrency safety and abuse protection.
-✨ Features
-🔢 Number rental & ownership system
-🔄 Secure number transfers
-⏳ Expiry-based rental lifecycle
-💳 TON payment integration
-🔐 Atomic Redis locking (race-condition safe)
-🚦 Per-user rate limiting
-🛡 One-time payment validation (replay protected)
-📜 Ownership history tracking
-👮 Admin action logging
-⚡ Async architecture (Aiogram-based)
-🏗 Architecture Overview
-Copy code
+# 📱 888 Rental Bot
 
-handlers/        → Telegram command & callback handlers  
-services/        → Business logic layer  
-repositories/    → Redis interaction layer  
-core/            → Middleware, locking, utilities
-Tech Stack
-Python 3.10+
-Aiogram (async Telegram framework)
-Redis (data store + locking)
-TON API (payment validation)
-Async HTTP clients
-🔐 Concurrency & Safety
-The system is built for public-scale usage.
-Protection Mechanisms
-Atomic Redis locking (SET NX EX)
-Atomic rent/transfer operations
-Per-user rate limiting (Redis INCR + EXPIRE)
-Strict payment idempotency
-Replay attack prevention
-Expiry-safe renewal logic
-💳 Payment Integrity
-Each payment must:
-Match exact amount
-Match unique payload
-Be within expiry window
-Not be previously processed
-Processed transactions are permanently marked to prevent reuse.
-🧠 Data Model (Redis)
-rental:{number} → Rental data (owner, expiry, etc.)
-expiry:zset → Sorted set for expiry tracking
-history:number:{number} → Ownership history
-audit:admin → Admin action log
-lock:number:{number} → Concurrency lock keys
-rate:{user_id} → Rate limiting keys
-🛠 Installation
-1️⃣ Clone Repository
-Bash
-Copy code
-git clone <your-repo-url>
-cd <repo-folder>
-2️⃣ Create Virtual Environment
-Bash
-Copy code
-python3 -m venv venv
-source venv/bin/activate
-3️⃣ Install Dependencies
-Bash
-Copy code
-pip install -r requirements.txt
-4️⃣ Configure Environment Variables
-Create a .env file:
-Copy code
+A production-ready Telegram bot for managing +888 number rentals, secure transfers, renewals, and TON-based payments. Built with concurrency safety, abuse protection, and atomic operations in mind.
 
-BOT_TOKEN=your_bot_token
-API_ID=your_api_id
-API_HASH=your_api_hash
-REDIS_URI=your_redis_uri
-TON_API_TOKEN=your_ton_api_token
-OWNER_ID=your_telegram_id
-▶️ Running the Bot
-Bash
-Copy code
-python -m bot
-Or if using systemd / screen / tmux:
-Bash
-Copy code
-screen -S rentalbot
-python -m bot
-🗄 Backup Strategy (Recommended)
-Enable Redis RDB snapshots
-Daily automated backup
-Encrypted off-server backup
-Periodic restore testing
-📈 Scaling Guidelines
-For high traffic:
-Use shared Redis instance
-Run multiple bot replicas
-Monitor Redis memory usage
-Monitor lock collision metrics
-Add external API request queue if necessary
-🔍 Monitoring Suggestions
-Recommended metrics to track:
-Active rentals
-Daily transfers
-Failed payments
-Rate limit hits
-Lock contention count
-Redis memory usage
-⚠️ Production Notes
-Never hardcode secrets
-Rotate payment keys periodically
-Monitor payment confirmations
-Keep Redis secured (password + firewall)
-📜 License
-Private project. All rights reserved.
+## ✨ Features
+
+- 🔢 **Number rental & ownership system** – Rent and own virtual numbers with expiration tracking.
+- 🔄 **Secure number transfers** – Transfer ownership safely with atomic locking.
+- ⏳ **Expiry-based rental lifecycle** – Automatic expiry and renewal handling.
+- 💳 **TON payment integration** – Accept payments via The Open Network (TON).
+- 🔐 **Atomic Redis locking** – Race‑condition safe operations.
+- 🚦 **Per‑user rate limiting** – Prevent abuse and spam.
+- 🛡 **One‑time payment validation** – Replay‑proof transactions.
+- 📜 **Ownership history tracking** – Keep a log of all transfers.
+- 👮 **Admin action logging** – Full audit trail for administrative actions.
+- ⚡ **Async architecture** – Built on Aiogram for high concurrency.
+
+## 🏗 Architecture Overview
+
+
+## 🧰 Tech Stack
+
+- **Python 3.10+**
+- **Aiogram** – Asynchronous Telegram framework
+- **Redis** – Data store + distributed locking
+- **TON API** – Payment validation
+- **Async HTTP clients** – For external API calls
+
+## 🔒 Concurrency & Safety
+
+The system is engineered for public‑scale usage with multiple protection layers:
+
+- **Atomic Redis locking** (`SET NX EX`) – Prevents race conditions on critical operations.
+- **Atomic rent/transfer operations** – Each state change is isolated.
+- **Per‑user rate limiting** – Uses `INCR` + `EXPIRE` to limit request frequency.
+- **Strict payment idempotency** – Each payment is processed exactly once.
+- **Replay attack prevention** – Expiring payloads and one‑time validation.
+- **Expiry‑safe renewal logic** – Renewals are atomic and cannot overlap.
+
+## 💳 Payment Integrity
+
+Every payment must satisfy all of the following before being accepted:
+
+- Amount matches the exact rental price.
+- Payload is unique and tied to the specific transaction.
+- Transaction is within the allowed time window.
+- Payment has never been processed before (idempotency key in Redis).
+
+Once processed, the transaction is permanently marked to prevent reuse.
+
+## 🧠 Data Model (Redis)
+
+| Key pattern                 | Description                               |
+|-----------------------------|-------------------------------------------|
+| `rental:{number}`           | Rental data (owner, expiry, etc.)         |
+| `expiry:zset`               | Sorted set for expiry tracking            |
+| `history:number:{number}`   | Ownership history                         |
+| `audit:admin`               | Admin action log                          |
+| `lock:number:{number}`      | Concurrency lock for a specific number    |
+| `rate:{user_id}`            | Rate limiting counters                    |
+
+## 🛠 Installation
+
+### 1️⃣ Clone the repository
+
+```bash
+git clone https://github.com/yourusername/888-rental-bot.git
+cd 888-rental-bot
