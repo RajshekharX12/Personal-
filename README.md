@@ -1,4 +1,3 @@
-```markdown
 # 📱 888 Rental Bot
 
 A production-ready Telegram bot for managing +888 number rentals, secure transfers, renewals, and TON-based payments. Built with concurrency safety, abuse protection, and atomic operations in mind.
@@ -18,14 +17,10 @@ A production-ready Telegram bot for managing +888 number rentals, secure transfe
 
 ## 🏗 Architecture Overview
 
-```
-
 handlers/         → Telegram command & callback handlers
 services/         → Business logic layer
 repositories/     → Redis interaction layer
 core/             → Middleware, locking, utilities
-
-```
 
 ## 🧰 Tech Stack
 
@@ -75,6 +70,11 @@ Once processed, the transaction is permanently marked to prevent reuse.
 ```bash
 git clone https://github.com/yourusername/888-rental-bot.git
 cd 888-rental-bot
+### 1️⃣ Clone the repository
+
+```bash
+git clone https://github.com/yourusername/888-rental-bot.git
+cd 888-rental-bot
 ```
 
 2️⃣ Create a virtual environment
@@ -89,6 +89,10 @@ source venv/bin/activate   # On Windows: venv\Scripts\activate
 ```bash
 pip install -r requirements.txt
 ```
+
+4️⃣ Configure environment variables
+
+Create a .env file in the project root:
 
 4️⃣ Configure environment variables
 
