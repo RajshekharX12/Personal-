@@ -154,5 +154,3 @@ Track the following metrics:
 📄 License
 
 Private project. All rights reserved.
-
-```
