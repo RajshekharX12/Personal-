@@ -341,7 +341,11 @@ async def remove_number_data(number: str):
 
 
 async def transfer_number(number: str, from_user_id: int, to_user_id: int):
-    """Transfer a rented number to another user. Returns (True, None) or (False, error_msg)."""
+    """Transfer a rented number to another user. Uses Redis lock to prevent concurrent transfer/rent races. Returns (True, None) or (False, error_msg)."""
+    canon = _norm_num(number) or number
+    acquired = await lock_number_for_rent(canon, from_user_id, ttl=60)
+    if not acquired:
+        return False, "Number is busy; try again in a moment."
     try:
         rented = await get_rental_by_owner(from_user_id, number)
         if not rented:
@@ -355,11 +359,14 @@ async def transfer_number(number: str, from_user_id: int, to_user_id: int):
         await remove_number_data(canon)
         await save_number(canon, to_user_id, hours, date=rent_date, extend=False)
         await save_number_data(canon, to_user_id, rent_date, hours)
+        await append_transfer_history(canon, from_user_id, to_user_id)
         return True, None
     except Exception as e:
         import logging
         logging.exception("transfer_number error")
         return False, str(e)
+    finally:
+        await unlock_number_for_rent(canon)
 
 
 async def get_expired_numbers():
@@ -761,6 +768,84 @@ async def get_number_lock_owner(number: str):
     """Returns user_id who holds the lock, or None."""
     val = await client.get(f"renting:{number}")
     return int(val) if val else None
+
+
+async def append_transfer_history(number: str, from_user_id: int, to_user_id: int):
+    """Append an immutable transfer record for a number (audit trail)."""
+    number = _norm_num(number) or number
+    key = f"transfer_history:{number}"
+    entry = json.dumps({
+        "from_user_id": from_user_id,
+        "to_user_id": to_user_id,
+        "timestamp": _now().isoformat(),
+    })
+    await client.rpush(key, entry)
+    await client.ltrim(key, -1000, -1)  # Keep last 1000 entries per number
+
+
+async def get_transfer_history(number: str, limit: int = 50):
+    """Return recent transfer history for a number (newest last)."""
+    number = _norm_num(number) or number
+    key = f"transfer_history:{number}"
+    raw = await client.lrange(key, -limit, -1)
+    out = []
+    for s in (raw or []):
+        try:
+            out.append(json.loads(s))
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return out
+
+
+# ========= RATE LIMITING =========
+async def check_rate_limit(user_id: int, action: str, max_per_window: int, window_secs: int) -> bool:
+    """Returns True if allowed (under limit), False if rate limited."""
+    key = f"ratelimit:{user_id}:{action}"
+    async with client.pipeline() as pipe:
+        pipe.incr(key)
+        pipe.ttl(key)
+        results = await pipe.execute()
+    count = results[0]
+    ttl = results[1]
+    if ttl == -1 or count == 1:
+        await client.expire(key, window_secs)
+    return count <= max_per_window
+
+
+# ========= PAYMENT REPLAY PROTECTION =========
+_PROCESSED_TTL = 365 * 24 * 3600  # 1 year
+
+
+async def is_payment_processed_crypto(inv_id: str) -> bool:
+    """True if this CryptoBot invoice was already processed (replay protection)."""
+    return await client.exists(f"processed_crypto:{inv_id}")
+
+
+async def mark_payment_processed_crypto(inv_id: str):
+    await client.set(f"processed_crypto:{inv_id}", "1", ex=_PROCESSED_TTL)
+
+
+async def is_payment_processed_ton(order_ref: str) -> bool:
+    """True if this TON order was already processed (replay protection)."""
+    return await client.exists(f"processed_ton:{order_ref}")
+
+
+async def mark_payment_processed_ton(order_ref: str):
+    await client.set(f"processed_ton:{order_ref}", "1", ex=_PROCESSED_TTL)
+
+
+# ========= ADMIN AUDIT LOG =========
+async def log_admin_action(admin_id: int, action: str, target: str, details: str = None):
+    """Append an immutable admin action log entry."""
+    entry = json.dumps({
+        "admin_id": admin_id,
+        "action": action,
+        "target": str(target),
+        "timestamp": _now().isoformat(),
+        "details": details or "",
+    })
+    await client.rpush("admin_audit_log", entry)
+    await client.ltrim("admin_audit_log", -50000, -1)  # Keep last 50k entries
 
 
 async def record_revenue(user_id: int, number: str, amount: float, hours: int):
