@@ -742,6 +742,50 @@ async def save_rental_atomic(user_id: int, number: str, new_balance: float, rent
     _rentals_cache = (0.0, [])
 
 
+async def lock_number_for_rent(number: str, user_id: int, ttl: int = 60) -> bool:
+    """
+    Acquire a short-lived lock on a number during checkout.
+    Returns True if lock acquired, False if already locked by someone else.
+    """
+    key = f"renting:{number}"
+    result = await client.set(key, str(user_id), nx=True, ex=ttl)
+    return result is True
+
+
+async def unlock_number_for_rent(number: str):
+    """Release the checkout lock on a number."""
+    await client.delete(f"renting:{number}")
+
+
+async def get_number_lock_owner(number: str):
+    """Returns user_id who holds the lock, or None."""
+    val = await client.get(f"renting:{number}")
+    return int(val) if val else None
+
+
+async def record_revenue(user_id: int, number: str, amount: float, hours: int):
+    """Record a completed rental payment for revenue tracking."""
+    now = _now()
+    entry = {
+        "user_id": user_id,
+        "number": number,
+        "amount": str(amount),
+        "hours": hours,
+        "timestamp": now.isoformat(),
+    }
+    key = f"revenue:{now.strftime('%Y%m')}:{user_id}:{now.timestamp()}"
+    await client.hset(key, mapping=entry)
+    await client.zadd("revenue:all", {key: now.timestamp()})
+    # Increment total
+    await client.incrbyfloat("revenue:total", amount)
+
+
+async def get_total_revenue() -> float:
+    """Get total revenue across all time."""
+    val = await client.get("revenue:total")
+    return float(val) if val else 0.0
+
+
 # ========= MAINTENANCE =========
 async def delete_all_data():
     async for key in client.scan_iter("*"):
