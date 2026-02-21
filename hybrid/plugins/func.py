@@ -451,6 +451,10 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
                 comment = _extract_comment(in_msg)
                 if memo_needle not in comment and (comment or "").strip() != memo_needle:
                     continue
+                from hybrid.plugins.db import is_payment_processed_ton, mark_payment_processed_ton
+                if await is_payment_processed_ton(order_ref):
+                    await delete_ton_order(order_ref)
+                    break
                 user_id = order["user_id"]
                 payload = (order.get("payload") or "").strip()
                 try:
@@ -460,6 +464,7 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
                 current_bal = await get_user_balance(user_id) or 0.0
                 new_bal = current_bal + float(order["amount"])
                 await save_user_balance(user_id, new_bal)
+                await mark_payment_processed_ton(order_ref)
                 keyboard = await resolve_payment_keyboard(user_id, payload)
                 try:
                     await client.edit_message_text(
@@ -771,6 +776,10 @@ async def export_numbers_csv(filename: str = "numbers_export.csv"):
     return filename
 
 async def give_payment_option(client, msg: Message, user_id: int):
+    from hybrid.plugins.db import check_rate_limit
+    if not await check_rate_limit(user_id, "payment", 15, 60):
+        await msg.reply("⏳ Too many requests. Please try again in a minute.")
+        return
     rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="set_payment_cryptobot")]]
     if TON_WALLET:
         rows.append([InlineKeyboardButton("Tonkeeper", callback_data="set_payment_tonkeeper")])
