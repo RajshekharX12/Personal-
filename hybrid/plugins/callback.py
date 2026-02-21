@@ -508,23 +508,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
 
         if invoice.status == "paid":
             payload = (invoice.payload or "").strip()
-            if payload.startswith("rentpay:"):
-                parts = payload.split(":")
-                if len(parts) >= 3:
-                    _, number, hours = parts[0], parts[1], parts[2]
-                    keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(await t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
-                    ]])
-                else:
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]])
-            elif payload.startswith("numinfo:"):
-                keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]
-                )
-            else:
-                keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]]
-                )
+            keyboard = await resolve_payment_keyboard(user_id, payload)
             current_bal = await get_user_balance(user_id) or 0.0
             new_bal = current_bal + float(invoice.amount)
             await save_user_balance(user_id, new_bal)
@@ -869,7 +853,7 @@ Details:
                     user.id,
                     f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Your rental for number <b>{number}</b> has been cancelled by the admin.\n"
                     f"• Rented On: {user_data[2]}\n"
-                    f"• Time Left: {format_remaining_time(user_data[1], user_data[2])}\n"
+                    f"• Time Left: {format_remaining_time(user_data[2], user_data[1])}\n"
                     f"For more info, contact support.",
                     parse_mode=ParseMode.HTML,
                 )
@@ -1343,7 +1327,7 @@ For support, contact the bot developer."""
         await query.message.edit("<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>", parse_mode=ParseMode.HTML)
         await query.message.edit_text(
             await t(user_id, "choose_number"),
-            reply_markup=build_rentnum_keyboard(user_id, page=0),
+            reply_markup=await build_rentnum_keyboard(user_id, page=0),
             parse_mode=ParseMode.HTML,
         )
 
@@ -1352,7 +1336,7 @@ For support, contact the bot developer."""
         await query.message.edit(await t(user_id, "choose_number"), parse_mode=ParseMode.HTML)
         page = int(data.split(":")[1])
         await query.message.edit_reply_markup(
-            build_rentnum_keyboard(user_id, page=page)
+            await build_rentnum_keyboard(user_id, page=page)
         )
 
     elif data.startswith("rentpay:"):
@@ -1922,11 +1906,10 @@ For support, contact the bot developer."""
         identifier = identifier.replace(" ", "")
         await response.delete()
         await response.sent_message.delete()
+        if identifier.startswith("888") and not identifier.startswith("+888"):
+            identifier = "+" + identifier
         if not identifier.startswith("+888"):
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid number format. It should start with +888 followed by digits.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        
-        if identifier.startswith("888"):
-            identifier = "+" + identifier
         number_data = await get_number_info(identifier)
         if not number_data:
             return await query.message.reply("❌ This number does not exist in the database.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
@@ -2025,6 +2008,4 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
-
 
