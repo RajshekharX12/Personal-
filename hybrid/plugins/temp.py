@@ -1,5 +1,8 @@
 #(©) @Hybrid_Vamp - https://github.com/hybridvamp
 
+import asyncio
+
+
 class temp(object):
     BOT_UN = None
     TEMP_VAR1 = []
@@ -13,4 +16,9 @@ class temp(object):
     UN_AV_NUMS = []
     BLOCKED_NUMS = []
     RESTRICTED_NUMS = []
+    _lock = asyncio.Lock()
+
+    @classmethod
+    def get_lock(cls):
+        return cls._lock
     
