@@ -104,7 +104,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         rent_date = rented_data.get("rent_date")
         time_left = format_remaining_time(rent_date, hours)
         date_str = format_date(str(rent_date)) if rent_date else "N/A"
-        keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
+        keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
         await _safe_edit(query.message, await t(user_id, "number", num=num_text, time=time_left, date=date_str), reply_markup=keyboard, client=client)
 
     elif data.startswith("transfer_confirm"):
@@ -534,7 +534,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         lang = query.data.split("_")[1]
         user_id = query.from_user.id
 
-        save_user_language(user_id, lang)
+        await save_user_language(user_id, lang)
 
         await query.message.edit("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Language saved! press /start again to continue.", parse_mode=ParseMode.HTML)
 
@@ -1298,7 +1298,7 @@ For support, contact the bot developer."""
         check = await fragment_api.check_is_number_free(number)
         if check:
             return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Cannot delete account. The number is currently in use in Fragment.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        stat, reason = await delete_account(number, app=client, chat=query.message.chat)
+        stat, reason = await delete_account(number, app=client)
         if stat:
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
             try:
@@ -1358,7 +1358,7 @@ For support, contact the bot developer."""
                 hours = rented_data.get("hours", 0)
                 time_left = format_remaining_time(rent_date, hours)
                 date_str = format_date(str(rent_date)) if rent_date else "N/A"
-                keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
+                keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
                 await query.message.edit_text(
                     await t(user_id, "number", num=num_text, time=time_left, date=date_str),
                     reply_markup=keyboard,
@@ -1833,17 +1833,17 @@ For support, contact the bot developer."""
         # else start new rental from now
         if remaining_hours > 0:
             await save_number(number, user.id, new_hours, extend=True)
+            original_rent_date = rented_data.get("rent_date", get_current_datetime())
+            await save_rental_atomic(user.id, number, new_balance, original_rent_date, new_hours)
         else:
             await save_number(number, user.id, new_hours)
-
-        await save_user_balance(user.id, new_balance)
-        await save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=new_hours)
+            await save_rental_atomic(user.id, number, new_balance, get_current_datetime(), new_hours)
 
         if number not in temp.RENTED_NUMS:
             temp.RENTED_NUMS.append(number)
         duration = format_remaining_time(get_current_datetime(), new_hours)
 
-        keyboard = build_number_actions_keyboard(user_id, number, "my_rentals")
+        keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
         await query.message.edit_text(
             await t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
             reply_markup=keyboard
@@ -2008,4 +2008,6 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number **{identifier}** to **{new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC** (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+
 
