@@ -717,6 +717,31 @@ async def is_restricted_del_enabled():
     return await client.get("rest_toggle") == "1"
 
 
+async def save_rental_atomic(user_id: int, number: str, new_balance: float, rent_date, new_hours: int):
+    """Atomically deduct balance and save rental in a single Redis transaction."""
+    if isinstance(rent_date, str):
+        rent_date = _parse_dt(rent_date) or _now()
+    elif rent_date is None:
+        rent_date = _now()
+    expiry = rent_date + timedelta(hours=new_hours)
+    number = _norm_num(number) or str(number).strip()
+    async with client.pipeline(transaction=True) as pipe:
+        pipe.hset(f"user:{user_id}", "balance", new_balance)
+        pipe.hset(f"rental:{number}", mapping={
+            "number": number,
+            "user_id": user_id,
+            "rent_date": rent_date.isoformat(),
+            "hours": new_hours,
+            "expiry_date": expiry.isoformat(),
+        })
+        pipe.zadd("rentals:expiry", {number: expiry.timestamp()})
+        pipe.sadd("rentals:all", number)
+        pipe.sadd(f"rentals:user:{user_id}", number)
+        await pipe.execute()
+    global _rentals_cache
+    _rentals_cache = (0.0, [])
+
+
 # ========= MAINTENANCE =========
 async def delete_all_data():
     async for key in client.scan_iter("*"):
