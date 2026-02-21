@@ -394,6 +394,7 @@ async def check_7day_accs(client):
 
 async def check_restricted_numbers(client):
     """Check and log restricted numbers from Fragment. Runs once a day"""
+    from hybrid.plugins.func import t
     while True:
         from hybrid.plugins.fragment import get_restricted_numbers_async
         restricted, _ = await get_restricted_numbers_async()
@@ -414,7 +415,6 @@ async def check_restricted_numbers(client):
             stat, reason = await save_restricted_number(num)
             if not stat and reason == "ALREADY":
                 from hybrid.plugins.db import get_rest_num_date
-                from hybrid.plugins.func import t
                 date = await get_rest_num_date(num)
                 now = get_current_datetime()
 
@@ -446,14 +446,14 @@ async def check_restricted_numbers(client):
                 else:
                     logging.info(f"Restricted number {num} not yet cleaned up for user {user_id}")
                     days_remaining = 3 - (now - date).days if date else 3
-                    text = t(user_id, "restricted_notify").format(number=num, days=days_remaining)
+                    text = (await t(user_id, "restricted_notify")).format(number=num, days=days_remaining)
                     try:
                         await client.send_message(user_id, text)
                     except Exception as e:
                         logging.error(f"Failed to notify user {user_id} about restricted number {num}: {e}")
                 continue
 
-            text = t(user_id, "restricted_notify").format(number=num, days=3)
+            text = (await t(user_id, "restricted_notify")).format(number=num, days=3)
             try:
                 await client.send_message(user_id, text)
             except Exception as e:
