@@ -5,6 +5,7 @@ import math
 import asyncio
 import logging
 import random
+import re
 import requests
 import traceback
 import csv
@@ -177,7 +178,6 @@ async def show_numbers(query, page: int = 1):
 
 def _md_to_html(text: str) -> str:
     """Convert Markdown to HTML for parse_mode HTML."""
-    import re
     text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
     text = re.sub(r'__(.+?)__', r'<i>\1</i>', text)
@@ -187,18 +187,18 @@ def h(text: str) -> str:
     """Convert inline Markdown to HTML. Use for hardcoded messages."""
     return _md_to_html(text)
 
+_lang_cache: dict[int, str] = {}
+
 async def t(user_id: int, key: str, **kwargs):
-    from hybrid.plugins.db import get_user_language
-    import re
-    lang = await get_user_language(user_id) or "en"
+    if user_id not in _lang_cache:
+        from hybrid.plugins.db import get_user_language
+        _lang_cache[user_id] = await get_user_language(user_id) or "en"
+    lang = _lang_cache[user_id]
     text = LANGUAGES.get(lang, LANGUAGES["en"]).get(key, key)
-    # Replace {{e:key}} with Unicode fallback (premium emoji disabled)
     _emoji_fallback = {"success":"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji>","error":"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji>","warning":"⚠️","phone":"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>","money":"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>","renew":"<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji>","get_code":"<tg-emoji emoji-id=\"5433811242135331842\">📨</tg-emoji>","back":"⬅️","date":"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji>","loading":"<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>","time":"<tg-emoji emoji-id=\"5413704112220949842\">🕒</tg-emoji>","timeout":"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji>"}
     text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: _emoji_fallback.get(m.group(1), ""), text)
     text = _md_to_html(text)
-    if kwargs:
-        return text.format(**kwargs)
-    return text
+    return text.format(**kwargs) if kwargs else text
 
 from hybrid.plugins.db import get_number_data, get_number_info, save_number_info, save_7day_deletion
 
@@ -301,8 +301,6 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
 
 async def get_ton_price_usd() -> float:
     """Fetch current TON price in USD. Returns 0 on failure."""
-    import requests
-    import asyncio
     try:
         loop = asyncio.get_event_loop()
         r = await loop.run_in_executor(
@@ -654,6 +652,8 @@ async def delete_account(number: str, app: Client, two_fa_password: str = None) 
 
 async def check_number_conn(number: str) -> bool:
     from hybrid.plugins.fragment import fragment_api
+    if fragment_api is None:
+        return True  # assume free if API not configured
     return await fragment_api.check_is_number_free(number)
 
 def normalize_phone(number) -> str | None:
