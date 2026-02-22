@@ -22,41 +22,6 @@ from requests.exceptions import RequestException, Timeout, SSLError, ConnectionE
 
 FRAGMENT_API_HASH = "38f80e92d2dbe5065b"
 
-# Module-level persistent session for Fragment (replaces per-call AsyncClient)
-_frag_cookies = _load_cookies_from_file("frag.json")
-_frag_session = httpx.AsyncClient(
-    cookies=_frag_cookies,
-    timeout=8.0,
-    http2=True,
-    limits=httpx.Limits(
-        max_connections=30,
-        max_keepalive_connections=15,
-        keepalive_expiry=30
-    ),
-    headers={
-        "User-Agent": _default_user_agent(),
-        "Referer": "https://fragment.com/"
-    }
-)
-
-
-async def reload_fragment_cookies(path: str = "frag.json"):
-    global _frag_session
-    new_cookies = _load_cookies_from_file(path)
-    await _frag_session.aclose()
-    _frag_session = httpx.AsyncClient(
-        cookies=new_cookies,
-        timeout=8.0,
-        http2=True,
-        limits=httpx.Limits(max_connections=30, max_keepalive_connections=15),
-        headers={"User-Agent": _default_user_agent(), "Referer": "https://fragment.com/"}
-    )
-    logging.info("Fragment session cookies reloaded.")
-
-
-# Limit concurrent Fragment API requests to avoid rate limits / IP bans
-FRAGMENT_API_SEMAPHORE = asyncio.Semaphore(10)
-
 DATA_T = dict[str, str | int]
 
 # ----- Configure logging for library usage (caller can reconfigure) -----
@@ -76,15 +41,65 @@ class FragmentRateLimitError(Exception):
 
 
 def _load_cookies_from_file(path: str = "frag.json") -> Dict[str, str]:
-    """Load cookies from Chromium-style JSON export (frag.json)."""
-    with open(path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-    cookies = {c["name"]: c["value"] for c in raw if "name" in c and "value" in c}
-    return cookies
+    """Load cookies from Chromium-style JSON export (frag.json). Returns {} if file missing or invalid."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        return {c["name"]: c["value"] for c in raw if "name" in c and "value" in c}
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError) as e:
+        logging.warning("Fragment cookies not loaded from %s: %s", path, e)
+        return {}
 
 def _default_user_agent() -> str:
     return ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+# Module-level persistent session for Fragment (replaces per-call AsyncClient)
+try:
+    _frag_cookies = _load_cookies_from_file("frag.json")
+    _frag_session = httpx.AsyncClient(
+        cookies=_frag_cookies,
+        timeout=8.0,
+        http2=True,
+        limits=httpx.Limits(
+            max_connections=30,
+            max_keepalive_connections=15,
+            keepalive_expiry=30
+        ),
+        headers={
+            "User-Agent": _default_user_agent(),
+            "Referer": "https://fragment.com/"
+        }
+    )
+except Exception as e:
+    logging.warning("Fragment session init failed (%s), using empty cookies.", e)
+    _frag_cookies = {}
+    _frag_session = httpx.AsyncClient(
+        cookies={},
+        timeout=8.0,
+        http2=True,
+        limits=httpx.Limits(max_connections=30, max_keepalive_connections=15, keepalive_expiry=30),
+        headers={"User-Agent": _default_user_agent(), "Referer": "https://fragment.com/"}
+    )
+
+
+async def reload_fragment_cookies(path: str = "frag.json"):
+    global _frag_session
+    new_cookies = _load_cookies_from_file(path)
+    await _frag_session.aclose()
+    _frag_session = httpx.AsyncClient(
+        cookies=new_cookies,
+        timeout=8.0,
+        http2=True,
+        limits=httpx.Limits(max_connections=30, max_keepalive_connections=15),
+        headers={"User-Agent": _default_user_agent(), "Referer": "https://fragment.com/"}
+    )
+    logging.info("Fragment session cookies reloaded.")
+
+
+# Limit concurrent Fragment API requests to avoid rate limits / IP bans
+FRAGMENT_API_SEMAPHORE = asyncio.Semaphore(10)
+
 
 def _parse_numbers_from_html(html: str) -> List[str]:
     """Try multiple parsing strategies to find +888... numbers."""
