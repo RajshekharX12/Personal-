@@ -1,4 +1,11 @@
 import asyncio
+
+try:
+    import uvloop
+    _has_uvloop = True
+except ImportError:
+    _has_uvloop = False
+
 from hybrid import Bot, CRYPTO_STAT
 from hybrid.plugins.func import run_7day_deletion_scheduler
 
@@ -12,4 +19,7 @@ async def main():
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if _has_uvloop:
+        uvloop.run(main())
+    else:
+        asyncio.run(main())
