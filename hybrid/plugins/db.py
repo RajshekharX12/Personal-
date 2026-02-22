@@ -504,23 +504,18 @@ async def save_number_info(number: str, price_30: float, price_60: float, price_
 async def edit_number_info(number: str, **kwargs):
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
-
     key = f"number:{number}"
     if not await client.exists(key):
         return False, "NO_CHANGES"
-
+    prices = json.loads(await client.hget(key, "prices") or "{}")
     updates = {}
     if "price_30" in kwargs:
-        prices = json.loads(await client.hget(key, "prices") or "{}")
         prices["30d"] = kwargs["price_30"]
-        updates["prices"] = json.dumps(prices)
     if "price_60" in kwargs:
-        prices = json.loads(await client.hget(key, "prices") or "{}")
         prices["60d"] = kwargs["price_60"]
-        updates["prices"] = json.dumps(prices)
     if "price_90" in kwargs:
-        prices = json.loads(await client.hget(key, "prices") or "{}")
         prices["90d"] = kwargs["price_90"]
+    if "price_30" in kwargs or "price_60" in kwargs or "price_90" in kwargs:
         updates["prices"] = json.dumps(prices)
     if "available" in kwargs:
         updates["available"] = str(kwargs["available"]).lower()
@@ -725,15 +720,20 @@ async def is_restricted_del_enabled():
 
 
 async def save_rental_atomic(user_id: int, number: str, new_balance: float, rent_date, new_hours: int):
-    """Atomically deduct balance and save rental in a single Redis transaction."""
+    """Atomically deduct balance and save rental in a single Redis transaction. Also updates user:{user_id} numbers list."""
     if isinstance(rent_date, str):
         rent_date = _parse_dt(rent_date) or _now()
     elif rent_date is None:
         rent_date = _now()
     expiry = rent_date + timedelta(hours=new_hours)
     number = _norm_num(number) or str(number).strip()
+    numbers_raw = await client.hget(f"user:{user_id}", "numbers")
+    numbers = json.loads(numbers_raw) if numbers_raw else []
+    if not any(n.get("number") == number for n in numbers):
+        numbers.append({"number": number, "hours": new_hours, "date": rent_date.isoformat()})
     async with client.pipeline(transaction=True) as pipe:
         pipe.hset(f"user:{user_id}", "balance", new_balance)
+        pipe.hset(f"user:{user_id}", "numbers", json.dumps(numbers))
         pipe.hset(f"rental:{number}", mapping={
             "number": number,
             "user_id": user_id,
@@ -744,6 +744,7 @@ async def save_rental_atomic(user_id: int, number: str, new_balance: float, rent
         pipe.zadd("rentals:expiry", {number: expiry.timestamp()})
         pipe.sadd("rentals:all", number)
         pipe.sadd(f"rentals:user:{user_id}", number)
+        pipe.hset("num_owner", number, user_id)
         await pipe.execute()
     global _rentals_cache
     _rentals_cache = (0.0, [])
@@ -801,14 +802,11 @@ async def get_transfer_history(number: str, limit: int = 50):
 async def check_rate_limit(user_id: int, action: str, max_per_window: int, window_secs: int) -> bool:
     """Returns True if allowed (under limit), False if rate limited."""
     key = f"ratelimit:{user_id}:{action}"
-    async with client.pipeline() as pipe:
+    async with client.pipeline(transaction=True) as pipe:
         pipe.incr(key)
-        pipe.ttl(key)
+        pipe.expire(key, window_secs)
         results = await pipe.execute()
     count = results[0]
-    ttl = results[1]
-    if ttl == -1 or count == 1:
-        await client.expire(key, window_secs)
     return count <= max_per_window
 
 
