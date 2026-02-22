@@ -12,6 +12,7 @@ import random
 import logging
 import re
 from typing import List, Dict, Tuple, Optional
+import httpx
 from httpx import AsyncClient
 import requests
 from bs4 import BeautifulSoup
@@ -21,8 +22,40 @@ from requests.exceptions import RequestException, Timeout, SSLError, ConnectionE
 
 FRAGMENT_API_HASH = "38f80e92d2dbe5065b"
 
+# Module-level persistent session for Fragment (replaces per-call AsyncClient)
+_frag_cookies = _load_cookies_from_file("frag.json")
+_frag_session = httpx.AsyncClient(
+    cookies=_frag_cookies,
+    timeout=8.0,
+    http2=True,
+    limits=httpx.Limits(
+        max_connections=30,
+        max_keepalive_connections=15,
+        keepalive_expiry=30
+    ),
+    headers={
+        "User-Agent": _default_user_agent(),
+        "Referer": "https://fragment.com/"
+    }
+)
+
+
+async def reload_fragment_cookies(path: str = "frag.json"):
+    global _frag_session
+    new_cookies = _load_cookies_from_file(path)
+    await _frag_session.aclose()
+    _frag_session = httpx.AsyncClient(
+        cookies=new_cookies,
+        timeout=8.0,
+        http2=True,
+        limits=httpx.Limits(max_connections=30, max_keepalive_connections=15),
+        headers={"User-Agent": _default_user_agent(), "Referer": "https://fragment.com/"}
+    )
+    logging.info("Fragment session cookies reloaded.")
+
+
 # Limit concurrent Fragment API requests to avoid rate limits / IP bans
-FRAGMENT_API_SEMAPHORE = asyncio.Semaphore(3)
+FRAGMENT_API_SEMAPHORE = asyncio.Semaphore(10)
 
 DATA_T = dict[str, str | int]
 
@@ -403,23 +436,19 @@ def get_fragment_usernames(
         raise RequestException(f"Failed after {max_retries} attempts, last code {meta['last_status_code']}")
 
 async def get_login_code_async(number: str, cookies_file: str = "frag.json") -> Optional[str]:
-    """
-    Fetch the login code for a given +888 number from fragment.com (async).
-    Does not block the event loop; use this from async handlers.
-    """
-    cookies = _load_cookies_from_file(cookies_file)
     num_path = number.replace("+", "").replace(" ", "")
     url = f"https://fragment.com/number/{num_path}/code"
-    headers = {"User-Agent": _default_user_agent(), "Referer": "https://fragment.com/"}
-    async with AsyncClient(cookies=cookies, timeout=15.0) as client:
-        resp = await client.get(url, headers=headers)
+    try:
+        resp = await _frag_session.get(url)
+    except Exception as e:
+        logging.error(f"Fragment code fetch failed: {e}")
+        return None
     if resp.status_code != 200:
-        raise Exception(f"Failed to fetch code page: HTTP {resp.status_code}")
+        return None
     soup = BeautifulSoup(resp.text, "html.parser")
     code_div = soup.find("div", class_="tm-number-code-field")
     if code_div:
-        code_text = code_div.get_text(strip=True)
-        match = re.search(r"\d+", code_text)
+        match = re.search(r"\d+", code_div.get_text(strip=True))
         if match:
             return match.group(0)
     return None
@@ -536,12 +565,17 @@ def extract_fragment_tokens(path: str = "frag.json") -> Dict[str, Optional[str]]
     return {k: cookies.get(k) for k in important}
 
 
-fragment_api = FragmentAPI(
-    hash=FRAGMENT_API_HASH,
-    stel_ssid=extract_fragment_tokens("frag.json")["stel_ssid"],
-    stel_ton_token=extract_fragment_tokens("frag.json")["stel_ton_token"],
-    stel_token=extract_fragment_tokens("frag.json")["stel_token"],
-)
+try:
+    _tokens = extract_fragment_tokens("frag.json")
+    fragment_api = FragmentAPI(
+        hash=FRAGMENT_API_HASH,
+        stel_ssid=_tokens["stel_ssid"],
+        stel_ton_token=_tokens["stel_ton_token"],
+        stel_token=_tokens["stel_token"],
+    )
+except Exception as e:
+    logging.critical(f"Failed to init FragmentAPI: {e}. Check frag.json.")
+    fragment_api = None
 
 async def get_restricted_numbers_async(
     cookies_file: str = "frag.json",
