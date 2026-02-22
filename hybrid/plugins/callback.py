@@ -140,7 +140,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             if alt_data and int(alt_data.get("user_id", 0)) == user_id:
                 rented_data = alt_data
             else:
-                return await query.answer(f"Number not found for transfer. Debug: raw={raw_num}, norm={number}, uid={user_id}", show_alert=True)
+                logging.warning(f"Transfer not found: raw={raw_num}, norm={number}, uid={user_id}")
+                return await query.answer("❌ Number not found. Please try again or contact support.", show_alert=True)
         number = rented_data.get("number") or number
         success, err = await transfer_number(number, user_id, to_user_id)
         if not success:
@@ -148,9 +149,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             return await query.answer(msg, show_alert=True)
         num_text = format_number(number)
         async with temp.get_lock():
-            if number in temp.RENTED_NUMS:
-                temp.RENTED_NUMS.remove(number)
-            temp.RENTED_NUMS.append(number)
+            temp.RENTED_NUMS.discard(number)
+            temp.RENTED_NUMS.add(number)
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data="my_rentals")]])
         await _safe_edit(query.message, f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Number <b>{num_text}</b> has been transferred successfully.", reply_markup=keyboard, client=client)
         try:
@@ -186,7 +186,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             if alt_data and int(alt_data.get("user_id", 0)) == user_id:
                 rented_data = alt_data
             else:
-                return await query.answer(f"Number not found. Debug: raw={raw}, norm={number}, uid={user_id}", show_alert=True)
+                logging.warning(f"Transfer lookup failed: raw={raw}, norm={number}, uid={user_id}")
+                return await query.answer("❌ Number not found. Please try again or contact support.", show_alert=True)
         number = rented_data.get("number") or number
         num_text = format_number(number)
         try:
@@ -284,7 +285,6 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         # await query.message.edit_text(f"{await t(user_id, 'getting_code')} `{num_text}`...")
         from hybrid.plugins.fragment import get_login_code_async
         code = await get_login_code_async(number)
-        await asyncio.sleep(2)  # Simulate waiting for the code
         if code and code.isdigit():
             keyboard = [
                 [InlineKeyboardButton(await t(user_id, "back"), callback_data=f"num_{number}")]
@@ -481,7 +481,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                     temp.INV_DICT.pop(user_id, None)
 
                 temp.INV_DICT[user_id] = (invoice.invoice_id, query.message.id)
-                temp.PENDING_INV.append(invoice.invoice_id)
+                temp.PENDING_INV.add(invoice.invoice_id)
 
                 pay_url = invoice.bot_invoice_url
                 keyboard = InlineKeyboardMarkup([
@@ -502,37 +502,36 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         user_id = query.from_user.id
         if user_id in temp.PAID_LOCK:
             return await query.answer("⏳ Please wait, checking your previous request.", show_alert=True)
-        temp.PAID_LOCK.append(user_id)
-
-        inv_id = data.replace("check_payment_", "")
-        invoice = await cp.get_invoice(inv_id)
-        if not invoice or inv_id not in temp.PENDING_INV:
-            await query.answer(await t(user_id, "payment_not_found"), show_alert=True)
-            temp.PAID_LOCK.remove(user_id)
-            return
-
-        if invoice.status == "paid":
-            if await is_payment_processed_crypto(str(inv_id)):
-                temp.PAID_LOCK.remove(user_id)
-                temp.PENDING_INV.remove(inv_id)
-                return await query.message.edit_text(await t(user_id, "payment_confirmed"), parse_mode=ParseMode.HTML)
-            payload = (invoice.payload or "").strip()
-            keyboard = await resolve_payment_keyboard(user_id, payload)
-            current_bal = await get_user_balance(user_id) or 0.0
-            new_bal = current_bal + float(invoice.amount)
-            await save_user_balance(user_id, new_bal)
-            await mark_payment_processed_crypto(str(inv_id))
-
-            await query.message.edit_text(
-                await t(user_id, "payment_confirmed"),
-                reply_markup=keyboard,
-                parse_mode=ParseMode.HTML,
-            )
-            temp.PAID_LOCK.remove(user_id)
-            temp.PENDING_INV.remove(inv_id)
-        else:
-            await query.answer(await t(user_id, "payment_not_found"), show_alert=True)
-            temp.PAID_LOCK.remove(user_id)
+        temp.PAID_LOCK.add(user_id)
+        try:
+            inv_id = data.replace("check_payment_", "")
+            invoice = await cp.get_invoice(inv_id)
+            if not invoice or inv_id not in temp.PENDING_INV:
+                await query.answer(await t(user_id, "payment_not_found"), show_alert=True)
+                return
+            if invoice.status == "paid":
+                if await is_payment_processed_crypto(str(inv_id)):
+                    temp.PENDING_INV.discard(inv_id)
+                    return await query.message.edit_text(await t(user_id, "payment_confirmed"), parse_mode=ParseMode.HTML)
+                payload = (invoice.payload or "").strip()
+                keyboard = await resolve_payment_keyboard(user_id, payload)
+                current_bal = await get_user_balance(user_id) or 0.0
+                new_bal = current_bal + float(invoice.amount)
+                await save_user_balance(user_id, new_bal)
+                await mark_payment_processed_crypto(str(inv_id))
+                await query.message.edit_text(
+                    await t(user_id, "payment_confirmed"),
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML,
+                )
+                temp.PENDING_INV.discard(inv_id)
+            else:
+                await query.answer(await t(user_id, "payment_not_found"), show_alert=True)
+        except Exception as e:
+            logging.error(f"Payment check error for {user_id}: {e}")
+            await query.answer("❌ An error occurred. Please try again.", show_alert=True)
+        finally:
+            temp.PAID_LOCK.discard(user_id)
 
     elif data == "help":
         keyboard = InlineKeyboardMarkup(
@@ -545,6 +544,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         user_id = query.from_user.id
 
         await save_user_language(user_id, lang)
+        from hybrid.plugins.func import _lang_cache
+        _lang_cache.pop(user_id, None)
 
         await query.message.edit("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Language saved! press /start again to continue.", parse_mode=ParseMode.HTML)
 
@@ -696,7 +697,7 @@ Details:
             logging.info(f"Number {number} not found in DB. Created with default prices.")
         async with temp.get_lock():
             if number not in temp.AVAILABLE_NUM:
-                temp.AVAILABLE_NUM.append(number)
+                temp.AVAILABLE_NUM.add(number)
         number_data = await get_number_info(number)
         price_30d = number_data.get("prices", {}).get("30d", 0.0)
         price_60d = number_data.get("prices", {}).get("60d", 0.0)
@@ -785,25 +786,16 @@ Details:
         )
         # change in temp.AVAILABLE_NUM
         async with temp.get_lock():
-            if new_status and number not in temp.AVAILABLE_NUM:
-                temp.AVAILABLE_NUM.append(number)
-            elif not new_status and number in temp.AVAILABLE_NUM:
-                temp.AVAILABLE_NUM.remove(number)
+            if new_status:
+                temp.AVAILABLE_NUM.add(number)
+            else:
+                temp.AVAILABLE_NUM.discard(number)
         if not new_status:
-            if number not in temp.UN_AV_NUMS:
-                temp.UN_AV_NUMS.append(number)
+            temp.UN_AV_NUMS.add(number)
         else:
-            if number in temp.UN_AV_NUMS:
-                temp.UN_AV_NUMS.remove(number)
-        await asyncio.sleep(2)
-        query_data = CallbackQuery(
-            id=query.id,
-            from_user=query.from_user,
-            message=query.message,
-            chat_instance=query.chat_instance,
-            data=f"admin_number_{number}_{page}"
-        )
-        await callback_handler(client, query=query_data)
+            temp.UN_AV_NUMS.discard(number)
+        query.data = f"admin_number_{number}_{page}"
+        await _callback_handler_impl(client, query)
         return
 
     elif data == "admin_cancel_rent" and query.from_user.id in ADMINS:
@@ -814,7 +806,6 @@ Details:
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         identifier = response.text.strip()
         identifier = identifier.replace(" ", "")
@@ -880,7 +871,6 @@ Details:
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         identifier = response.text.strip()
         identifier = identifier.replace(" ", "")
@@ -907,7 +897,6 @@ Details:
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         duration_str = response.text.strip().lower()
         await response.delete()
@@ -917,19 +906,24 @@ Details:
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid format. Use number followed by 'h' or 'd' (e.g., 6h or 2d).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         amount, unit = match.groups()
         amount = int(amount)
-        hours = amount * 24 if unit == "d" else amount
-        success, status = await save_number(number, user_id, hours, extend=True)
+        extension_hours = amount * 24 if unit == "d" else amount
+        existing_data = await get_number_data(number)
+        existing_hours = int(existing_data.get("hours", 0)) if existing_data else 0
+        existing_rent_date = existing_data.get("rent_date") if existing_data else get_current_datetime()
+        total_hours = existing_hours + extension_hours
+        success, status = await save_number(number, user_id, total_hours, extend=True)
         if success:
-            await log_admin_action(query.from_user.id, "admin_extend_rent", number, f"user_id={user_id} hours={hours}")
-            new_time_left = format_remaining_time(user_data[1], user_data[2] + hours)
-            h_days = hours // 24
+            await save_number_data(number, user_id, existing_rent_date, total_hours)
+            await log_admin_action(query.from_user.id, "admin_extend_rent", number, f"user_id={user_id} hours={total_hours}")
+            new_time_left = format_remaining_time(existing_rent_date, total_hours)
+            h_days = extension_hours // 24
             _bal = await get_user_balance(user.id) or 0.0
             TEXT = f"""<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rental for number {number} has been extended by {h_days} days.
 • User ID: {user.id}
 • Username: @{user.username if user.username else 'N/A'}
 • Name: {user.first_name if user.first_name else 'N/A'}
 • Balance: {_bal}
-• Rented On: {user_data[1].strftime('%Y-%m-%d %H:%M:%S UTC')}
+• Rented On: {existing_rent_date.strftime('%Y-%m-%d %H:%M:%S UTC') if hasattr(existing_rent_date, 'strftime') else existing_rent_date}
 • New Time Left: {new_time_left}
 • Extended By: {query.from_user.mention} (ID: {query.from_user.id})
             """
@@ -965,7 +959,6 @@ Details:
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         identifier = response.text.strip()
         await response.delete()
@@ -986,7 +979,6 @@ Details:
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         try:
             amount = float(response.text.strip())
@@ -1026,7 +1018,6 @@ Details:
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         identifier = response.text.strip()
         await response.delete()
@@ -1063,7 +1054,6 @@ Details:
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         identifier = response.text.strip()
         identifier = identifier.replace(" ", "")
@@ -1250,7 +1240,6 @@ For support, contact the bot developer."""
                 timeout=300
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         new_rules = response.text.strip()
         await response.delete()
@@ -1263,7 +1252,6 @@ For support, contact the bot developer."""
                 timeout=300
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         new_rules = response.text.strip()
         await response.delete()
@@ -1276,7 +1264,6 @@ For support, contact the bot developer."""
                 timeout=300
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         new_rules = response.text.strip()
         await response.delete()
@@ -1289,7 +1276,6 @@ For support, contact the bot developer."""
                 timeout=300
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         new_rules = response.text.strip()
         await response.delete()
@@ -1346,10 +1332,11 @@ For support, contact the bot developer."""
 
     elif data.startswith("rentnum_page:"):
         user_id = query.from_user.id
-        await query.message.edit(await t(user_id, "choose_number"), parse_mode=ParseMode.HTML)
         page = int(data.split(":")[1])
-        await query.message.edit_reply_markup(
-            await build_rentnum_keyboard(user_id, page=page)
+        await query.message.edit_text(
+            await t(user_id, "choose_number"),
+            reply_markup=await build_rentnum_keyboard(user_id, page=page),
+            parse_mode=ParseMode.HTML,
         )
 
     elif data.startswith("rentpay:"):
@@ -1544,7 +1531,7 @@ For support, contact the bot developer."""
         for num in enabled:
             async with temp.get_lock():
                 if num not in temp.AVAILABLE_NUM:
-                    temp.AVAILABLE_NUM.append(num)
+                    temp.AVAILABLE_NUM.add(num)
         await query.message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Enabled the following numbers:\n" + "\n".join(enabled), reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data.startswith("admin_disable_numbers") and query.from_user.id in ADMINS:
@@ -1639,7 +1626,7 @@ For support, contact the bot developer."""
         for num in enabled:
             async with temp.get_lock():
                 if num not in temp.AVAILABLE_NUM:
-                    temp.AVAILABLE_NUM.append(num)
+                    temp.AVAILABLE_NUM.add(num)
         await query.message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Enabled all numbers ({len(enabled)} total).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data == "admin_assign_number" and query.from_user.id in ADMINS:
@@ -1650,7 +1637,6 @@ For support, contact the bot developer."""
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         identifier = response.text.strip()
         await response.delete()
@@ -1671,7 +1657,6 @@ For support, contact the bot developer."""
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         number = response.text.strip()
         number = number.replace(" ", "")
@@ -1695,7 +1680,6 @@ For support, contact the bot developer."""
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         hours = response.text.strip()
         await response.delete()
@@ -1711,7 +1695,7 @@ For support, contact the bot developer."""
         await save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=hours)
         async with temp.get_lock():
             if number not in temp.RENTED_NUMS:
-                temp.RENTED_NUMS.append(number)
+                temp.RENTED_NUMS.add(number)
         await query.message.reply(f"✅ Assigned number {number} to user {user.first_name} (ID: {user.id}) for {hours} hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         await client.send_message(
             user.id,
@@ -1875,7 +1859,7 @@ For support, contact the bot developer."""
 
         async with temp.get_lock():
             if number not in temp.RENTED_NUMS:
-                temp.RENTED_NUMS.append(number)
+                temp.RENTED_NUMS.add(number)
         duration = format_remaining_time(get_current_datetime(), new_hours)
 
         keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
@@ -1935,7 +1919,6 @@ For support, contact the bot developer."""
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         identifier = response.text.strip()
         identifier = identifier.replace(" ", "")
@@ -1976,7 +1959,6 @@ For support, contact the bot developer."""
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.reply("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         hours = response.text.strip()
         hours = hours.replace(" ", "").lower()
@@ -2015,7 +1997,6 @@ For support, contact the bot developer."""
                 timeout=120
             )
         except Exception:
-            await response.sent_message.delete()
             return await query.message.reply("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         date_str = response.text.strip()
         await response.delete()
