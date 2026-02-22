@@ -17,6 +17,7 @@ from logging.handlers import RotatingFileHandler
 
 from hybrid.plugins.temp import temp
 from hybrid.plugins.func import get_restart_data
+from hybrid.plugins.db import client as redis_client
 
 BANNER = f"""\n\n
 ██╗░░██╗██╗░░░██╗██████╗░██████╗░██╗██████╗░
@@ -93,10 +94,10 @@ async def load_num_data():
             info = await get_number_info(num)
         rented = await get_number_data(num)
         if info and info.get("available", True):
-            temp.AVAILABLE_NUM.append(num)
+            temp.AVAILABLE_NUM.add(num)
             logging.info(f"Number {num} is available.")
         if rented and rented.get("user_id"):
-            temp.RENTED_NUMS.append(num)
+            temp.RENTED_NUMS.add(num)
             logging.info(f"Number {num} is rented.")
 
 
@@ -138,7 +139,6 @@ async def schedule_reminders(client):
                     if threshold_secs >= remaining_secs > (threshold_secs - window):
                         # Check if already sent this reminder
                         redis_key = f"reminder:{number}:{label}"
-                        from hybrid.plugins.db import client as redis_client
                         already_sent = await redis_client.get(redis_key)
                         if already_sent:
                             continue
@@ -205,7 +205,7 @@ async def _process_one_expired(number: str, client, now):
             if is_free:
                 async with temp.get_lock():
                     if number not in temp.AVAILABLE_NUM:
-                        temp.AVAILABLE_NUM.append(number)
+                        temp.AVAILABLE_NUM.add(number)
                 logging.info(f"Number {number} confirmed free on Fragment, relisted.")
             else:
                 logging.info(f"Number {number} not yet free on Fragment, skipping relist.")
@@ -213,7 +213,7 @@ async def _process_one_expired(number: str, client, now):
             logging.error(f"Fragment check failed for {number}: {e}")
             async with temp.get_lock():
                 if number not in temp.AVAILABLE_NUM:
-                    temp.AVAILABLE_NUM.append(number)
+                    temp.AVAILABLE_NUM.add(number)
         from hybrid.plugins.func import t
         text = (await t(user_id, "expired_notify")).format(number=number)
         try:
@@ -286,7 +286,7 @@ async def check_7day_accs(client):
                                     if is_free:
                                         async with temp.get_lock():
                                             if num not in temp.AVAILABLE_NUM:
-                                                temp.AVAILABLE_NUM.append(num)
+                                                temp.AVAILABLE_NUM.add(num)
                                         logging.info(f"Number {num} confirmed free on Fragment, relisted.")
                                     else:
                                         logging.info(f"Number {num} not yet free on Fragment, skipping relist.")
@@ -294,7 +294,7 @@ async def check_7day_accs(client):
                                     logging.error(f"Fragment check failed for {num}: {e}")
                                     async with temp.get_lock():
                                         if num not in temp.AVAILABLE_NUM:
-                                            temp.AVAILABLE_NUM.append(num)
+                                            temp.AVAILABLE_NUM.add(num)
                                 user_id, _, _ = await get_user_by_number(num)
                                 if user_id:
                                     await remove_number_data(num)
@@ -316,7 +316,7 @@ async def check_7day_accs(client):
                         if is_free:
                             async with temp.get_lock():
                                 if num not in temp.AVAILABLE_NUM:
-                                    temp.AVAILABLE_NUM.append(num)
+                                    temp.AVAILABLE_NUM.add(num)
                             logging.info(f"Number {num} confirmed free on Fragment, relisted.")
                         else:
                             logging.info(f"Number {num} not yet free on Fragment, skipping relist.")
@@ -324,7 +324,7 @@ async def check_7day_accs(client):
                         logging.error(f"Fragment check failed for {num}: {e}")
                         async with temp.get_lock():
                             if num not in temp.AVAILABLE_NUM:
-                                temp.AVAILABLE_NUM.append(num)
+                                temp.AVAILABLE_NUM.add(num)
                 else:
                     logging.warning(f"Session expired for {num}, attempting full re-login to complete deletion.")
                     stat, reason = await delete_account(num, client)
@@ -341,7 +341,7 @@ async def check_7day_accs(client):
                             if is_free:
                                 async with temp.get_lock():
                                     if num not in temp.AVAILABLE_NUM:
-                                        temp.AVAILABLE_NUM.append(num)
+                                        temp.AVAILABLE_NUM.add(num)
                                 logging.info(f"Number {num} confirmed free on Fragment, relisted.")
                             else:
                                 logging.info(f"Number {num} not yet free on Fragment, skipping relist.")
@@ -349,7 +349,7 @@ async def check_7day_accs(client):
                             logging.error(f"Fragment check failed for {num}: {e}")
                             async with temp.get_lock():
                                 if num not in temp.AVAILABLE_NUM:
-                                    temp.AVAILABLE_NUM.append(num)
+                                    temp.AVAILABLE_NUM.add(num)
                         user_id, _, _ = await get_user_by_number(num)
                         if user_id:
                             await remove_number_data(num)
@@ -376,7 +376,7 @@ async def check_7day_accs(client):
                             if is_free:
                                 async with temp.get_lock():
                                     if num not in temp.AVAILABLE_NUM:
-                                        temp.AVAILABLE_NUM.append(num)
+                                        temp.AVAILABLE_NUM.add(num)
                                 logging.info(f"Number {num} confirmed free on Fragment, relisted.")
                             else:
                                 logging.info(f"Number {num} not yet free on Fragment, skipping relist.")
@@ -384,7 +384,7 @@ async def check_7day_accs(client):
                             logging.error(f"Fragment check failed for {num}: {e}")
                             async with temp.get_lock():
                                 if num not in temp.AVAILABLE_NUM:
-                                    temp.AVAILABLE_NUM.append(num)
+                                    temp.AVAILABLE_NUM.add(num)
                 except Exception as e2:
                     logging.error(f"Fallback delete_account failed for {num}: {e2}")
             finally:
@@ -405,7 +405,7 @@ async def check_restricted_numbers(client):
         for num in restricted:
             logging.info(f"Number {num} is restricted by Fragment.")
             if num not in temp.RESTRICTED_NUMS:
-                temp.RESTRICTED_NUMS.append(num)
+                temp.RESTRICTED_NUMS.add(num)
 
             num_data = await get_number_data(num)
             user_id = num_data.get("user_id") if num_data else None
@@ -473,8 +473,7 @@ async def check_payments(client):
 
     while True:
         try:
-            pending_ton = await get_all_pending_ton_orders() if TON_WALLET else []
-            if TON_WALLET and pending_ton:
+            if TON_WALLET:
                 from hybrid.plugins.func import check_tonkeeper_payments
                 await check_tonkeeper_payments(
                     client, get_user_balance, save_user_balance, delete_ton_order,
@@ -522,13 +521,6 @@ async def check_payments(client):
                     except Exception as e:
                         logging.debug(f"CryptoBot check invoice {inv_id}: {e}")
 
-            # 2. Tonkeeper (if not already run this loop)
-            if TON_WALLET and not pending_ton:
-                from hybrid.plugins.func import check_tonkeeper_payments
-                await check_tonkeeper_payments(
-                    client, get_user_balance, save_user_balance, delete_ton_order,
-                    get_all_pending_ton_orders, t, TON_WALLET
-                )
         except Exception as e:
             logging.error(f"Payment checker error: {e}")
         pending_ton = await get_all_pending_ton_orders() if TON_WALLET else []
@@ -624,7 +616,7 @@ class Bot(Client):
             api_hash=API_HASH,
             api_id=API_ID,
             plugins=plugins,
-            workers=8,
+            workers=32,
             bot_token=BOT_TOKEN
         )
     
