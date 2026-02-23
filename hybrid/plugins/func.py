@@ -9,6 +9,7 @@ import re
 import traceback
 import csv
 import httpx
+from collections import OrderedDict
 
 from os import execvp
 from sys import executable
@@ -188,14 +189,18 @@ def h(text: str) -> str:
     return _md_to_html(text)
 
 _LANG_CACHE_MAX = 10000
-_lang_cache: dict[int, str] = {}
+_lang_cache: OrderedDict[int, str] = OrderedDict()
 
 async def t(user_id: int, key: str, **kwargs):
     if user_id not in _lang_cache:
-        if len(_lang_cache) > _LANG_CACHE_MAX:
-            _lang_cache.clear()
+        while len(_lang_cache) >= _LANG_CACHE_MAX:
+            _lang_cache.popitem(last=False)
         from hybrid.plugins.db import get_user_language
-        _lang_cache[user_id] = await get_user_language(user_id) or "en"
+        lang_val = await get_user_language(user_id) or "en"
+        _lang_cache[user_id] = lang_val
+        _lang_cache.move_to_end(user_id)
+    else:
+        _lang_cache.move_to_end(user_id)
     lang = _lang_cache[user_id]
     text = LANGUAGES.get(lang, LANGUAGES["en"]).get(key, key)
     _emoji_fallback = {"success":"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji>","error":"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji>","warning":"⚠️","phone":"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>","money":"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>","renew":"<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji>","get_code":"<tg-emoji emoji-id=\"5433811242135331842\">📨</tg-emoji>","back":"⬅️","date":"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji>","loading":"<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>","time":"<tg-emoji emoji-id=\"5413704112220949842\">🕒</tg-emoji>","timeout":"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji>"}
@@ -303,20 +308,27 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
 
 
 _ton_price_cache = {"price": 0.0, "ts": 0.0}
+_ton_http_client: httpx.AsyncClient | None = None
+
+def _get_ton_http_client() -> httpx.AsyncClient:
+    global _ton_http_client
+    if _ton_http_client is None or getattr(_ton_http_client, "is_closed", True):
+        _ton_http_client = httpx.AsyncClient(timeout=10.0)
+    return _ton_http_client
 
 async def get_ton_price_usd() -> float:
     import time
     if _ton_price_cache["price"] > 0 and time.monotonic() - _ton_price_cache["ts"] < 60:
         return _ton_price_cache["price"]
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get("https://tonapi.io/v2/rates?tokens=ton&currencies=usd")
-            r.raise_for_status()
-            data = r.json()
-            price = float(data["rates"]["TON"]["prices"]["USD"])
-            _ton_price_cache["price"] = price
-            _ton_price_cache["ts"] = time.monotonic()
-            return price
+        client = _get_ton_http_client()
+        r = await client.get("https://tonapi.io/v2/rates?tokens=ton&currencies=usd")
+        r.raise_for_status()
+        data = r.json()
+        price = float(data["rates"]["TON"]["prices"]["USD"])
+        _ton_price_cache["price"] = price
+        _ton_price_cache["ts"] = time.monotonic()
+        return price
     except Exception as e:
         logging.warning(f"Failed to fetch TON price: {e}")
         return _ton_price_cache["price"]
@@ -513,148 +525,153 @@ async def delete_account(number: str, app: Client, two_fa_password: str = None) 
     - If code type is not FRAGMENT_SMS but next_type is → force one resend to switch to Fragment.
     - Wait up to 30s for OTP from Fragment helper.
     - Handle 2FA (immediate deletion if password provided, else scheduled).
-    - Manage all known errors, retry on FloodWait.
+    - Manage all known errors, retry on FloodWait (loop to avoid recursion/stack overflow).
     """
-    session_name = f"delete-{number.replace('+', '')}"
-    client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
-    logging.info("=== delete_account START ===")
-    logging.info(f"Starting deletion process for {number} (session='{session_name}')")
-
     def _type_name(x):
         if x is None:
             return "None"
         return getattr(x, "name", str(x))
 
-    try:
-        logging.info("Connecting pyrogram client...")
-        await client.connect()
-        logging.info(f"Connected to Telegram for {number} (is_connected={getattr(client, 'is_connected', False)})")
+    while True:
+        session_name = f"delete-{number.replace('+', '')}"
+        client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
+        logging.info("=== delete_account START ===")
+        logging.info(f"Starting deletion process for {number} (session='{session_name}')")
 
-        # Step 1: Send login code
-        logging.info("Requesting login code using client.send_code(...)")
         try:
-            sent_code = await client.send_code(number)
-        except FloodWait as e:
-            logging.warning("FloodWait %s seconds during send_code. Sleeping and retrying...", e.value)
-            await asyncio.sleep(e.value + 1)
-            return await delete_account(number, app, two_fa_password)
+            logging.info("Connecting pyrogram client...")
+            await client.connect()
+            logging.info(f"Connected to Telegram for {number} (is_connected={getattr(client, 'is_connected', False)})")
 
-        logging.info(
-            "SentCode: phone_code_hash=%s, type=%s, next_type=%s, timeout=%s",
-            getattr(sent_code, "phone_code_hash", None),
-            _type_name(getattr(sent_code, "type", None)),
-            _type_name(getattr(sent_code, "next_type", None)),
-            getattr(sent_code, "timeout", None),
-        )
-
-        # Step 2: Resend if needed
-        type_str = _type_name(getattr(sent_code, "type", None)).upper()
-        next_type_str = _type_name(getattr(sent_code, "next_type", None)).upper()
-
-        if type_str != "FRAGMENT_SMS" and next_type_str == "FRAGMENT_SMS":
-            logging.info("First code is %s, next_type is FRAGMENT_SMS → resending to force Fragment.", type_str)
+            # Step 1: Send login code
+            logging.info("Requesting login code using client.send_code(...)")
             try:
-                sent_code = await client.resend_code(number, phone_code_hash=sent_code.phone_code_hash)
-                logging.info(
-                    "After resend: type=%s, next_type=%s",
-                    _type_name(getattr(sent_code, "type", None)),
-                    _type_name(getattr(sent_code, "next_type", None)),
-                )
-            except Exception as e:
-                logging.error("Resend failed: %s", e)
-                return False, "ResendError"
-        elif type_str == "FRAGMENT_SMS":
-            logging.info("Code already sent via Fragment SMS.")
-        else:
-            logging.warning("No Fragment type available (type=%s, next_type=%s). Proceeding anyway.", type_str, next_type_str)
+                sent_code = await client.send_code(number)
+            except FloodWait as e:
+                logging.warning("FloodWait %s seconds during send_code. Sleeping and retrying...", e.value)
+                if getattr(client, "is_connected", False):
+                    await client.disconnect()
+                await asyncio.sleep(e.value + 1)
+                continue
 
-        # Step 3: Fetch OTP from Fragment (async to avoid blocking the event loop)
-        from hybrid.plugins.fragment import get_login_code_async
-        otp = None
-        for attempt in range(6):
-            try:
-                otp = await get_login_code_async(number)
-            except Exception as e:
-                logging.error("get_login_code failed: %s", e)
-                otp = None
-
-            if otp:
-                logging.info("Received OTP: %s", otp)
-                break
-            logging.info("No OTP yet. Waiting 5s (attempt %d/6).", attempt + 1)
-            await asyncio.sleep(5)
-
-        if not otp:
-            logging.error("No OTP received for %s", number)
-            return False, "OTP"
-
-        # Step 4: Sign in
-        try:
-            await client.sign_in(
-                phone_number=number,
-                phone_code_hash=sent_code.phone_code_hash,
-                phone_code=otp,
+            logging.info(
+                "SentCode: phone_code_hash=%s, type=%s, next_type=%s, timeout=%s",
+                getattr(sent_code, "phone_code_hash", None),
+                _type_name(getattr(sent_code, "type", None)),
+                _type_name(getattr(sent_code, "next_type", None)),
+                getattr(sent_code, "timeout", None),
             )
-            logging.info("Signed in successfully.")
-        except PhoneNumberUnoccupied:
-            logging.info("No account exists for this number.")
-            return True, "NoAccount"
-        except PhoneCodeInvalid:
-            logging.error("Invalid OTP.")
-            return False, "InvalidOTP"
-        except SessionPasswordNeeded:
-            if two_fa_password:
+
+            # Step 2: Resend if needed
+            type_str = _type_name(getattr(sent_code, "type", None)).upper()
+            next_type_str = _type_name(getattr(sent_code, "next_type", None)).upper()
+
+            if type_str != "FRAGMENT_SMS" and next_type_str == "FRAGMENT_SMS":
+                logging.info("First code is %s, next_type is FRAGMENT_SMS → resending to force Fragment.", type_str)
                 try:
-                    await client.check_password(two_fa_password)
-                    logging.info("2FA password accepted.")
+                    sent_code = await client.resend_code(number, phone_code_hash=sent_code.phone_code_hash)
+                    logging.info(
+                        "After resend: type=%s, next_type=%s",
+                        _type_name(getattr(sent_code, "type", None)),
+                        _type_name(getattr(sent_code, "next_type", None)),
+                    )
                 except Exception as e:
-                    logging.error("2FA password failed: %s", e)
-                    return False, "Invalid2FAPassword"
+                    logging.error("Resend failed: %s", e)
+                    return False, "ResendError"
+            elif type_str == "FRAGMENT_SMS":
+                logging.info("Code already sent via Fragment SMS.")
             else:
-                # CRITICAL: Don't return early. Still attempt deletion to trigger Telegram's 7-day period.
-                logging.info("2FA enabled, no password. Attempting deletion anyway to trigger 7-day wait...")
-        except PhoneNumberBanned:
-            logging.error("Number banned.")
-            return False, "Banned"
-        except FloodWait as e:
-            logging.warning("FloodWait %s during sign_in. Retrying...", e.value)
-            await asyncio.sleep(e.value + 1)
-            return await delete_account(number, app, two_fa_password)
-        except Exception as e:
-            logging.error("Unexpected sign_in error: %s", e)
-            return False, "SignInError"
+                logging.warning("No Fragment type available (type=%s, next_type=%s). Proceeding anyway.", type_str, next_type_str)
 
-        # Step 5: Delete account (ALWAYS attempt, even with 2FA — triggers 7-day period if needed)
-        try:
-            await client.invoke(functions.account.DeleteAccount(reason="Cleanup"))
-            logging.info("Account deleted immediately.")
-            return True, "Deleted"
-        except RPCError as e:
-            error_text = str(e).upper()
-            # 2FA without password = 7 day waiting period
-            if "2FA_CONFIRM_WAIT" in error_text or "SESSION_PASSWORD_NEEDED" in error_text:
-                logging.info("2FA detected - Telegram scheduled deletion in 7 days.")
-                await save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
-                return True, "7Days"
-            # Account already scheduled for deletion
-            if "ACCOUNT_DELETE_SCHEDULED" in error_text:
-                logging.info("Account deletion already scheduled.")
-                await save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
-                return True, "7Days"
-            logging.error("DeleteAccount RPCError: %s", e)
-            return False, "DeleteError"
-        except Exception as e:
-            logging.error("Unexpected DeleteAccount error: %s", e)
-            return False, "DeleteError"
+            # Step 3: Fetch OTP from Fragment (async to avoid blocking the event loop)
+            from hybrid.plugins.fragment import get_login_code_async
+            otp = None
+            for attempt in range(6):
+                try:
+                    otp = await get_login_code_async(number)
+                except Exception as e:
+                    logging.error("get_login_code failed: %s", e)
+                    otp = None
 
-    except Exception as e:
-        logging.error("Top-level error: %s", e)
-        return False, "Error"
-    finally:
-        if getattr(client, "is_connected", False):
-            await client.disconnect()
-            logging.info("Disconnected client.")
-        logging.info("=== delete_account END ===")
+                if otp:
+                    logging.info("Received OTP: %s", otp)
+                    break
+                logging.info("No OTP yet. Waiting 5s (attempt %d/6).", attempt + 1)
+                await asyncio.sleep(5)
+
+            if not otp:
+                logging.error("No OTP received for %s", number)
+                return False, "OTP"
+
+            # Step 4: Sign in
+            try:
+                await client.sign_in(
+                    phone_number=number,
+                    phone_code_hash=sent_code.phone_code_hash,
+                    phone_code=otp,
+                )
+                logging.info("Signed in successfully.")
+            except PhoneNumberUnoccupied:
+                logging.info("No account exists for this number.")
+                return True, "NoAccount"
+            except PhoneCodeInvalid:
+                logging.error("Invalid OTP.")
+                return False, "InvalidOTP"
+            except SessionPasswordNeeded:
+                if two_fa_password:
+                    try:
+                        await client.check_password(two_fa_password)
+                        logging.info("2FA password accepted.")
+                    except Exception as e:
+                        logging.error("2FA password failed: %s", e)
+                        return False, "Invalid2FAPassword"
+                else:
+                    # CRITICAL: Don't return early. Still attempt deletion to trigger Telegram's 7-day period.
+                    logging.info("2FA enabled, no password. Attempting deletion anyway to trigger 7-day wait...")
+            except PhoneNumberBanned:
+                logging.error("Number banned.")
+                return False, "Banned"
+            except FloodWait as e:
+                logging.warning("FloodWait %s during sign_in. Retrying...", e.value)
+                if getattr(client, "is_connected", False):
+                    await client.disconnect()
+                await asyncio.sleep(e.value + 1)
+                continue
+            except Exception as e:
+                logging.error("Unexpected sign_in error: %s", e)
+                return False, "SignInError"
+
+            # Step 5: Delete account (ALWAYS attempt, even with 2FA — triggers 7-day period if needed)
+            try:
+                await client.invoke(functions.account.DeleteAccount(reason="Cleanup"))
+                logging.info("Account deleted immediately.")
+                return True, "Deleted"
+            except RPCError as e:
+                error_text = str(e).upper()
+                # 2FA without password = 7 day waiting period
+                if "2FA_CONFIRM_WAIT" in error_text or "SESSION_PASSWORD_NEEDED" in error_text:
+                    logging.info("2FA detected - Telegram scheduled deletion in 7 days.")
+                    await save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
+                    return True, "7Days"
+                # Account already scheduled for deletion
+                if "ACCOUNT_DELETE_SCHEDULED" in error_text:
+                    logging.info("Account deletion already scheduled.")
+                    await save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
+                    return True, "7Days"
+                logging.error("DeleteAccount RPCError: %s", e)
+                return False, "DeleteError"
+            except Exception as e:
+                logging.error("Unexpected DeleteAccount error: %s", e)
+                return False, "DeleteError"
+
+        except Exception as e:
+            logging.error("Top-level error: %s", e)
+            return False, "Error"
+        finally:
+            if getattr(client, "is_connected", False):
+                await client.disconnect()
+                logging.info("Disconnected client.")
+            logging.info("=== delete_account END ===")
 
 
 async def check_number_conn(number: str) -> bool:
