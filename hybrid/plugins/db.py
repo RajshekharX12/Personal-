@@ -1,8 +1,10 @@
+import asyncio
 import json
 import os
 import ssl
 import time
 import redis.asyncio as redis
+from redis.exceptions import WatchError
 import config
 from datetime import datetime, timezone, timedelta
 
@@ -339,7 +341,8 @@ async def remove_number_data(number: str):
 async def transfer_number(number: str, from_user_id: int, to_user_id: int):
     """Transfer a rented number to another user. Uses Redis lock to prevent concurrent transfer/rent races. Returns (True, None) or (False, error_msg)."""
     canon = _norm_num(number) or number
-    acquired = await lock_number_for_rent(canon, from_user_id, ttl=60)
+    lock_key = canon
+    acquired = await lock_number_for_rent(lock_key, from_user_id, ttl=60)
     if not acquired:
         return False, "Number is busy; try again in a moment."
     try:
@@ -362,7 +365,7 @@ async def transfer_number(number: str, from_user_id: int, to_user_id: int):
         logging.exception("transfer_number error")
         return False, str(e)
     finally:
-        await unlock_number_for_rent(canon)
+        await unlock_number_for_rent(lock_key)
 
 
 async def get_expired_numbers():
@@ -742,25 +745,36 @@ async def save_rental_atomic(user_id: int, number: str, new_balance: float, rent
         rent_date = _now()
     expiry = rent_date + timedelta(hours=new_hours)
     number = _norm_num(number) or str(number).strip()
-    numbers_raw = await client.hget(f"user:{user_id}", "numbers")
-    numbers = json.loads(numbers_raw) if numbers_raw else []
-    if not any(n.get("number") == number for n in numbers):
-        numbers.append({"number": number, "hours": new_hours, "date": rent_date.isoformat()})
-    async with client.pipeline(transaction=True) as pipe:
-        pipe.hset(f"user:{user_id}", "balance", new_balance)
-        pipe.hset(f"user:{user_id}", "numbers", json.dumps(numbers))
-        pipe.hset(f"rental:{number}", mapping={
-            "number": number,
-            "user_id": user_id,
-            "rent_date": rent_date.isoformat(),
-            "hours": new_hours,
-            "expiry_date": expiry.isoformat(),
-        })
-        pipe.zadd("rentals:expiry", {number: expiry.timestamp()})
-        pipe.sadd("rentals:all", number)
-        pipe.sadd(f"rentals:user:{user_id}", number)
-        pipe.hset("num_owner", number, user_id)
-        await pipe.execute()
+
+    for attempt in range(5):
+        try:
+            await client.watch(f"user:{user_id}")
+            numbers_raw = await client.hget(f"user:{user_id}", "numbers")
+            numbers = json.loads(numbers_raw) if numbers_raw else []
+            if not any(n.get("number") == number for n in numbers):
+                numbers.append({"number": number, "hours": new_hours, "date": rent_date.isoformat()})
+            async with client.pipeline(transaction=True) as pipe:
+                pipe.hset(f"user:{user_id}", "balance", new_balance)
+                pipe.hset(f"user:{user_id}", "numbers", json.dumps(numbers))
+                pipe.hset(f"rental:{number}", mapping={
+                    "number": number,
+                    "user_id": user_id,
+                    "rent_date": rent_date.isoformat(),
+                    "hours": new_hours,
+                    "expiry_date": expiry.isoformat(),
+                })
+                pipe.zadd("rentals:expiry", {number: expiry.timestamp()})
+                pipe.sadd("rentals:all", number)
+                pipe.sadd(f"rentals:user:{user_id}", number)
+                pipe.hset("num_owner", number, user_id)
+                await pipe.execute()
+            break
+        except WatchError:
+            if attempt == 4:
+                raise
+            await asyncio.sleep(0.05 * (attempt + 1))
+        finally:
+            await client.unwatch()
     global _rentals_cache
     _rentals_cache = (0.0, [])
 
