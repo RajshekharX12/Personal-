@@ -83,6 +83,16 @@ except Exception as e:
     )
 
 
+async def close_fragment_session():
+    """Close the module-level Fragment HTTP session. Call on bot shutdown."""
+    global _frag_session
+    try:
+        await _frag_session.aclose()
+        logging.info("Fragment session closed.")
+    except Exception as e:
+        logging.debug("Fragment session close: %s", e)
+
+
 async def reload_fragment_cookies(path: str = "frag.json"):
     global _frag_session
     new_cookies = _load_cookies_from_file(path)
@@ -458,8 +468,15 @@ async def get_login_code_async(number: str, cookies_file: str = "frag.json") -> 
     except Exception as e:
         logging.error(f"Fragment code fetch failed: {e}")
         return None
+    if resp.status_code in (401, 403):
+        logging.error("Fragment cookies expired or invalid (HTTP %s). Update frag.json and reload cookies.", resp.status_code)
+        raise FragmentAuthError(f"Fragment auth failure: HTTP {resp.status_code}. Update frag.json and call /reload_frag_cookies if available.")
     if resp.status_code != 200:
         return None
+    body = resp.text.lower()
+    if "/login" in str(resp.url).lower() or ("sign in" in body and "password" in body):
+        logging.error("Fragment returned login page — cookies expired. Update frag.json and reload.")
+        raise FragmentAuthError("Fragment cookies expired. Update frag.json and reload cookies.")
     soup = BeautifulSoup(resp.text, "html.parser")
     code_div = soup.find("div", class_="tm-number-code-field")
     if code_div:
@@ -471,6 +488,12 @@ async def get_login_code_async(number: str, cookies_file: str = "frag.json") -> 
 
 def get_login_code(number: str, cookies_file="frag.json") -> str:
     """Sync wrapper for non-async callers. Prefer get_login_code_async from async code."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        raise RuntimeError("Cannot call get_login_code from async context; use get_login_code_async instead.")
     return asyncio.run(get_login_code_async(number, cookies_file))
 
 def disable_receive_login_codes(number: str, cookies_file="frag.json") -> bool:
@@ -493,23 +516,27 @@ def disable_receive_login_codes(number: str, cookies_file="frag.json") -> bool:
     return False
 
 async def terminate_all_sessions_async(number: str, cookies_file: str = "frag.json") -> str:
-    """Terminate all active sessions for the given number (async, non-blocking)."""
-    cookies = _load_cookies_from_file(cookies_file)
+    """Terminate all active sessions for the given number (async, non-blocking). Uses shared _frag_session."""
     num_path = number.replace("+", "").replace(" ", "")
     url = "https://fragment.com/api"
     headers = {"User-Agent": _default_user_agent(), "Referer": "https://fragment.com/", "Content-Type": "application/x-www-form-urlencoded"}
-    async with AsyncClient(cookies=cookies, timeout=15.0) as client:
-        resp = await client.post(url, data={"method": "terminatePhoneSessions", "number": num_path}, headers=headers)
-        data = resp.json()
-        if not data.get("ok"):
-            raise Exception("Failed to start termination")
-        terminate_hash = data.get("terminate_hash")
-        resp2 = await client.post(url, data={"method": "terminatePhoneSessions", "number": num_path, "terminate_hash": terminate_hash}, headers=headers)
-        return resp2.json().get("msg", "No message")
+    resp = await _frag_session.post(url, data={"method": "terminatePhoneSessions", "number": num_path}, headers=headers)
+    data = resp.json()
+    if not data.get("ok"):
+        raise Exception("Failed to start termination")
+    terminate_hash = data.get("terminate_hash")
+    resp2 = await _frag_session.post(url, data={"method": "terminatePhoneSessions", "number": num_path, "terminate_hash": terminate_hash}, headers=headers)
+    return resp2.json().get("msg", "No message")
 
 
 def terminate_all_sessions(number: str, cookies_file="frag.json") -> str:
     """Sync wrapper. Prefer terminate_all_sessions_async from async code."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        raise RuntimeError("Cannot call terminate_all_sessions from async context; use terminate_all_sessions_async instead.")
     return asyncio.run(terminate_all_sessions_async(number, cookies_file))
 
 
@@ -639,6 +666,12 @@ def get_restricted_numbers(
     verbose: bool = False,
 ) -> List[str]:
     """Sync wrapper; returns list of restricted numbers. Prefer get_restricted_numbers_async from async code."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        raise RuntimeError("Cannot call get_restricted_numbers from async context; use get_restricted_numbers_async instead.")
     restricted, _ = asyncio.run(
         get_restricted_numbers_async(cookies_file=cookies_file, timeout=timeout, user_agent=user_agent, verify_ssl=verify_ssl, verbose=verbose)
     )
