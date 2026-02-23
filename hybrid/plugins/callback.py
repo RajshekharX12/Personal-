@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 from email.mime import message
 import re
 import os
@@ -749,8 +747,12 @@ Details:
         await show_numbers(query, page=page)
 
     elif data.startswith("admin_number_"):
-        _, _, number, page = data.split("_")
-        page = int(page)
+        remainder = data[len("admin_number_"):]
+        parts = remainder.rsplit("_", 1)
+        if len(parts) != 2 or not parts[1].isdigit():
+            return await query.answer("❌ Invalid request.", show_alert=True)
+        number = parts[0]
+        page = int(parts[1])
 
         number_data = await get_number_info(number)
         if not number_data:
@@ -793,8 +795,12 @@ Details:
         )
 
     elif data.startswith("change_price_") and query.from_user.id in ADMINS:
-        _, _, number, page = data.split("_")
-        page = int(page)
+        remainder = data[len("change_price_"):]
+        parts = remainder.rsplit("_", 1)
+        if len(parts) != 2 or not parts[1].isdigit():
+            return await query.answer("❌ Invalid request.", show_alert=True)
+        number = parts[0]
+        page = int(parts[1])
 
         try:
             response = await query.message.chat.ask(
@@ -825,8 +831,12 @@ Details:
         return
     
     elif data.startswith("toggle_avail_") and query.from_user.id in ADMINS:
-        _, _, number, page = data.split("_")
-        page = int(page)
+        remainder = data[len("toggle_avail_"):]
+        parts = remainder.rsplit("_", 1)
+        if len(parts) != 2 or not parts[1].isdigit():
+            return await query.answer("❌ Invalid request.", show_alert=True)
+        number = parts[0]
+        page = int(parts[1])
 
         number_data = await get_number_info(number)
         if not number_data:
@@ -896,6 +906,11 @@ Details:
             await log_admin_action(query.from_user.id, "admin_cancel_rent", number, f"user_id={user_id}")
             from hybrid.plugins.fragment import terminate_all_sessions_async
             await terminate_all_sessions_async(number)
+            async with temp.get_lock():
+                temp.RENTED_NUMS.discard(number)
+                temp.UN_AV_NUMS.discard(number)
+                if number not in temp.AVAILABLE_NUM:
+                    temp.AVAILABLE_NUM.add(number)
 
         if success:
             _bal = await get_user_balance(user.id) or 0.0
@@ -909,7 +924,7 @@ Details:
 • Cancelled By: {query.from_user.mention} (ID: {query.from_user.id})
             """
             keyboard = [
-                [InlineKeyboardButton("🗑️ Delete Account", callback_data=f"delacc_{number}")],
+                [InlineKeyboardButton("🗑️ Delete Account", callback_data=f"delacc_{number}_{user_id}")],
                 [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
             ]
             await query.message.edit_text(TEXT, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
@@ -997,7 +1012,7 @@ Details:
                 await client.send_message(
                     user.id,
                     f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Your rental for number {number} has been extended by {h_days} days by the admin.\n"
-                    f"• Rented On: {user_data[1].strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+                    f"• Rented On: {user_data[2].strftime('%Y-%m-%d %H:%M:%S UTC') if hasattr(user_data[2], 'strftime') else str(user_data[2])}\n"
                     f"• New Time Left: {new_time_left}\n"
                     f"For more info, contact support.",
                     parse_mode=ParseMode.HTML,
@@ -1347,17 +1362,11 @@ For support, contact the bot developer."""
         await query.message.edit_text("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rules updated successfully in all languages.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data.startswith("delacc_") and query.from_user.id in ADMINS:
-        number = data.replace("delacc_", "")
-        user_data = await get_user_by_number(number)
-        if not user_data:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        user_id = user_data[0]
-        user = await client.get_users(user_id)
+        parts = data.replace("delacc_", "").rsplit("_", 1)
+        number = parts[0]
+        user_id = int(parts[1]) if len(parts) == 2 and parts[1].isdigit() else None
 
         # ========== Delete Account logic ========== #
-        check = await fragment_api.check_is_number_free(number)
-        if check:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Cannot delete account. The number is currently in use in Fragment.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         stat, reason = await delete_account(number, app=client)
         if stat:
             await log_admin_action(query.from_user.id, "admin_delete_acc", number, f"reason={reason}")
@@ -2122,4 +2131,6 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+
 
