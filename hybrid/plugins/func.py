@@ -198,23 +198,7 @@ async def t(user_id: int, key: str, **kwargs):
     _emoji_fallback = {"success":"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji>","error":"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji>","warning":"⚠️","phone":"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>","money":"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>","renew":"<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji>","get_code":"<tg-emoji emoji-id=\"5433811242135331842\">📨</tg-emoji>","back":"⬅️","date":"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji>","loading":"<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>","time":"<tg-emoji emoji-id=\"5413704112220949842\">🕒</tg-emoji>","timeout":"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji>"}
     text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: _emoji_fallback.get(m.group(1), ""), text)
     text = _md_to_html(text)
-    # #region agent log
-    try:
-        result = text.format(**kwargs) if kwargs else text
-        try:
-            with open("debug-d803cf.log", "a") as _f:
-                _f.write(__import__("json").dumps({"sessionId":"d803cf","hypothesisId":"E","location":"func.py:t","message":"t() format ok","data":{"key":key,"kwargs_keys":list(kwargs.keys()) if kwargs else []},"timestamp":__import__("time").time()}) + "\n")
-        except Exception:
-            pass
-        return result
-    except (KeyError, TypeError) as e:
-        try:
-            with open("debug-d803cf.log", "a") as _f:
-                _f.write(__import__("json").dumps({"sessionId":"d803cf","hypothesisId":"E","location":"func.py:t","message":"t() format FAIL","data":{"key":key,"error":str(e),"kwargs_keys":list(kwargs.keys()) if kwargs else []},"timestamp":__import__("time").time()}) + "\n")
-        except Exception:
-            pass
-        return text
-    # #endregion
+    return text.format(**kwargs) if kwargs else text
 
 from hybrid.plugins.db import get_number_data, get_number_info, save_number_info, save_7day_deletion
 
@@ -316,7 +300,6 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
 
 
 _ton_price_cache = {"price": 0.0, "ts": 0.0}
-
 
 async def get_ton_price_usd() -> float:
     import time
