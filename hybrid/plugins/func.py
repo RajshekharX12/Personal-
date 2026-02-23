@@ -6,9 +6,9 @@ import asyncio
 import logging
 import random
 import re
-import requests
 import traceback
 import csv
+import httpx
 
 from os import execvp
 from sys import executable
@@ -187,10 +187,13 @@ def h(text: str) -> str:
     """Convert inline Markdown to HTML. Use for hardcoded messages."""
     return _md_to_html(text)
 
+_LANG_CACHE_MAX = 10000
 _lang_cache: dict[int, str] = {}
 
 async def t(user_id: int, key: str, **kwargs):
     if user_id not in _lang_cache:
+        if len(_lang_cache) > _LANG_CACHE_MAX:
+            _lang_cache.clear()
         from hybrid.plugins.db import get_user_language
         _lang_cache[user_id] = await get_user_language(user_id) or "en"
     lang = _lang_cache[user_id]
@@ -305,17 +308,15 @@ async def get_ton_price_usd() -> float:
     import time
     if _ton_price_cache["price"] > 0 and time.monotonic() - _ton_price_cache["ts"] < 60:
         return _ton_price_cache["price"]
-    loop = asyncio.get_event_loop()
     try:
-        r = await loop.run_in_executor(
-            None,
-            lambda: requests.get("https://tonapi.io/v2/rates?tokens=ton&currencies=usd", timeout=10)
-        )
-        data = r.json()
-        price = float(data["rates"]["TON"]["prices"]["USD"])
-        _ton_price_cache["price"] = price
-        _ton_price_cache["ts"] = time.monotonic()
-        return price
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get("https://tonapi.io/v2/rates?tokens=ton&currencies=usd")
+            r.raise_for_status()
+            data = r.json()
+            price = float(data["rates"]["TON"]["prices"]["USD"])
+            _ton_price_cache["price"] = price
+            _ton_price_cache["ts"] = time.monotonic()
+            return price
     except Exception as e:
         logging.warning(f"Failed to fetch TON price: {e}")
         return _ton_price_cache["price"]
@@ -427,8 +428,8 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
         from urllib.parse import quote
         addr_param = quote(TON_WALLET.strip(), safe="")
         url = f"https://toncenter.com/api/v2/getTransactions?address={addr_param}&limit=50"
-        loop = asyncio.get_event_loop()
-        r = await loop.run_in_executor(None, lambda: requests.get(url, timeout=8))
+        async with httpx.AsyncClient(timeout=8.0) as http_client:
+            r = await http_client.get(url)
         if r.status_code != 200:
             return
         data = r.json()
