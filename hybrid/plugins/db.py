@@ -1,6 +1,3 @@
-# (©) @Hybrid_Vamp - https://github.com/hybridvamp
-# Redis-only database
-
 import json
 import os
 import ssl
@@ -297,16 +294,15 @@ async def get_rental_by_owner(user_id: int, number: str):
 
 
 async def get_user_numbers(user_id: int):
-    """Return numbers rented by user. Merges rentals:user with get_all_rentals for consistency."""
+    """Return numbers rented by user. Uses rentals:user when present; fallback to get_all_rentals for legacy data."""
     members = await client.smembers(f"rentals:user:{user_id}")
-    nums = list(members) if members else []
+    if members:
+        return list(members)
     uid = int(user_id)
-    for doc in await get_all_rentals():
-        if int(doc.get("user_id") or 0) == uid:
-            n = doc.get("number")
-            if n and n not in nums:
-                nums.append(n)
-    return nums
+    return [
+        doc.get("number") for doc in await get_all_rentals()
+        if int(doc.get("user_id") or 0) == uid and doc.get("number")
+    ]
 
 
 async def remove_number_data(number: str):
