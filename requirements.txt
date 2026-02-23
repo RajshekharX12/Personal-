@@ -5,6 +5,7 @@ pytoniq-core
 # pyromod
 python-dotenv
 requests
+httpx
 aiosend
 psutil
 redis
