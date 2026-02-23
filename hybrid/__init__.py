@@ -79,9 +79,11 @@ async def load_num_data():
     if not stat or stat.get("message") != "OK":
         logging.error("Failed to load numbers from Fragment API (stat: %s).", stat)
         return
+    temp.NUMBE_RS_SET = set(temp.NUMBE_RS)
     for n in NU_MS:
-        if n not in temp.NUMBE_RS:
+        if n not in temp.NUMBE_RS_SET:
             temp.NUMBE_RS.append(n)
+            temp.NUMBE_RS_SET.add(n)
     from hybrid.plugins.db import get_number_data, get_number_info, save_number_info
     for num in temp.NUMBE_RS:
         info = await get_number_info(num)
@@ -713,5 +715,10 @@ class Bot(Client):
 
     async def stop(self, *args):
         await super().stop()
+        try:
+            from hybrid.plugins.fragment import close_fragment_session
+            await close_fragment_session()
+        except Exception as e:
+            logging.debug("Fragment session close on stop: %s", e)
         logging.info("Bot stopped.")
 
