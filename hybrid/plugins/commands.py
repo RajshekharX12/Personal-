@@ -236,23 +236,27 @@ async def broadcast_cmd(_, message):
     user_ids = await get_all_user_ids()
     success_count = 0
     fail_count = 0
+    sem = asyncio.Semaphore(20)
 
-    for user_id in user_ids:
-        try:
-            await broadcast_message.copy(chat_id=user_id)
-            success_count += 1
-            await asyncio.sleep(0.1)  # slight delay to avoid hitting rate limits
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
+    async def send_one(uid):
+        nonlocal success_count, fail_count
+        async with sem:
             try:
-                await broadcast_message.copy(chat_id=user_id)
+                await broadcast_message.copy(chat_id=uid)
                 success_count += 1
+            except FloodWait as e:
+                await asyncio.sleep(e.value + 1)
+                try:
+                    await broadcast_message.copy(chat_id=uid)
+                    success_count += 1
+                except Exception as fe:
+                    logging.error(f"Failed after FloodWait for {uid}: {fe}")
+                    fail_count += 1
             except Exception as e:
-                logging.error(f"Failed to send broadcast to {user_id} after FloodWait: {e}")
+                logging.error(f"Failed to send broadcast to {uid}: {e}")
                 fail_count += 1
-        except Exception as e:
-            logging.error(f"Failed to send broadcast to {user_id}: {e}")
-            fail_count += 1
+
+    await asyncio.gather(*[send_one(uid) for uid in user_ids], return_exceptions=True)
 
     await message.reply_text(f"📢 Broadcast completed!\n<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Success: {success_count}\n<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed: {fail_count}", parse_mode=ParseMode.HTML)
 
