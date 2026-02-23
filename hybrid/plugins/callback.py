@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 from email.mime import message
 import re
 import os
@@ -66,6 +64,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
 
 async def _callback_handler_impl(client: Client, query: CallbackQuery):
+    await query.answer()
     user_id = query.from_user.id
     data = query.data
 
@@ -666,6 +665,55 @@ Details:
             [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
         ])
         await _safe_edit(query.message, text, reply_markup=keyboard, client=client)
+
+    elif data == "checktx" and query.from_user.id in ADMINS:
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the transaction hash or invoice ID to verify (within 120s):",
+                timeout=120
+            )
+        except Exception:
+            return await query.message.edit_text(
+                "⏰ Timeout! Please try again.",
+                reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD,
+                parse_mode=ParseMode.HTML
+            )
+        tx_id = response.text.strip()
+        await response.delete()
+        try:
+            await response.sent_message.delete()
+        except Exception:
+            pass
+        if not tx_id:
+            return await query.message.edit_text(
+                "❌ No transaction ID provided.",
+                reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD,
+                parse_mode=ParseMode.HTML
+            )
+        result_text = f"🔍 Transaction check for: <code>{tx_id}</code>\n\n"
+        if CRYPTO_STAT:
+            try:
+                from hybrid import cp
+                invoice = await cp.get_invoice(tx_id)
+                if invoice:
+                    result_text += (
+                        f"✅ Found CryptoBot Invoice\n"
+                        f"• Status: {invoice.status}\n"
+                        f"• Amount: {invoice.amount} {invoice.asset}\n"
+                        f"• Payload: {invoice.payload or 'N/A'}\n"
+                        f"• Invoice ID: {invoice.invoice_id}\n"
+                    )
+                else:
+                    result_text += "❌ Invoice not found in CryptoBot.\n"
+            except Exception as e:
+                result_text += f"❌ CryptoBot lookup failed: {e}\n"
+        else:
+            result_text += "⚠️ CryptoBot is not configured.\n"
+        await query.message.edit_text(
+            result_text,
+            reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD,
+            parse_mode=ParseMode.HTML
+        )
 
     elif data == "admin_numbers" and query.from_user.id in ADMINS:
         await show_numbers(query, page=1)
@@ -1323,7 +1371,6 @@ For support, contact the bot developer."""
         # ========== End Delete Account logic ========== #
 
     elif data == "rentnum":
-        await query.message.edit("<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>", parse_mode=ParseMode.HTML)
         await query.message.edit_text(
             await t(user_id, "choose_number"),
             reply_markup=await build_rentnum_keyboard(user_id, page=0),
@@ -1340,7 +1387,6 @@ For support, contact the bot developer."""
         )
 
     elif data.startswith("rentpay:"):
-        await query.answer()
         parts = data.split(":")
         user_id = query.from_user.id
         if len(parts) >= 2:
