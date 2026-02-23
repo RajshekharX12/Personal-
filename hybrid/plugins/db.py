@@ -28,7 +28,7 @@ if "azure.cloud.redislabs.com" in _redis_uri and _redis_uri.startswith("rediss:/
 
 # Use a connection pool so multiple concurrent requests don't queue on a single connection.
 # Avoids blocking under load when many users hit the bot at once.
-client = redis.from_url(_redis_uri, decode_responses=True, max_connections=20)
+client = redis.from_url(_redis_uri, decode_responses=True, max_connections=50)
 
 def _parse_dt(s):
     if s is None:
@@ -383,11 +383,16 @@ async def get_all_rentals():
     now = time.monotonic()
     if now - _rentals_cache[0] < _RENTALS_CACHE_TTL and _rentals_cache[1]:
         return _rentals_cache[1]
-    numbers = await client.smembers("rentals:all")
+    numbers = list(await client.smembers("rentals:all") or [])
+    if not numbers:
+        _rentals_cache = (now, [])
+        return []
+    async with client.pipeline() as pipe:
+        for number in numbers:
+            pipe.hgetall(f"rental:{number}")
+        results = await pipe.execute()
     out = []
-    for number in numbers or []:
-        key = f"rental:{number}"
-        data = await client.hgetall(key)
+    for number, data in zip(numbers, results):
         if not data:
             continue
         doc = {
@@ -618,21 +623,35 @@ async def get_ton_order(order_ref: str):
 async def get_all_pending_ton_orders(max_age_seconds=1800):
     """Return pending orders. Expired ones (>max_age_seconds) are removed."""
     now = _now().timestamp()
-    refs = await client.zrange("ton_orders:pending", 0, -1)
+    refs = list(await client.zrange("ton_orders:pending", 0, -1) or [])
+    if not refs:
+        return []
+    async with client.pipeline() as pipe:
+        for ref in refs:
+            pipe.hgetall(f"ton_order:{ref}")
+        results = await pipe.execute()
     orders = []
-    for ref in refs:
+    for ref, data in zip(refs, results):
         try:
-            o = await get_ton_order(ref)
-            if not o:
+            if not data:
                 await delete_ton_order(ref)
                 continue
+            o = {
+                "user_id": int(data["user_id"]),
+                "amount": float(data["amount"]),
+                "amount_ton": float(data.get("amount_ton") or data["amount"]),
+                "payload": data["payload"],
+                "msg_id": int(data["msg_id"]),
+                "chat_id": int(data["chat_id"]),
+                "created_at": _parse_dt(data.get("created_at")),
+            }
             created = o.get("created_at")
             if created and (now - created.timestamp()) > max_age_seconds:
                 await delete_ton_order(ref)
                 continue
             orders.append((ref, o))
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError, KeyError):
+            await delete_ton_order(ref)
     return orders
 
 
