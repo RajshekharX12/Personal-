@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 import sys
 import logging
 import asyncio
@@ -172,6 +170,7 @@ async def _process_one_expired(number: str, client, now):
     if not user_id:
         await remove_number_data(number)
         return
+    seven_day_pending = False
     try:
         async with EXPIRED_DELETE_SEMAPHORE:
             try:
@@ -184,6 +183,7 @@ async def _process_one_expired(number: str, client, now):
             await remove_number_data(number)
             await remove_number(number, user_id)
         if reason == "7Days":
+            seven_day_pending = True
             from hybrid.plugins.db import save_7day_deletion
             await save_7day_deletion(number, now + timedelta(days=7))
         if not stat and reason == "Banned":
@@ -196,22 +196,24 @@ async def _process_one_expired(number: str, client, now):
         async with temp.get_lock():
             if number in temp.RENTED_NUMS:
                 temp.RENTED_NUMS.remove(number)
-        # Verify number is free on Fragment before relisting
-        try:
-            from hybrid.plugins.fragment import fragment_api
-            is_free = await fragment_api.check_is_number_free(number)
-            if is_free:
+        if not seven_day_pending:
+            try:
+                from hybrid.plugins.fragment import fragment_api
+                is_free = await fragment_api.check_is_number_free(number)
+                if is_free:
+                    async with temp.get_lock():
+                        if number not in temp.AVAILABLE_NUM:
+                            temp.AVAILABLE_NUM.add(number)
+                    logging.info(f"Number {number} confirmed free on Fragment, relisted.")
+                else:
+                    logging.info(f"Number {number} not yet free on Fragment, skipping relist.")
+            except Exception as e:
+                logging.error(f"Fragment check failed for {number}: {e}")
                 async with temp.get_lock():
                     if number not in temp.AVAILABLE_NUM:
                         temp.AVAILABLE_NUM.add(number)
-                logging.info(f"Number {number} confirmed free on Fragment, relisted.")
-            else:
-                logging.info(f"Number {number} not yet free on Fragment, skipping relist.")
-        except Exception as e:
-            logging.error(f"Fragment check failed for {number}: {e}")
-            async with temp.get_lock():
-                if number not in temp.AVAILABLE_NUM:
-                    temp.AVAILABLE_NUM.add(number)
+        else:
+            logging.info(f"Number {number} is in 7-day deletion period — skipping relist.")
         from hybrid.plugins.func import t
         text = (await t(user_id, "expired_notify")).format(number=number)
         try:
@@ -298,6 +300,16 @@ async def check_7day_accs(client):
                                     await remove_number_data(num)
                                     await remove_number(num, user_id)
                                 await remove_7day_deletion(num)
+                                if user_id:
+                                    try:
+                                        await client.send_message(
+                                            user_id,
+                                            f"✅ The Telegram account linked to your number <b>{num}</b> has been permanently deleted.\n"
+                                            f"The number may now be available for re-rent.",
+                                            parse_mode=ParseMode.HTML,
+                                        )
+                                    except Exception as notify_err:
+                                        logging.error(f"Failed to notify user {user_id} after 7-day deletion of {num}: {notify_err}")
                             continue
                     # Cleanup after successful completion
                     user_id, _, _ = await get_user_by_number(num)
@@ -305,6 +317,16 @@ async def check_7day_accs(client):
                         await remove_number_data(num)
                         await remove_number(num, user_id)
                     await remove_7day_deletion(num)
+                    if user_id:
+                        try:
+                            await client.send_message(
+                                user_id,
+                                f"✅ The Telegram account linked to your number <b>{num}</b> has been permanently deleted.\n"
+                                f"The number may now be available for re-rent.",
+                                parse_mode=ParseMode.HTML,
+                            )
+                        except Exception as notify_err:
+                            logging.error(f"Failed to notify user {user_id} after 7-day deletion of {num}: {notify_err}")
                     async with temp.get_lock():
                         if num in temp.RENTED_NUMS:
                             temp.RENTED_NUMS.remove(num)
@@ -353,6 +375,16 @@ async def check_7day_accs(client):
                             await remove_number_data(num)
                             await remove_number(num, user_id)
                         await remove_7day_deletion(num)
+                        if user_id:
+                            try:
+                                await client.send_message(
+                                    user_id,
+                                    f"✅ The Telegram account linked to your number <b>{num}</b> has been permanently deleted.\n"
+                                    f"The number may now be available for re-rent.",
+                                    parse_mode=ParseMode.HTML,
+                                )
+                            except Exception as notify_err:
+                                logging.error(f"Failed to notify user {user_id} after 7-day deletion of {num}: {notify_err}")
                     elif reason == "Banned":
                         pass  # Banned feature disabled
             except Exception as e:
@@ -365,6 +397,16 @@ async def check_7day_accs(client):
                             await remove_number_data(num)
                             await remove_number(num, user_id)
                         await remove_7day_deletion(num)
+                        if user_id:
+                            try:
+                                await client.send_message(
+                                    user_id,
+                                    f"✅ The Telegram account linked to your number <b>{num}</b> has been permanently deleted.\n"
+                                    f"The number may now be available for re-rent.",
+                                    parse_mode=ParseMode.HTML,
+                                )
+                            except Exception as notify_err:
+                                logging.error(f"Failed to notify user {user_id} after 7-day deletion of {num}: {notify_err}")
                         async with temp.get_lock():
                             if num in temp.RENTED_NUMS:
                                 temp.RENTED_NUMS.remove(num)
@@ -643,7 +685,7 @@ class Bot(Client):
                 pass
 
         asyncio.create_task(schedule_reminders(self))
-        logging.info("Started reminder scheduler (every 30 min).")
+        logging.info("Started reminder scheduler (every 15 min).")
         asyncio.create_task(check_expired_numbers(self))
         logging.info("Started background task to check expired numbers.")
         asyncio.create_task(check_7day_accs(self))
