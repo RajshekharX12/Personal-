@@ -279,7 +279,7 @@ async def check_num_cmd(_, message):
 async def export_csv_cmd(_, message: Message):
     try:
         msg = await message.reply_text("⏳ <b>Exporting numbers data to CSV...</b>", parse_mode=ParseMode.HTML)
-        filename = export_numbers_csv(f"numbers_export_{gen_4letters()}.csv")
+        filename = await export_numbers_csv(f"numbers_export_{gen_4letters()}.csv")
         await message.reply_document(filename, caption="📑 Exported Numbers Data")
         os.remove(filename)
         await msg.delete()
