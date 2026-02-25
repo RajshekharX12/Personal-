@@ -1,3 +1,7 @@
+# (©) @Hybrid_Vamp - https://github.com/hybridvamp
+# Redis-only database
+# Do not add "from hybrid.plugins.db import ..." in this file (self-import causes circular import).
+
 import asyncio
 import json
 import os
@@ -595,94 +599,6 @@ async def get_user_profile_data(user_id: int):
     return balance, method
 
 
-# ========= TONKEEPER ORDERS =========
-USDT_JETTON_MASTER = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"  # USDT on TON mainnet
-
-
-async def _gen_order_ref() -> str:
-    """Generate unique alphanumeric order ref (e.g. PayEFoT3YAg). No # to avoid URL encoding issues."""
-    import random
-    import string
-    chars = string.ascii_letters + string.digits
-    for _ in range(10):
-        ref = "Pay" + "".join(random.choices(chars, k=8))
-        if not await client.exists(f"ton_order:{ref}"):
-            return ref
-    return "Pay" + "".join(random.choices(chars, k=8)) + str(_now().timestamp())[-4:]
-
-
-async def save_ton_order(order_ref: str, user_id: int, amount_usdt: float, amount_ton: float, payload: str, msg_id: int, chat_id: int, created_at=None):
-    """order_ref: unique alphanumeric (e.g. PayEFoT3YAg). No # in memo for Tonkeeper compatibility."""
-    if created_at is None:
-        created_at = _now()
-    data = {
-        "user_id": user_id,
-        "amount": str(amount_usdt),
-        "amount_ton": str(amount_ton),
-        "payload": payload,
-        "msg_id": msg_id,
-        "chat_id": chat_id,
-        "created_at": created_at.isoformat(),
-    }
-    await client.hset(f"ton_order:{order_ref}", mapping=data)
-    await client.zadd("ton_orders:pending", {order_ref: created_at.timestamp()})
-
-
-async def get_ton_order(order_ref: str):
-    data = await client.hgetall(f"ton_order:{order_ref}")
-    if not data:
-        return None
-    return {
-        "user_id": int(data["user_id"]),
-        "amount": float(data["amount"]),
-        "amount_ton": float(data.get("amount_ton") or data["amount"]),
-        "payload": data["payload"],
-        "msg_id": int(data["msg_id"]),
-        "chat_id": int(data["chat_id"]),
-        "created_at": _parse_dt(data.get("created_at")),
-    }
-
-
-async def get_all_pending_ton_orders(max_age_seconds=1800):
-    """Return pending orders. Expired ones (>max_age_seconds) are removed."""
-    now = _now().timestamp()
-    refs = list(await client.zrange("ton_orders:pending", 0, -1) or [])
-    if not refs:
-        return []
-    async with client.pipeline() as pipe:
-        for ref in refs:
-            pipe.hgetall(f"ton_order:{ref}")
-        results = await pipe.execute()
-    orders = []
-    for ref, data in zip(refs, results):
-        try:
-            if not data:
-                await delete_ton_order(ref)
-                continue
-            o = {
-                "user_id": int(data["user_id"]),
-                "amount": float(data["amount"]),
-                "amount_ton": float(data.get("amount_ton") or data["amount"]),
-                "payload": data["payload"],
-                "msg_id": int(data["msg_id"]),
-                "chat_id": int(data["chat_id"]),
-                "created_at": _parse_dt(data.get("created_at")),
-            }
-            created = o.get("created_at")
-            if created and (now - created.timestamp()) > max_age_seconds:
-                await delete_ton_order(ref)
-                continue
-            orders.append((ref, o))
-        except (ValueError, TypeError, KeyError):
-            await delete_ton_order(ref)
-    return orders
-
-
-async def delete_ton_order(order_ref: str):
-    await client.delete(f"ton_order:{order_ref}")
-    await client.zrem("ton_orders:pending", order_ref)
-
-
 # ========= RULES =========
 async def save_rules(rules: str, lang: str = "en"):
     await client.hset(f"rules:{lang}", mapping={"text": rules, "language": lang})
@@ -874,15 +790,6 @@ async def is_payment_processed_crypto(inv_id: str) -> bool:
 
 async def mark_payment_processed_crypto(inv_id: str):
     await client.set(f"processed_crypto:{inv_id}", "1", ex=_PROCESSED_TTL)
-
-
-async def is_payment_processed_ton(order_ref: str) -> bool:
-    """True if this TON order was already processed (replay protection)."""
-    return await client.exists(f"processed_ton:{order_ref}")
-
-
-async def mark_payment_processed_ton(order_ref: str):
-    await client.set(f"processed_ton:{order_ref}", "1", ex=_PROCESSED_TTL)
 
 
 # ========= ADMIN AUDIT LOG =========
