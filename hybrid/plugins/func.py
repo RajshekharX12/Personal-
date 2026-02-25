@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 import json
 import math
 import asyncio
@@ -9,8 +7,6 @@ import re
 import traceback
 import csv
 import httpx
-from collections import OrderedDict
-
 from os import execvp
 from sys import executable
 from datetime import datetime, timedelta, timezone
@@ -188,27 +184,17 @@ def h(text: str) -> str:
     """Convert inline Markdown to HTML. Use for hardcoded messages."""
     return _md_to_html(text)
 
-_LANG_CACHE_MAX = 10000
-_lang_cache: OrderedDict[int, str] = OrderedDict()
+# English only — no DB/cache for speed
+_EN = LANGUAGES.get("en", {})
 
 async def t(user_id: int, key: str, **kwargs):
-    if user_id not in _lang_cache:
-        while len(_lang_cache) >= _LANG_CACHE_MAX:
-            _lang_cache.popitem(last=False)
-        from hybrid.plugins.db import get_user_language
-        lang_val = await get_user_language(user_id) or "en"
-        _lang_cache[user_id] = lang_val
-        _lang_cache.move_to_end(user_id)
-    else:
-        _lang_cache.move_to_end(user_id)
-    lang = _lang_cache[user_id]
-    text = LANGUAGES.get(lang, LANGUAGES["en"]).get(key, key)
+    text = _EN.get(key, key)
     _emoji_fallback = {"success":"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji>","error":"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji>","warning":"⚠️","phone":"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>","money":"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>","renew":"<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji>","get_code":"<tg-emoji emoji-id=\"5433811242135331842\">📨</tg-emoji>","back":"⬅️","date":"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji>","loading":"<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>","time":"<tg-emoji emoji-id=\"5413704112220949842\">🕒</tg-emoji>","timeout":"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji>"}
     text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: _emoji_fallback.get(m.group(1), ""), text)
     text = _md_to_html(text)
     return text.format(**kwargs) if kwargs else text
 
-from hybrid.plugins.db import get_number_data, get_number_info, save_number_info, save_7day_deletion
+# Db imports are lazy below to avoid circular import (init->func->db->?).
 
 NUMBERS_PER_PAGE = 8
 
@@ -651,11 +637,13 @@ async def delete_account(number: str, app: Client, two_fa_password: str = None) 
                 # 2FA without password = 7 day waiting period
                 if "2FA_CONFIRM_WAIT" in error_text or "SESSION_PASSWORD_NEEDED" in error_text:
                     logging.info("2FA detected - Telegram scheduled deletion in 7 days.")
+                    from hybrid.plugins.db import save_7day_deletion
                     await save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
                     return True, "7Days"
                 # Account already scheduled for deletion
                 if "ACCOUNT_DELETE_SCHEDULED" in error_text:
                     logging.info("Account deletion already scheduled.")
+                    from hybrid.plugins.db import save_7day_deletion
                     await save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
                     return True, "7Days"
                 logging.error("DeleteAccount RPCError: %s", e)
@@ -729,8 +717,6 @@ def format_date(date_str) -> str:
         return s[:10] if len(s) >= 10 else s
     return dt.strftime("%d/%m/%y")
 
-from hybrid.plugins.db import get_user_balance, get_number_data, get_rented_data_for_number, get_all_rentals
-
 try:
     from hybrid.plugins.db import get_all_pool_numbers
 except ImportError:
@@ -742,6 +728,7 @@ async def export_numbers_csv(filename: str = "numbers_export.csv"):
     Export all numbers with rental details to a CSV file.
     Includes pool numbers + rented numbers (admin-assigned may not be in pool).
     """
+    from hybrid.plugins.db import get_user_balance, get_rented_data_for_number, get_all_rentals
     pool = set(await get_all_pool_numbers()) if get_all_pool_numbers else set()
     pool = pool or set(temp.NUMBE_RS or [])
     rented_numbers = {doc.get("number") for doc in await get_all_rentals() if doc.get("number")}
