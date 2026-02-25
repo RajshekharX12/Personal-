@@ -581,7 +581,8 @@ async def save_user_payment_method(user_id: int, method: str):
 
 
 async def get_user_payment_method(user_id: int):
-    method = await client.get(f"payment:{user_id}") or "cryptobot"
+    raw = await client.get(f"payment:{user_id}")
+    method = (raw or "").strip() or "cryptobot"
     return method if method != "tron" else "cryptobot"
 
 
@@ -790,6 +791,25 @@ async def is_payment_processed_crypto(inv_id: str) -> bool:
 
 async def mark_payment_processed_crypto(inv_id: str):
     await client.set(f"processed_crypto:{inv_id}", "1", ex=_PROCESSED_TTL)
+
+
+# ========= INV_DICT persistence (CryptoBot invoice -> message) =========
+async def save_inv_entry(user_id: int, inv_id, msg_id: int):
+    await client.hset("inv_dict", str(user_id), f"{inv_id}:{msg_id}")
+
+
+async def load_inv_dict() -> dict:
+    raw = await client.hgetall("inv_dict")
+    result = {}
+    for uid, val in (raw or {}).items():
+        parts = val.split(":")
+        if len(parts) == 2:
+            result[int(uid)] = (parts[0], int(parts[1]))
+    return result
+
+
+async def delete_inv_entry(user_id: int):
+    await client.hdel("inv_dict", str(user_id))
 
 
 # ========= ADMIN AUDIT LOG =========
