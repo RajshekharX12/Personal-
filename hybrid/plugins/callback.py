@@ -338,22 +338,12 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             payment_method = "Not set"
         text = t(user.id, "profile_text", id=user.id, fname=user.first_name or "N/A", uname=("@" + user.username) if user.username else "N/A", bal=balance, payment_method=payment_method)
         add_bal_lbl = t(user.id, "add_balance")
-        change_pay_lbl = t(user.id, "change_payment_method")
         back_lbl = t(user.id, "back")
         keyboard = [
             [InlineKeyboardButton(add_bal_lbl, callback_data="add_balance")],
-            [InlineKeyboardButton(change_pay_lbl, callback_data="change_payment_method")],
             [InlineKeyboardButton(back_lbl, callback_data="back_home")],
         ]
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
-
-    elif data == "change_payment_method":
-        rows = [
-            [InlineKeyboardButton("CryptoBot (@send)", callback_data="setpayment_cryptobot")],
-            [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
-        ]
-        keyboard = InlineKeyboardMarkup(rows)
-        await query.message.edit_text(t(user_id, "choose_payment_method"), reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     elif data == "back_home":
         user = query.from_user
@@ -380,111 +370,82 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
 
         await _safe_edit(query.message, welcome_t, reply_markup=keyboard, client=client)
 
-    elif data == "setpayment_tron" or data == "setpayment_cryptobot" or data.startswith("setpayment_"):
-        method = data.replace("setpayment_", "")
-        if method == "cryptobot":
-            await save_user_payment_method(user_id, "cryptobot")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
-                                          reply_markup=InlineKeyboardMarkup(
-                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
-                                          ), parse_mode=ParseMode.HTML)
-        else:
-            await query.answer("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid payment method selected.", show_alert=True)
-    
-    elif data.startswith("set_payment_"):
-        method = data.replace("set_payment_", "")
-        if method == "cryptobot":
-            await save_user_payment_method(user_id, "cryptobot")
-            await query.message.edit_text(t(user_id, "selected_payment_method", method="CryptoBot (@send)"),
-                                          reply_markup=InlineKeyboardMarkup(
-                                              [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
-                                          ), parse_mode=ParseMode.HTML)
-            await asyncio.sleep(3)
-            await query.message.delete()
-        else:
-            await query.answer("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid payment method selected.", show_alert=True)
-            await asyncio.sleep(3)
-            await query.message.delete()
-
     elif data == "add_balance":
-        method = await get_user_payment_method(user_id)
-        if not method:
-            return await give_payment_option(client, query.message, user_id)
         chat = query.message.chat
         enter_amount_t = t(user_id, "enter_amount")
         back_t = t(user_id, "back")
 
-        if method == "cryptobot":
-            if not CRYPTO_STAT:
-                keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
-                )
-                return await query.message.edit_text(
-                    "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> CryptoBot payments are currently disabled. Please choose another method.",
-                    reply_markup=keyboard,
-                    parse_mode=ParseMode.HTML,
-                )
-            
-            else:
-                if not await check_rate_limit(user_id, "payment_create", 5, 60):
-                    return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
-                try:
-                    response = await chat.ask(enter_amount_t, timeout=120)
-                except Exception:
-                    keyboard = InlineKeyboardMarkup(
-                        [[InlineKeyboardButton(back_t, callback_data="profile")]]
-                    )
-                    return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        if not CRYPTO_STAT:
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+            )
+            return await query.message.edit_text(
+                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> CryptoBot payments are currently disabled. Please choose another method.",
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+            )
 
-                try:
-                    amount = float(response.text.strip())
-                    if amount <= 0:
-                        return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Amount must be greater than 0.5 USDT.", parse_mode=ParseMode.HTML)
-                except ValueError:
-                    return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid input. Please enter a valid number.", parse_mode=ParseMode.HTML)
+        if not await check_rate_limit(user_id, "payment_create", 5, 60):
+            return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
+        try:
+            response = await chat.ask(enter_amount_t, timeout=120)
+        except Exception:
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton(back_t, callback_data="profile")]]
+            )
+            return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
-                user_id = query.from_user.id
+        try:
+            amount = float(response.text.strip())
+            if amount <= 0:
+                return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Amount must be greater than 0.5 USDT.", parse_mode=ParseMode.HTML)
+        except ValueError:
+            return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid input. Please enter a valid number.", parse_mode=ParseMode.HTML)
 
-                invoice = await cp.create_invoice(
-                    amount=amount,
-                    asset="USDT",
-                    description=f"Top-up for {user_id}",
-                    payload=str(f"{user_id}_{query.message.id}"),
-                    allow_comments=False,
-                    allow_anonymous=False,
-                    expires_in=1800
-                )
+        user_id = query.from_user.id
 
-                # cancel old invoice if exists
-                if user_id in temp.INV_DICT:
-                    old_inv_id, old_msg_id = temp.INV_DICT[user_id]
-                    old_invoice = await cp.get_invoice(old_inv_id)
-                    if old_invoice.status == "pending":
-                        await cp.cancel_invoice(old_inv_id)
-                    try:
-                        msg = await client.get_messages(chat.id, old_msg_id)
-                        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This invoice has been cancelled due to a new top-up request.", parse_mode=ParseMode.HTML)
-                    except Exception:
-                        pass
-                    temp.INV_DICT.pop(user_id, None)
+        invoice = await cp.create_invoice(
+            amount=amount,
+            asset="USDT",
+            description=f"Top-up for {user_id}",
+            payload=str(f"{user_id}_{query.message.id}"),
+            allow_comments=False,
+            allow_anonymous=False,
+            expires_in=1800
+        )
 
-                temp.INV_DICT[user_id] = (invoice.invoice_id, query.message.id)
-                temp.PENDING_INV.add(invoice.invoice_id)
+        # cancel old invoice if exists
+        if user_id in temp.INV_DICT:
+            old_inv_id, old_msg_id = temp.INV_DICT[user_id]
+            old_invoice = await cp.get_invoice(old_inv_id)
+            if old_invoice.status == "pending":
+                await cp.cancel_invoice(old_inv_id)
+            try:
+                msg = await client.get_messages(chat.id, old_msg_id)
+                await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This invoice has been cancelled due to a new top-up request.", parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+            temp.INV_DICT.pop(user_id, None)
+            await delete_inv_entry(user_id)
 
-                pay_url = invoice.bot_invoice_url
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Pay", url=pay_url)],
-                    [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
-                ])
+        temp.INV_DICT[user_id] = (invoice.invoice_id, query.message.id)
+        await save_inv_entry(user_id, invoice.invoice_id, query.message.id)
+        temp.PENDING_INV.add(invoice.invoice_id)
 
-                await query.message.edit_text(
-                    t(user_id, "payment_pending", amount=amount, inv=invoice.invoice_id),
-                    reply_markup=keyboard,
-                    parse_mode=ParseMode.HTML,
-                )
-                await response.delete()
-                await response.sent_message.delete()
-                return
+        pay_url = invoice.bot_invoice_url
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💳 Pay", url=pay_url)],
+            [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
+        ])
+
+        await query.message.edit_text(
+            t(user_id, "payment_pending", amount=amount, inv=invoice.invoice_id),
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+        )
+        await response.delete()
+        await response.sent_message.delete()
+        return
 
     elif data == "check_payment_" or data.startswith("check_payment_"):
         user_id = query.from_user.id
@@ -1509,7 +1470,6 @@ Details:
             get_user_profile_data(user_id),
         )
         balance = balance or 0.0
-        balance = balance or 0.0
         if not info or not info.get("available", True):
             return await query.answer(t(user_id, "unavailable"), show_alert=True)
 
@@ -1529,15 +1489,23 @@ Details:
             #     )
             # )
             amount = price - balance
-            if not method:
-                return await give_payment_option(client, query.message, user.id)
+            if not CRYPTO_STAT:
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t(user_id, "back"), callback_data=f"numinfo:{number}:0")]
+                ])
+                return await query.message.edit_text(
+                    "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> CryptoBot payments are currently disabled.",
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML,
+                )
             if not await check_rate_limit(user_id, "payment_create", 5, 60):
                 return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
-            if method == "cryptobot":
-                if not CRYPTO_STAT:
-                    return await give_payment_option(client, query.message, user.id)
-                from hybrid import cp
-                return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
+            from hybrid import cp
+            inv = await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
+            if inv:
+                temp.INV_DICT[user_id] = (inv.invoice_id, query.message.id)
+                await save_inv_entry(user_id, inv.invoice_id, query.message.id)
+                temp.PENDING_INV.add(inv.invoice_id)
             return
 
         if hours == 720:
@@ -1611,54 +1579,61 @@ Details:
             return await query.answer(t(user_id, "error_occurred"), show_alert=True)
         if balance < price:
             amount = price - balance
-            if not method:
-                return await give_payment_option(client, query.message, user.id)
+            if not CRYPTO_STAT:
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t(user_id, "back"), callback_data=f"numinfo:{number}:0")]
+                ])
+                return await query.message.edit_text(
+                    "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> CryptoBot payments are currently disabled.",
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML,
+                )
             if not await check_rate_limit(user_id, "payment_create", 5, 60):
                 return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
-            if method == "cryptobot":
-                if not CRYPTO_STAT:
-                    return await give_payment_option(client, query.message, user.id)
-                from hybrid import cp
-                return await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
+            from hybrid import cp
+            inv = await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
+            if inv:
+                temp.INV_DICT[user_id] = (inv.invoice_id, query.message.id)
+                await save_inv_entry(user_id, inv.invoice_id, query.message.id)
+                temp.PENDING_INV.add(inv.invoice_id)
             return
         # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
         if rented_data and rented_data.get("user_id") and rented_data.get("user_id") != user.id:
             return await query.answer(t(user_id, "unavailable"), show_alert=True)
 
+        try:
+            rent_date = rented_data.get("rent_date", get_current_datetime()) if rented_data else get_current_datetime()
 
-        rent_date = rented_data.get("rent_date", get_current_datetime()) if rented_data else get_current_datetime()
+            remaining_hours = get_remaining_hours(rent_date, rented_data.get("hours", 0)) if rented_data else 0
 
-        remaining_hours = get_remaining_hours(rent_date, rented_data.get("hours", 0)) if rented_data else 0
+            new_hours = remaining_hours + hours
+            new_balance = balance - price
 
-        new_hours = remaining_hours + hours
-        new_balance = balance - price
+            # if already remaining hours exist, extend from current time
+            # else start new rental from now
+            if remaining_hours > 0:
+                await save_number(number, user.id, new_hours, extend=True)
+                original_rent_date = rented_data.get("rent_date", get_current_datetime())
+                await save_rental_atomic(user.id, number, new_balance, original_rent_date, new_hours)
+            else:
+                await save_number(number, user.id, new_hours)
+                await save_rental_atomic(user.id, number, new_balance, get_current_datetime(), new_hours)
 
-        # if already remaining hours exist, extend from current time
-        # else start new rental from now
-        if remaining_hours > 0:
-            await save_number(number, user.id, new_hours, extend=True)
-            original_rent_date = rented_data.get("rent_date", get_current_datetime())
-            await save_rental_atomic(user.id, number, new_balance, original_rent_date, new_hours)
-        else:
-            await save_number(number, user.id, new_hours)
-            await save_rental_atomic(user.id, number, new_balance, get_current_datetime(), new_hours)
+            # Record revenue
+            await record_revenue(user.id, number, price, new_hours)
 
-        # Release checkout lock after successful rental
-        await unlock_number_for_rent(number)
+            async with temp.get_lock():
+                if number not in temp.RENTED_NUMS:
+                    temp.RENTED_NUMS.add(number)
+            duration = format_remaining_time(get_current_datetime(), new_hours)
 
-        # Record revenue
-        await record_revenue(user.id, number, price, new_hours)
-
-        async with temp.get_lock():
-            if number not in temp.RENTED_NUMS:
-                temp.RENTED_NUMS.add(number)
-        duration = format_remaining_time(get_current_datetime(), new_hours)
-
-        keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
-        await query.message.edit_text(
-            t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
-            reply_markup=keyboard
-        )
+            keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
+            await query.message.edit_text(
+                t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
+                reply_markup=keyboard
+            )
+        finally:
+            await unlock_number_for_rent(number)
 
     elif data.startswith("renew_"):
         raw = data.replace("renew_", "")
@@ -1817,5 +1792,4 @@ Details:
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
 
