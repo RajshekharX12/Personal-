@@ -54,6 +54,8 @@ async def _safe_edit(msg, text=None, reply_markup=None, client=None, **kwargs):
 
 @Bot.on_callback_query()
 async def callback_handler(client: Client, query: CallbackQuery):
+    import time
+    start = time.monotonic()
     try:
         await _callback_handler_impl(client, query)
     except MessageNotModified:
@@ -61,6 +63,12 @@ async def callback_handler(client: Client, query: CallbackQuery):
             await query.answer()
         except Exception:
             pass
+    finally:
+        elapsed_ms = (time.monotonic() - start) * 1000
+        if elapsed_ms > 1000:
+            logging.warning(f"[SLOW CALLBACK] data={query.data!r} user={query.from_user.id} took {elapsed_ms:.0f}ms")
+        else:
+            logging.info(f"[CALLBACK] data={query.data!r} user={query.from_user.id} took {elapsed_ms:.0f}ms")
 
 
 async def _callback_handler_impl(client: Client, query: CallbackQuery):
@@ -1842,4 +1850,3 @@ Details:
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
