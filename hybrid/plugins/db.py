@@ -1,905 +1,806 @@
-import asyncio
 import json
-import os
-import ssl
-import time
-import redis.asyncio as redis
-from redis.exceptions import WatchError
-import config
-from datetime import datetime, timezone, timedelta
+import math
+import asyncio
+import logging
+import random
+import re
+import traceback
+import csv
+import httpx
+from os import execvp
+from sys import executable
+from datetime import datetime, timedelta, timezone
 
-# Cache for get_all_rentals() to avoid repeated full scans when multiple callers need it in one request.
-# TTL 30 seconds: balances freshness with reducing N+1 calls (get_user_numbers, get_rental_by_owner, etc.).
-_RENTALS_CACHE_TTL = 30.0
-_rentals_cache = (0.0, [])
 
-def _now():
+from pyrogram import Client, types
+from pyrogram.raw import functions, types
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import (
+    SessionPasswordNeeded,
+    FloodWait,
+    PhoneCodeInvalid,
+    PhoneNumberUnoccupied,
+    PhoneNumberBanned,
+    RPCError
+)
+
+from hybrid.plugins.temp import temp
+from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH, TON_WALLET
+
+
+def get_current_datetime():
     return datetime.now(timezone.utc)
 
-# --- Redis ---
-_redis_uri = (getattr(config, "REDIS_URI", None) or os.environ.get("REDIS_URL", "redis://localhost:6379/0")).strip()
-if not (_redis_uri.startswith("redis://") or _redis_uri.startswith("rediss://") or _redis_uri.startswith("unix://")):
-    _redis_uri = "redis://" + _redis_uri.lstrip("/")
+def fetch_progress(current, total, length=10):
+    if total == 0:
+        return "Total cannot be zero."
+    percentage = int((current / total) * 100)
+    filled_length = int(length * current // total)
+    empty_length = length - filled_length
+    progress_bar = '▥' * filled_length + '▢' * empty_length
+    return f"[{progress_bar}] {percentage}%"
 
-# Force non-SSL for Azure Redis (port 18639 doesn't support SSL)
-if "azure.cloud.redislabs.com" in _redis_uri and _redis_uri.startswith("rediss://"):
-    _redis_uri = "redis://" + _redis_uri[8:]
+def restart(session_name, m: Message):
+    if m:
+        restart_handler(session_name, m.id,  m.chat.id)
+    execvp(executable, [executable, "-m", "hybrid"])
 
-# Use a connection pool so multiple concurrent requests don't queue on a single connection.
-# Avoids blocking under load when many users hit the bot at once.
-client = redis.from_url(_redis_uri, decode_responses=True, max_connections=50)
-
-def _parse_dt(s):
-    if s is None:
-        return None
-    if isinstance(s, datetime):
-        return s.replace(tzinfo=timezone.utc) if s.tzinfo is None else s
+async def check_proxy_async(pro_xy: str) -> bool:
+    """Check proxy reachability without blocking the event loop (uses httpx)."""
     try:
-        dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        import httpx
+        async with httpx.AsyncClient(proxy=pro_xy, timeout=10.0) as client:
+            response = await client.get("http://httpbin.org/ip")
+            return response.status_code == 200
+    except Exception:
+        return False
+
+
+def restart_handler(session_name, msg_id=None, user_id=None):
+    try:
+        with open("restart.json", "r") as f:
+            restart_data = json.load(f)
+    except FileNotFoundError:
+        restart_data = {}
+    except json.JSONDecodeError:
+        restart_data = {}
+
+    if msg_id is None or user_id is None:
+        if session_name in restart_data:
+            return restart_data[session_name]
+        else:
+            return None
+
+    if session_name not in restart_data:
+        restart_data[session_name] = {}
+    restart_data[session_name]['message_id'] = msg_id
+    restart_data[session_name]['user_id'] = user_id
+
+    with open("restart.json", "w") as f:
+        json.dump(restart_data, f, indent=4)
+    return restart_data[session_name]
+
+def get_restart_data(session_name):
+    try:
+        with open("restart.json", "r") as f:
+            restart_data = json.load(f)
+            msg_id = restart_data.get(session_name, {}).get('message_id')
+            user_id = restart_data.get(session_name, {}).get('user_id')
+            return msg_id, user_id
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None, None
+
+def _normalize_hours(total_hours) -> float:
+    """Convert total_hours to float safely (int, float, or str)."""
+    try:
+        return float(total_hours)
     except (TypeError, ValueError):
-        return None
+        return 0.0
+
+def _ensure_utc(dt: datetime) -> datetime:
+    """Ensure datetime is timezone-aware UTC."""
+    if dt is None:
+        return get_current_datetime()
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+def format_remaining_time(start_date: datetime, total_hours) -> str:
+    """Return remaining time as 'X days Yh Zm'."""
+    start_date = _ensure_utc(start_date)
+    total_hours = _normalize_hours(total_hours)
+
+    expiry = start_date + timedelta(hours=total_hours)
+    now = get_current_datetime().replace(tzinfo=timezone.utc)
+    remaining = expiry - now
+
+    if remaining.total_seconds() <= 0:
+        return "Expired"
+
+    days = remaining.days
+    hours, remainder = divmod(remaining.seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+
+    parts = []
+    if days > 0:
+        parts.append(f"{days} days")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0:
+        parts.append(f"{minutes}m")
+
+    return " ".join(parts) if parts else "0m"
+
+def get_remaining_hours(start_date: datetime, total_hours) -> int:
+    """Return remaining hours as integer."""
+    start_date = _ensure_utc(start_date)
+    total_hours = _normalize_hours(total_hours)
+
+    expiry = start_date + timedelta(hours=total_hours)
+    now = get_current_datetime()
+    remaining = expiry - now
+
+    if remaining.total_seconds() <= 0:
+        return 0
+
+    return max(0, int(remaining.total_seconds() // 3600))
+
+def get_numbers_page(page: int = 1, per_page: int = 10):
+    total = len(temp.NUMBE_RS)
+    pages = math.ceil(total / per_page)
+    start = (page - 1) * per_page
+    end = start + per_page
+    return temp.NUMBE_RS[start:end], pages
+
+async def show_numbers(query, page: int = 1):
+    numbers, pages = get_numbers_page(page)
+    kb = []
+
+    for num in numbers:
+        kb.append([InlineKeyboardButton(num, callback_data=f"admin_number_{num}_{page}")])
+
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_numbers_page_{page-1}"))
+    if page < pages:
+        nav.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin_numbers_page_{page+1}"))
+    if nav:
+        kb.append(nav)
+    kb.append([InlineKeyboardButton("Back to Admin Menu", callback_data="admin_panel")])
+
+    await query.message.edit_text(
+        f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji> Available Numbers (Page {page}/{pages})",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
+
+def _md_to_html(text: str) -> str:
+    """Convert Markdown to HTML for parse_mode HTML."""
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+    text = re.sub(r'__(.+?)__', r'<i>\1</i>', text)
+    return text
+
+def h(text: str) -> str:
+    """Convert inline Markdown to HTML. Use for hardcoded messages."""
+    return _md_to_html(text)
+
+# English only — no DB/cache for speed
+_EN = LANGUAGES.get("en", {})
+
+async def t(user_id: int, key: str, **kwargs):
+    text = _EN.get(key, key)
+    _emoji_fallback = {"success":"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji>","error":"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji>","warning":"⚠️","phone":"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>","money":"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>","renew":"<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji>","get_code":"<tg-emoji emoji-id=\"5433811242135331842\">📨</tg-emoji>","back":"⬅️","date":"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji>","loading":"<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>","time":"<tg-emoji emoji-id=\"5413704112220949842\">🕒</tg-emoji>","timeout":"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji>"}
+    text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: _emoji_fallback.get(m.group(1), ""), text)
+    text = _md_to_html(text)
+    return text.format(**kwargs) if kwargs else text
+
+from hybrid.plugins.db import get_number_data, get_number_info, save_number_info, save_7day_deletion
+
+NUMBERS_PER_PAGE = 8
+
+async def build_rentnum_keyboard(user_id: int, page: int = 0):
+    filtered_numbers = temp.AVAILABLE_NUM
+    filtered_numbers = [num for num in filtered_numbers if num not in temp.UN_AV_NUMS]
+    seen = set()
+    filtered_numbers = [x for x in filtered_numbers if not (x in seen or seen.add(x))]
+
+    available_nums = [n for n in filtered_numbers if n not in temp.RENTED_NUMS]
+    rented_nums = [n for n in filtered_numbers if n in temp.RENTED_NUMS]
+
+    ordered_numbers = available_nums + rented_nums
+
+    start = page * NUMBERS_PER_PAGE
+    end = start + NUMBERS_PER_PAGE
+    numbers_page = ordered_numbers[start:end]
+
+    keyboard = []
+
+    for number in numbers_page:
+        status = " 🔴" if number in temp.RENTED_NUMS else " 🟢"
+        keyboard.append([
+            InlineKeyboardButton(f"{number} {status}", callback_data=f"numinfo:{number}:{page}")
+        ])
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(await t(user_id, "back"), callback_data=f"rentnum_page:{page-1}"))
+        nav_row.append(InlineKeyboardButton(f"Page {page+1}/{math.ceil(len(ordered_numbers) / NUMBERS_PER_PAGE)}", callback_data="pagenumber"))
+    if end < len(ordered_numbers):
+        if page == 0:
+            nav_row.append(InlineKeyboardButton(f"Page {page+1}/{math.ceil(len(ordered_numbers) / NUMBERS_PER_PAGE)}", callback_data="pagenumber"))
+        nav_row.append(InlineKeyboardButton(await t(user_id, "next"), callback_data=f"rentnum_page:{page+1}"))
+
+    if nav_row:
+        keyboard.append(nav_row)
+
+    keyboard.append([InlineKeyboardButton(await t(user_id, "back_home"), callback_data="back_home")])
+
+    return InlineKeyboardMarkup(keyboard)
 
 
-# ========= USER NUMBERS =========
-def _norm_num(n):
-    s = str(n or "").strip().replace(" ", "").replace("-", "")
-    if s.startswith("+888") and len(s) >= 12:
-        return s
-    if s.startswith("888") and len(s) >= 11:
-        return "+" + s
-    return s if s.startswith("+888") else None
-
-async def save_number(number: str, user_id: int, hours: int, date: datetime = None, extend: bool = False):
-    """Save rental for user. Stores number in canonical +888 form and updates num_owner for fast lookup."""
-    if date is None:
-        date = _now()
-    number = _norm_num(number) or number
-
-    key = f"user:{user_id}"
-    numbers_raw = await client.hget(key, "numbers")
-    numbers = json.loads(numbers_raw) if numbers_raw else []
-
-    for i, n in enumerate(numbers):
-        if n.get("number") == number:
-            if not extend:
-                return False, "ALREADY"
-            numbers[i]["hours"] = hours
-            numbers[i]["date"] = date.isoformat()
-            await client.hset(key, "numbers", json.dumps(numbers))
-            return True, "UPDATED"
-
-    numbers.append({"number": number, "hours": hours, "date": date.isoformat()})
-    if not await client.exists(key):
-        await client.hset(key, mapping={"user_id": user_id, "balance": 0, "numbers": json.dumps(numbers)})
-        await client.sadd("users:all", user_id)
-    else:
-        await client.hset(key, "numbers", json.dumps(numbers))
-    # Reverse index: number -> user_id so get_user_by_number() is O(1) instead of scanning all users.
-    await client.hset("num_owner", number, user_id)
-    return True, "SAVED"
-
-
-async def get_user_by_number(number: str):
-    number = _norm_num(number) or number
-    uid = await client.hget("num_owner", number)
-    if not uid:
-        return False
-    key = f"user:{uid}"
-    numbers_raw = await client.hget(key, "numbers")
-    if not numbers_raw:
-        return False
-    numbers = json.loads(numbers_raw)
-    for n in numbers:
-        if (_norm_num(n.get("number")) or n.get("number")) == number:
-            date_s = n.get("date")
-            return int(uid), n.get("hours", 0), _parse_dt(date_s) if date_s else None
-    return False
-
-
-async def get_numbers_by_user(user_id: int):
-    key = f"user:{user_id}"
-    numbers_raw = await client.hget(key, "numbers")
-    if not numbers_raw:
-        return []
-    numbers = json.loads(numbers_raw)
-    return [n.get("number", str(n)) for n in numbers if isinstance(n, dict) and "number" in n]
-
-
-async def remove_number(number: str, user_id: int):
-    number = _norm_num(number) or number
-    num_canon = number
-
-    key = f"user:{user_id}"
-    numbers_raw = await client.hget(key, "numbers")
-    if not numbers_raw:
-        return False, "NOT_FOUND"
-    numbers = json.loads(numbers_raw)
-    new_numbers = []
-    for n in numbers:
-        stored = n.get("number")
-        if not stored:
-            new_numbers.append(n)
-            continue
-        stored_norm = _norm_num(stored) or stored
-        if stored_norm == num_canon or stored == number:
-            continue  # skip - removing this one
-        new_numbers.append(n)
-    if len(new_numbers) == len(numbers):
-        return False, "NOT_FOUND"
-    await client.hset(key, "numbers", json.dumps(new_numbers))
-    await client.hdel("num_owner", num_canon)
-    return True, "REMOVED"
-
-
-async def get_remaining_rent_days(number: str):
-    user_data = await get_user_by_number(number)
-    if not user_data:
-        return None
-    user_id, hours, rented_date = user_data
-    now = _now()
-    if rented_date and rented_date.tzinfo is None:
-        rented_date = rented_date.replace(tzinfo=timezone.utc)
-    elapsed = now - rented_date
-    elapsed_hours = elapsed.total_seconds() / 3600
-    remaining_hours = hours - elapsed_hours
-    return max(0, int(remaining_hours // 24)), max(0, int(remaining_hours % 24))
-
-
-# =========== Number Rent Data ============
-async def save_number_data(number: str, user_id: int, rent_date: datetime, hours: int):
-    """
-    Store rental by canonical +888 number so get_number_data() fast path (rental:{number}) always hits.
-    """
-    hours = int(hours)
-    number = _norm_num(number) or str(number or "").strip().replace(" ", "").replace("-", "")
-    if number.startswith("888") and not number.startswith("+888") and len(number) >= 11:
-        number = "+" + number
-    expiry_date = rent_date + timedelta(hours=hours)
-    key = f"rental:{number}"
-    await client.hset(key, mapping={
-        "number": number,
-        "user_id": user_id,
-        "rent_date": rent_date.isoformat(),
-        "hours": hours,
-        "expiry_date": expiry_date.isoformat(),
-    })
-    await client.zadd("rentals:expiry", {number: expiry_date.timestamp()})
-    await client.sadd("rentals:all", number)
-    await client.sadd(f"rentals:user:{user_id}", number)
-    await client.expire(key, int(hours * 3600) + 86400)
-    global _rentals_cache
-    _rentals_cache = (0.0, [])  # Invalidate cache so get_all_rentals() sees new rental
-
-
-def _normalize_for_lookup(s):
-    """Normalize number for lookup; returns +888 form or None."""
-    if s is None:
-        return None
-    s = str(s).strip().replace(" ", "").replace("-", "").replace("\ufeff", "")
-    s = s.lstrip("\u002b\u066b\u066c\u2393\uff0b+")  # various plus signs
-    # Convert fullwidth Unicode digits (０-９, ٠-٩, etc.) to ASCII
-    _tbl = str.maketrans("０１２３４５６７８９٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
-    s = s.translate(_tbl)
-    if not s or not s.isdigit():
-        return None
-    if s.startswith("888") and len(s) >= 11:
-        return "+" + s
-    if s.startswith("888") and len(s) == 8:
-        return "+888" + s
-    if len(s) == 8 and s.isdigit():
-        return "+888" + s
-    if s.startswith("+888") and len(s) >= 12:
-        return s
-    return None
-
-
-async def get_number_data(number: str):
-    n = str(number or "").strip().replace(" ", "").replace("-", "")
-    if not n:
-        return None
-    if not n.startswith("+888") and n.startswith("888") and len(n) >= 11:
-        n = "+" + n
-    if n.startswith("+") and not n.startswith("+888"):
-        return None
-    candidates = [n]
-    if n.startswith("+888"):
-        candidates.append(n[1:])
-    elif n.startswith("888"):
-        candidates.append("+" + n)
-    data = None
-    n_norm = _normalize_for_lookup(n)
-    for cand in candidates:
-        data = await client.hgetall(f"rental:{cand}")
-        if data:
-            break
-    if not data and n_norm:
-        for stored in (await client.smembers("rentals:all") or []):
-            stored = str(stored).strip() if stored else ""
-            if _normalize_for_lookup(stored) == n_norm:
-                data = await client.hgetall(f"rental:{stored}")
-                if data:
-                    break
-    # Avoid client.keys("rental:*") — it's a full Redis scan and blocks under load.
-    # All writes use canonical number (save_number_data), so fast path above should hit.
-    # Only fall back to full rental scan via get_all_rentals() for legacy/migrated data.
-    if not data and n_norm:
-        for doc in await get_all_rentals():
-            stored_num = (doc.get("number") or "")
-            if _normalize_for_lookup(stored_num) == n_norm:
-                data = {
-                    "number": doc.get("number"),
-                    "user_id": str(doc.get("user_id", "")),
-                    "hours": str(doc.get("hours", 0)),
-                    "rent_date": doc.get("rent_date").isoformat() if doc.get("rent_date") else "",
-                    "expiry_date": doc.get("expiry_date").isoformat() if doc.get("expiry_date") else "",
-                }
-                break
-    if not data:
-        return None
-    out = {
-        "number": data.get("number"),
-        "user_id": int(data["user_id"]) if data.get("user_id") else None,
-        "hours": int(data["hours"]) if data.get("hours") else None,
-    }
-    if data.get("rent_date"):
-        out["rent_date"] = _parse_dt(data["rent_date"])
-    if data.get("expiry_date"):
-        out["expiry_date"] = _parse_dt(data["expiry_date"])
-    return out
-
-
-async def get_rented_data_for_number(number: str):
-    """Get rental data - tries get_number_data first, then get_all_rentals (same as admin export)."""
-    data = await get_number_data(number)
-    if data:
-        return data
-    n_norm = _normalize_for_lookup(number)
-    if not n_norm:
-        return None
-    for doc in await get_all_rentals():
-        if _normalize_for_lookup(doc.get("number")) == n_norm:
-            return doc
-    return None
-
-
-async def get_rental_by_owner(user_id: int, number: str):
-    """Find rental for this user+number. Uses get_all_rentals only - same source as admin export."""
-    uid = int(user_id)
-    num_clean = str(number or "").strip().replace(" ", "").replace("-", "")
-    if not num_clean:
-        return None
-    # First try the tolerant lookup which checks rental keys and normalizes forms
-    rented = await get_rented_data_for_number(num_clean)
-    if rented and int(rented.get("user_id") or 0) == uid:
-        return rented
-
-    # normalize lookup form for comparisons
-    num_norm = _normalize_for_lookup(num_clean)
-    for doc in await get_all_rentals():
-        if int(doc.get("user_id") or 0) != uid:
-            continue
-        doc_num = (doc.get("number") or "").strip()
-        if not doc_num:
-            continue
-        # direct match (handles exact stored format)
-        if doc_num == num_clean:
-            return doc
-        # try normalized comparison (handles +/no+ and formatting differences)
-        doc_norm = _normalize_for_lookup(doc_num)
-        if doc_norm and num_norm and doc_norm == num_norm:
-            return doc
-        # fallback: tolerant string compare removing + sign
-        if doc_num.lstrip("+") == num_clean.lstrip("+"):
-            return doc
-    return None
-
-
-async def get_user_numbers(user_id: int):
-    """Return numbers rented by user. Uses rentals:user when present; fallback to get_all_rentals for legacy data."""
-    members = await client.smembers(f"rentals:user:{user_id}")
-    if members:
-        return list(members)
-    uid = int(user_id)
-    return [
-        doc.get("number") for doc in await get_all_rentals()
-        if int(doc.get("user_id") or 0) == uid and doc.get("number")
+async def build_number_actions_keyboard(user_id: int, number: str, back_data: str = "my_rentals"):
+    """Build keyboard for rented number: Renew, Get Code, Transfer, Back."""
+    n = normalize_phone(number) or number
+    keyboard = [
+        [
+            InlineKeyboardButton(await t(user_id, "renew"), callback_data=f"renew_{n}"),
+            InlineKeyboardButton(await t(user_id, "get_code"), callback_data=f"getcode_{n}"),
+        ],
+        [InlineKeyboardButton(await t(user_id, "transfer"), callback_data=f"transfer_{n}")],
+        [InlineKeyboardButton(await t(user_id, "back"), callback_data=back_data)],
     ]
+    return InlineKeyboardMarkup(keyboard)
 
 
-async def remove_number_data(number: str):
-    n = _norm_num(number) or str(number or "").strip()
-    candidates = [n]
-    if n.startswith("+888"):
-        candidates.append(n[1:])
-    elif n.startswith("888"):
-        candidates.append("+" + n)
-    for cand in candidates:
-        key = f"rental:{cand}"
-        if await client.exists(key):
-            data = await client.hgetall(key)
-            user_id = data.get("user_id")
-            stored = data.get("number") or n
-            async with client.pipeline() as pipe:
-                pipe.delete(key)
-                pipe.zrem("rentals:expiry", n)
-                pipe.zrem("rentals:expiry", stored)
-                pipe.srem("rentals:all", n)
-                pipe.srem("rentals:all", stored)
-                pipe.hdel("num_owner", n)
-                pipe.hdel("num_owner", stored)
-                if user_id:
-                    pipe.srem(f"rentals:user:{user_id}", n)
-                    pipe.srem(f"rentals:user:{user_id}", stored)
-                await pipe.execute()
-            global _rentals_cache
-            _rentals_cache = (0.0, [])  # Invalidate cache after removal
-            return True, "REMOVED"
-    return False, "NOT_FOUND"
+async def resolve_payment_keyboard(user_id: int, payload: str) -> InlineKeyboardMarkup:
+    """Single place for post-payment keyboard: rentpay -> confirm, numinfo -> back(payload), else back to profile."""
+    if payload.startswith("rentpay:"):
+        parts = payload.split(":")
+        if len(parts) >= 3:
+            number, hours = parts[1], parts[2]
+            return InlineKeyboardMarkup([[
+                InlineKeyboardButton(await t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
+            ]])
+    if payload.startswith("numinfo:"):
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)
+        ]])
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")
+    ]])
 
 
-async def transfer_number(number: str, from_user_id: int, to_user_id: int):
-    """Transfer a rented number to another user. Uses Redis lock to prevent concurrent transfer/rent races. Returns (True, None) or (False, error_msg)."""
-    canon = _norm_num(number) or number
-    lock_key = canon
-    acquired = await lock_number_for_rent(lock_key, from_user_id, ttl=60)
-    if not acquired:
-        return False, "Number is busy; try again in a moment."
+async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, description: str, msg: Message, payload: str):
+    invoice = await cp.create_invoice(
+        amount=amount,
+        asset="USDT",
+        description=description,
+        paid_btn_name="openBot",
+        paid_btn_url="https://t.me/{}".format((await client.get_me()).username),
+        expires_in=1800,
+        payload=payload
+    )
+    keyboard = [
+        [InlineKeyboardButton("💳 Pay", url=invoice.bot_invoice_url)],
+        [InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)],
+    ]
+    await msg.edit(
+        f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Invoice Created\n\n"
+        f"Amount: {amount} USDT\n"
+        f"Description: {description}\n"
+        f"Pay using the button below.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+_ton_price_cache = {"price": 0.0, "ts": 0.0}
+_ton_http_client: httpx.AsyncClient | None = None
+
+def _get_ton_http_client() -> httpx.AsyncClient:
+    global _ton_http_client
+    if _ton_http_client is None or getattr(_ton_http_client, "is_closed", True):
+        _ton_http_client = httpx.AsyncClient(timeout=10.0)
+    return _ton_http_client
+
+async def get_ton_price_usd() -> float:
+    import time
+    if _ton_price_cache["price"] > 0 and time.monotonic() - _ton_price_cache["ts"] < 60:
+        return _ton_price_cache["price"]
     try:
-        rented = await get_rental_by_owner(from_user_id, number)
-        if not rented:
-            return False, "Number not found"
-        canon = _norm_num(rented.get("number") or number) or (rented.get("number") or number)
-        rent_date = rented.get("rent_date")
-        hours = int(rented.get("hours", 0) or 0)
-        if not rent_date or not hours:
-            return False, "Invalid rental data"
-        await remove_number(canon, from_user_id)
-        await remove_number_data(canon)
-        await save_number(canon, to_user_id, hours, date=rent_date, extend=False)
-        await save_number_data(canon, to_user_id, rent_date, hours)
-        await append_transfer_history(canon, from_user_id, to_user_id)
-        return True, None
+        client = _get_ton_http_client()
+        r = await client.get("https://tonapi.io/v2/rates?tokens=ton&currencies=usd")
+        r.raise_for_status()
+        data = r.json()
+        price = float(data["rates"]["TON"]["prices"]["USD"])
+        _ton_price_cache["price"] = price
+        _ton_price_cache["ts"] = time.monotonic()
+        return price
     except Exception as e:
-        import logging
-        logging.exception("transfer_number error")
-        return False, str(e)
-    finally:
-        await unlock_number_for_rent(lock_key)
+        logging.warning(f"Failed to fetch TON price: {e}")
+        return _ton_price_cache["price"]
 
 
-async def get_expired_numbers():
-    now = datetime.now(timezone.utc).timestamp()
-    return list(await client.zrangebyscore("rentals:expiry", 0, now))
+def create_tonkeeper_link(amount_ton: float, order_ref: str) -> str:
+    """Build Tonkeeper TON payment link. Memo (order_ref) auto-filled via text param. No # used (Tonkeeper ignores %23)."""
+    from urllib.parse import quote
+    if not TON_WALLET:
+        return ""
+    amount_nano = int(float(amount_ton) * 1_000_000_000)  # 1 TON = 1e9 nanotons
+    base = f"https://app.tonkeeper.com/transfer/{TON_WALLET}"
+    return f"{base}?amount={amount_nano}&text={quote(order_ref)}"
 
 
-async def get_all_rentals():
-    """
-    Return all rentals. Cached for 30s so get_user_numbers(), get_rental_by_owner(), get_rented_data_for_number()
-    don't each trigger a full rentals:all scan + N hgetalls in the same request.
-    """
-    global _rentals_cache
-    now = time.monotonic()
-    if now - _rentals_cache[0] < _RENTALS_CACHE_TTL and _rentals_cache[1]:
-        return _rentals_cache[1]
-    numbers = list(await client.smembers("rentals:all") or [])
-    if not numbers:
-        _rentals_cache = (now, [])
-        return []
-    async with client.pipeline() as pipe:
-        for number in numbers:
-            pipe.hgetall(f"rental:{number}")
-        results = await pipe.execute()
-    out = []
-    for number, data in zip(numbers, results):
-        if not data:
-            continue
-        doc = {
-            "number": data.get("number"),
-            "user_id": int(data["user_id"]) if data.get("user_id") else None,
-        }
-        if data.get("rent_date"):
-            doc["rent_date"] = _parse_dt(data["rent_date"])
-        if data.get("expiry_date"):
-            doc["expiry_date"] = _parse_dt(data["expiry_date"])
-        doc["hours"] = int(data["hours"]) if data.get("hours") else 0
-        out.append(doc)
-    _rentals_cache = (now, out)
-    return out
+async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: float, description: str, msg: Message, payload: str):
+    """Create Tonkeeper payment screen. Converts USDT to TON, memo auto-filled in Pay link."""
+    from hybrid.plugins.db import _gen_order_ref, save_ton_order
+    if not TON_WALLET:
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]))
+        return
+    ton_price = await get_ton_price_usd()
+    if not ton_price or ton_price <= 0:
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]))
+        return
+    amount_ton = amount_usdt / ton_price
+    order_ref = await _gen_order_ref()
+    await save_ton_order(order_ref, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
+    pay_url = create_tonkeeper_link(amount_ton, order_ref)
+    if not pay_url:
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]))
+        return
+    keyboard = [
+        [InlineKeyboardButton("💳 Pay", url=pay_url)],
+        [InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)],
+    ]
+    await msg.edit(
+        f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Tonkeeper Payment\n\n"
+        f"• Amount: {amount_usdt} USDT (~{amount_ton:.4f} TON)\n"
+        f"• Description: {description}\n"
+        f"• Order ID (memo): {order_ref}\n\n"
+        f"Memo is pre-filled when you tap Pay. Payment is checked automatically.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
-# ========= USER IDS =========
-async def save_user_id(user_id: int):
-    key = f"user:{user_id}"
-    if await client.exists(key):
-        return False, "EXISTS"
-    await client.hset(key, mapping={"user_id": user_id, "numbers": "[]", "balance": 0})
-    await client.sadd("users:all", user_id)
-    return True, "SAVED"
-
-
-async def get_all_user_ids():
-    members = await client.smembers("users:all")
-    return [int(x) for x in (members or [])]
-
-
-# ========= BALANCES =========
-async def save_user_balance(user_id: int, balance: float | int):
-    key = f"user:{user_id}"
-    if not await client.exists(key):
-        await client.hset(key, mapping={"user_id": user_id, "balance": balance, "numbers": "[]"})
-        await client.sadd("users:all", user_id)
-        return "CREATED"
-    await client.hset(key, "balance", balance)
-    return "UPDATED"
-
-
-async def get_user_balance(user_id: int):
-    balance = await client.hget(f"user:{user_id}", "balance")
-    return float(balance) if balance is not None else None
-
-
-async def get_total_balance():
-    """
-    Sum of all user balances. Uses a single Redis pipeline instead of N round-trips (one per user).
-    """
-    uids = list(await client.smembers("users:all") or [])
-    if not uids:
-        return 0.0, 0
-    async with client.pipeline() as pipe:
-        for uid in uids:
-            pipe.hget(f"user:{uid}", "balance")
-        results = await pipe.execute()
-    total = 0.0
-    count = 0
-    for b in results:
-        if b is not None:
-            total += float(b)
-            count += 1
-    return total, count
-
-
-# ========= ADMINS =========
-async def add_admin(user_id: int):
-    added = await client.sadd("admins:all", user_id)
-    return (True, "ADDED") if added else (False, "ALREADY")
-
-
-async def remove_admin(user_id: int):
-    removed = await client.srem("admins:all", user_id)
-    return (True, "REMOVED") if removed else (False, "NOT_FOUND")
-
-
-async def is_admin(user_id: int):
-    return await client.sismember("admins:all", user_id)
-
-
-async def get_all_admins():
-    members = await client.smembers("admins:all")
-    return [int(x) for x in (members or [])]
-
-
-# ========= NUMBERS POOL =========
-async def save_number_info(number: str, price_30: float, price_60: float, price_90: float, available: bool = True):
-    if not number.startswith("+888"):
-        number = "+888" + number.lstrip("+")
-
-    now = _now()
-    data = {
-        "number": number,
-        "prices": {"30d": price_30, "60d": price_60, "90d": price_90},
-        "hours": {"30d": 30 * 24, "60d": 60 * 24, "90d": 90 * 24},
-        "available": available,
-        "updated_at": now.isoformat(),
-    }
-    key = f"number:{number}"
-    existed = await client.exists(key)
-    await client.hset(key, mapping={
-        "number": number,
-        "prices": json.dumps(data["prices"]),
-        "hours": json.dumps(data["hours"]),
-        "available": str(available).lower(),
-        "updated_at": data["updated_at"],
-    })
-    await client.sadd("pool:numbers", number)
-    return "UPDATED" if existed else "CREATED"
-
-
-async def edit_number_info(number: str, **kwargs):
-    if not number.startswith("+888"):
-        number = "+888" + number.lstrip("+")
-    key = f"number:{number}"
-    if not await client.exists(key):
-        return False, "NO_CHANGES"
-    prices = json.loads(await client.hget(key, "prices") or "{}")
-    updates = {}
-    if "price_30" in kwargs:
-        prices["30d"] = kwargs["price_30"]
-    if "price_60" in kwargs:
-        prices["60d"] = kwargs["price_60"]
-    if "price_90" in kwargs:
-        prices["90d"] = kwargs["price_90"]
-    if "price_30" in kwargs or "price_60" in kwargs or "price_90" in kwargs:
-        updates["prices"] = json.dumps(prices)
-    if "available" in kwargs:
-        updates["available"] = str(kwargs["available"]).lower()
-    if not updates:
-        return False, "NO_CHANGES"
-    updates["updated_at"] = _now().isoformat()
-    await client.hset(key, mapping=updates)
-    return True, "UPDATED"
-
-
-async def get_number_info(number: str) -> dict | bool:
-    if not number.startswith("+888"):
-        number = "+888" + number.lstrip("+")
-
-    key = f"number:{number}"
-    data = await client.hgetall(key)
-    if not data:
+def _ton_addresses_match(addr1: str, addr2: str) -> bool:
+    """Compare TON addresses - EQ vs UQ same wallet have different checksums, must decode to raw."""
+    if not addr1 or not addr2:
         return False
-    return {
-        "number": data.get("number"),
-        "prices": json.loads(data.get("prices") or "{}"),
-        "hours": json.loads(data.get("hours") or "{}"),
-        "available": data.get("available", "true").lower() == "true",
-        "updated_at": _parse_dt(data.get("updated_at")),
-    }
+    try:
+        from pytoniq_core import Address
+        a1 = Address(addr1.strip())
+        a2 = Address(addr2.strip())
+        return a1 == a2 or str(a1) == str(a2)
+    except Exception:
+        s1 = str(addr1).replace("-", "").replace("_", "").replace(" ", "").lower()
+        s2 = str(addr2).replace("-", "").replace("_", "").replace(" ", "").lower()
+        return s1 == s2
 
 
-async def get_all_pool_numbers():
-    members = await client.smembers("pool:numbers")
-    return list(members or [])
-
-
-# ===================== language =====================
-async def save_user_language(user_id: int, lang: str):
-    await client.hset(f"lang:{user_id}", "language", lang)
-
-
-async def get_user_language(user_id: int):
-    return await client.hget(f"lang:{user_id}", "language")
-
-
-# ========= User Payment Method =========
-async def save_user_payment_method(user_id: int, method: str):
-    await client.set(f"payment:{user_id}", method)
-
-
-async def get_user_payment_method(user_id: int):
-    method = await client.get(f"payment:{user_id}") or "cryptobot"
-    return method if method != "tron" else "cryptobot"
-
-
-# ========= TONKEEPER ORDERS =========
-USDT_JETTON_MASTER = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"  # USDT on TON mainnet
-
-
-async def _gen_order_ref() -> str:
-    """Generate unique alphanumeric order ref (e.g. PayEFoT3YAg). No # to avoid URL encoding issues."""
-    import random
-    import string
-    chars = string.ascii_letters + string.digits
-    for _ in range(10):
-        ref = "Pay" + "".join(random.choices(chars, k=8))
-        if not await client.exists(f"ton_order:{ref}"):
-            return ref
-    return "Pay" + "".join(random.choices(chars, k=8)) + str(_now().timestamp())[-4:]
-
-
-async def save_ton_order(order_ref: str, user_id: int, amount_usdt: float, amount_ton: float, payload: str, msg_id: int, chat_id: int, created_at=None):
-    """order_ref: unique alphanumeric (e.g. PayEFoT3YAg). No # in memo for Tonkeeper compatibility."""
-    if created_at is None:
-        created_at = _now()
-    data = {
-        "user_id": user_id,
-        "amount": str(amount_usdt),
-        "amount_ton": str(amount_ton),
-        "payload": payload,
-        "msg_id": msg_id,
-        "chat_id": chat_id,
-        "created_at": created_at.isoformat(),
-    }
-    await client.hset(f"ton_order:{order_ref}", mapping=data)
-    await client.zadd("ton_orders:pending", {order_ref: created_at.timestamp()})
-
-
-async def get_ton_order(order_ref: str):
-    data = await client.hgetall(f"ton_order:{order_ref}")
-    if not data:
-        return None
-    return {
-        "user_id": int(data["user_id"]),
-        "amount": float(data["amount"]),
-        "amount_ton": float(data.get("amount_ton") or data["amount"]),
-        "payload": data["payload"],
-        "msg_id": int(data["msg_id"]),
-        "chat_id": int(data["chat_id"]),
-        "created_at": _parse_dt(data.get("created_at")),
-    }
-
-
-async def get_all_pending_ton_orders(max_age_seconds=1800):
-    """Return pending orders. Expired ones (>max_age_seconds) are removed."""
-    now = _now().timestamp()
-    refs = list(await client.zrange("ton_orders:pending", 0, -1) or [])
-    if not refs:
-        return []
-    async with client.pipeline() as pipe:
-        for ref in refs:
-            pipe.hgetall(f"ton_order:{ref}")
-        results = await pipe.execute()
-    orders = []
-    for ref, data in zip(refs, results):
+def _extract_comment(in_msg: dict) -> str:
+    """Extract comment from TON in_msg per asset-processing. Handles msg.dataText and msg.dataRaw (BOC)."""
+    import base64
+    msg_data = in_msg.get("msg_data") or {}
+    comment = (msg_data.get("message") or "").strip()
+    if comment:
+        return comment
+    text_b64 = msg_data.get("text")
+    if text_b64:
         try:
-            if not data:
-                await delete_ton_order(ref)
-                continue
-            o = {
-                "user_id": int(data["user_id"]),
-                "amount": float(data["amount"]),
-                "amount_ton": float(data.get("amount_ton") or data["amount"]),
-                "payload": data["payload"],
-                "msg_id": int(data["msg_id"]),
-                "chat_id": int(data["chat_id"]),
-                "created_at": _parse_dt(data.get("created_at")),
-            }
-            created = o.get("created_at")
-            if created and (now - created.timestamp()) > max_age_seconds:
-                await delete_ton_order(ref)
-                continue
-            orders.append((ref, o))
-        except (ValueError, TypeError, KeyError):
-            await delete_ton_order(ref)
-    return orders
-
-
-async def delete_ton_order(order_ref: str):
-    await client.delete(f"ton_order:{order_ref}")
-    await client.zrem("ton_orders:pending", order_ref)
-
-
-# ========= RULES =========
-async def save_rules(rules: str, lang: str = "en"):
-    await client.hset(f"rules:{lang}", mapping={"text": rules, "language": lang})
-
-
-async def get_rules(lang: str = "en") -> str:
-    text = await client.hget(f"rules:{lang}", "text")
-    return text if text else "No rules set."
-
-
-# ========= DELETE ACCOUNT =========
-async def save_7day_deletion(number: str, date: datetime):
-    await client.hset(f"deletion:{number}", "deletion_date", date.isoformat())
-    await client.zadd("deletions:expiry", {number: date.timestamp()})
-
-
-async def get_7day_deletions():
-    now = _now().timestamp()
-    return list(await client.zrangebyscore("deletions:expiry", 0, now))
-
-
-async def remove_7day_deletion(number: str):
-    key = f"deletion:{number}"
-    if not await client.exists(key):
-        return False
-    await client.delete(key)
-    await client.zrem("deletions:expiry", number)
-    return True
-
-
-async def get_7day_date(number: str):
-    raw = await client.hget(f"deletion:{number}", "deletion_date")
-    return _parse_dt(raw) if raw else None
-
-
-# ========= RESTRICTED NOTIFY =========
-async def save_restricted_number(number: str, date=None):
-    if date is None:
-        date = _now()
-    if await client.sismember("restricted:all", number):
-        return False, "ALREADY"
-    await client.sadd("restricted:all", number)
-    await client.set(f"restricted:{number}", date.isoformat())
-    return True, "SAVED"
-
-
-async def get_restricted_numbers():
-    return list(await client.smembers("restricted:all") or [])
-
-
-async def remove_restricted_number(number: str):
-    if not await client.sismember("restricted:all", number):
-        return False, "NOT_FOUND"
-    await client.srem("restricted:all", number)
-    await client.delete(f"restricted:{number}")
-    return True, "REMOVED"
-
-
-async def get_rest_num_date(number: str):
-    raw = await client.get(f"restricted:{number}")
-    return _parse_dt(raw) if raw else None
-
-
-async def restricted_del_toggle():
-    key = "rest_toggle"
-    raw = await client.get(key)
-    if raw is not None:
-        new_state = not (raw == "1")
-        await client.set(key, "1" if new_state else "0")
-        return new_state
-    await client.set(key, "1")
-    return True
-
-
-async def is_restricted_del_enabled():
-    return await client.get("rest_toggle") == "1"
-
-
-async def save_rental_atomic(user_id: int, number: str, new_balance: float, rent_date, new_hours: int):
-    """Atomically deduct balance and save rental in a single Redis transaction. Also updates user:{user_id} numbers list."""
-    if isinstance(rent_date, str):
-        rent_date = _parse_dt(rent_date) or _now()
-    elif rent_date is None:
-        rent_date = _now()
-    expiry = rent_date + timedelta(hours=new_hours)
-    number = _norm_num(number) or str(number).strip()
-
-    for attempt in range(5):
-        try:
-            await client.watch(f"user:{user_id}")
-            numbers_raw = await client.hget(f"user:{user_id}", "numbers")
-            numbers = json.loads(numbers_raw) if numbers_raw else []
-            if not any(n.get("number") == number for n in numbers):
-                numbers.append({"number": number, "hours": new_hours, "date": rent_date.isoformat()})
-            async with client.pipeline(transaction=True) as pipe:
-                pipe.hset(f"user:{user_id}", "balance", new_balance)
-                pipe.hset(f"user:{user_id}", "numbers", json.dumps(numbers))
-                pipe.hset(f"rental:{number}", mapping={
-                    "number": number,
-                    "user_id": user_id,
-                    "rent_date": rent_date.isoformat(),
-                    "hours": new_hours,
-                    "expiry_date": expiry.isoformat(),
-                })
-                pipe.zadd("rentals:expiry", {number: expiry.timestamp()})
-                pipe.sadd("rentals:all", number)
-                pipe.sadd(f"rentals:user:{user_id}", number)
-                pipe.hset("num_owner", number, user_id)
-                await pipe.execute()
-            break
-        except WatchError:
-            if attempt == 4:
-                raise
-            await asyncio.sleep(0.05 * (attempt + 1))
-        finally:
-            await client.unwatch()
-    global _rentals_cache
-    _rentals_cache = (0.0, [])
-
-
-async def lock_number_for_rent(number: str, user_id: int, ttl: int = 60) -> bool:
-    """
-    Acquire a short-lived lock on a number during checkout.
-    Returns True if lock acquired, False if already locked by someone else.
-    """
-    key = f"renting:{number}"
-    result = await client.set(key, str(user_id), nx=True, ex=ttl)
-    return result is True
-
-
-async def unlock_number_for_rent(number: str):
-    """Release the checkout lock on a number."""
-    await client.delete(f"renting:{number}")
-
-
-async def get_number_lock_owner(number: str):
-    """Returns user_id who holds the lock, or None."""
-    val = await client.get(f"renting:{number}")
-    return int(val) if val else None
-
-
-async def append_transfer_history(number: str, from_user_id: int, to_user_id: int):
-    """Append an immutable transfer record for a number (audit trail)."""
-    number = _norm_num(number) or number
-    key = f"transfer_history:{number}"
-    entry = json.dumps({
-        "from_user_id": from_user_id,
-        "to_user_id": to_user_id,
-        "timestamp": _now().isoformat(),
-    })
-    await client.rpush(key, entry)
-    await client.ltrim(key, -1000, -1)  # Keep last 1000 entries per number
-
-
-async def get_transfer_history(number: str, limit: int = 50):
-    """Return recent transfer history for a number (newest last)."""
-    number = _norm_num(number) or number
-    key = f"transfer_history:{number}"
-    raw = await client.lrange(key, -limit, -1)
-    out = []
-    for s in (raw or []):
-        try:
-            out.append(json.loads(s))
-        except (json.JSONDecodeError, TypeError):
+            raw = base64.b64decode(text_b64)
+            if len(raw) >= 4 and raw[:4] == b"\x00\x00\x00\x00":
+                return raw[4:].decode("utf-8", errors="ignore").strip()
+            return raw.decode("utf-8", errors="ignore").strip()
+        except Exception:
             pass
-    return out
+    body = msg_data.get("body")
+    if body:
+        try:
+            from pytoniq_core import Cell
+            cell = Cell.one_from_boc(base64.b64decode(body))
+            return cell.begin_parse().load_snake_string().replace("\x00", "").strip()
+        except Exception:
+            try:
+                raw = base64.b64decode(body)
+                for start in range(min(20, len(raw))):
+                    try:
+                        s = raw[start:].decode("utf-8", errors="strict").strip().replace("\x00", "")
+                        if 4 <= len(s) <= 64 and s.isprintable():
+                            return s
+                    except (UnicodeDecodeError, ValueError):
+                        continue
+            except Exception:
+                pass
+    return ""
 
 
-# ========= RATE LIMITING =========
-async def check_rate_limit(user_id: int, action: str, max_per_window: int, window_secs: int) -> bool:
-    """Returns True if allowed (under limit), False if rate limited."""
-    key = f"ratelimit:{user_id}:{action}"
-    async with client.pipeline(transaction=True) as pipe:
-        pipe.incr(key)
-        pipe.expire(key, window_secs)
-        results = await pipe.execute()
-    count = results[0]
-    return count <= max_per_window
+# Tonkeeper payment checker (TonCenter API v2 - TON asset processing)
+async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, delete_ton_order,
+                                   get_all_pending_ton_orders, t, TON_WALLET):
+    """Poll TonCenter getTransactions, parse in_msg comment and value. Credit on match. Same flow as CryptoBot."""
+    if not TON_WALLET:
+        return
+    pending = await get_all_pending_ton_orders()
+    if not pending:
+        return
+    try:
+        from urllib.parse import quote
+        addr_param = quote(TON_WALLET.strip(), safe="")
+        url = f"https://toncenter.com/api/v2/getTransactions?address={addr_param}&limit=50"
+        async with httpx.AsyncClient(timeout=8.0) as http_client:
+            r = await http_client.get(url)
+        if r.status_code != 200:
+            return
+        data = r.json()
+        if not data.get("ok") or "result" not in data:
+            return
+        txs = data.get("result") or []
+        for order_ref, order in pending:
+            memo_needle = order_ref
+            amount_ton = order.get("amount_ton") or (float(order["amount"]) / 5.0)
+            amount_nano_min = int(float(amount_ton) * 1_000_000_000 * 0.98)
+            for tx in txs:
+                in_msg = tx.get("in_msg")
+                if not in_msg:
+                    continue
+                dest = in_msg.get("destination") or ""
+                if not _ton_addresses_match(TON_WALLET, dest):
+                    continue
+                try:
+                    amt = int(in_msg.get("value") or 0)
+                except (ValueError, TypeError):
+                    amt = 0
+                if amt < amount_nano_min:
+                    continue
+                comment = _extract_comment(in_msg)
+                if memo_needle not in comment and (comment or "").strip() != memo_needle:
+                    continue
+                from hybrid.plugins.db import is_payment_processed_ton, mark_payment_processed_ton
+                if await is_payment_processed_ton(order_ref):
+                    await delete_ton_order(order_ref)
+                    break
+                user_id = order["user_id"]
+                payload = (order.get("payload") or "").strip()
+                try:
+                    await client.edit_message_text(order["chat_id"], order["msg_id"], "<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>")
+                except Exception:
+                    pass
+                current_bal = await get_user_balance(user_id) or 0.0
+                new_bal = current_bal + float(order["amount"])
+                await save_user_balance(user_id, new_bal)
+                await mark_payment_processed_ton(order_ref)
+                keyboard = await resolve_payment_keyboard(user_id, payload)
+                try:
+                    await client.edit_message_text(
+                        order["chat_id"], order["msg_id"],
+                        await t(user_id, "payment_confirmed"),
+                        reply_markup=keyboard
+                    )
+                except Exception:
+                    pass
+                await delete_ton_order(order_ref)
+                break
+    except Exception as e:
+        logging.error(f"Tonkeeper check error: {e}")
 
 
-# ========= PAYMENT REPLAY PROTECTION =========
-_PROCESSED_TTL = 365 * 24 * 3600  # 1 year
+async def run_7day_deletion_scheduler(app: Client):
+    from hybrid.plugins.db import get_7day_deletions, remove_7day_deletion
+    logging.info("7-day deletion scheduler started.")
+    while True:
+        try:
+            due_numbers = await get_7day_deletions()
+            for number in due_numbers:
+                logging.info("7-day window passed for %s. Re-attempting deletion...", number)
+                await remove_7day_deletion(number)
+                try:
+                    success, reason = await delete_account(number, app, two_fa_password=None)
+                    logging.info("Re-deletion result for %s: success=%s reason=%s", number, success, reason)
+                except Exception as e:
+                    logging.error("Re-deletion failed for %s: %s", number, e)
+        except Exception as e:
+            logging.error("7-day scheduler error: %s", e)
+        await asyncio.sleep(3600)
 
 
-async def is_payment_processed_crypto(inv_id: str) -> bool:
-    """True if this CryptoBot invoice was already processed (replay protection)."""
-    return await client.exists(f"processed_crypto:{inv_id}")
+# NOTE: return type changed to (bool, str) to preserve reason strings used elsewhere.
+async def delete_account(number: str, app: Client, two_fa_password: str = None) -> tuple[bool, str]:
+    """
+    Delete Telegram account linked to number.
+
+    Logic:
+    - If code type is not FRAGMENT_SMS but next_type is → force one resend to switch to Fragment.
+    - Wait up to 30s for OTP from Fragment helper.
+    - Handle 2FA (immediate deletion if password provided, else scheduled).
+    - Manage all known errors, retry on FloodWait (loop to avoid recursion/stack overflow).
+    """
+    def _type_name(x):
+        if x is None:
+            return "None"
+        return getattr(x, "name", str(x))
+
+    while True:
+        session_name = f"delete-{number.replace('+', '')}"
+        client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
+        logging.info("=== delete_account START ===")
+        logging.info(f"Starting deletion process for {number} (session='{session_name}')")
+
+        try:
+            logging.info("Connecting pyrogram client...")
+            await client.connect()
+            logging.info(f"Connected to Telegram for {number} (is_connected={getattr(client, 'is_connected', False)})")
+
+            # Step 1: Send login code
+            logging.info("Requesting login code using client.send_code(...)")
+            try:
+                sent_code = await client.send_code(number)
+            except FloodWait as e:
+                logging.warning("FloodWait %s seconds during send_code. Sleeping and retrying...", e.value)
+                if getattr(client, "is_connected", False):
+                    await client.disconnect()
+                await asyncio.sleep(e.value + 1)
+                continue
+
+            logging.info(
+                "SentCode: phone_code_hash=%s, type=%s, next_type=%s, timeout=%s",
+                getattr(sent_code, "phone_code_hash", None),
+                _type_name(getattr(sent_code, "type", None)),
+                _type_name(getattr(sent_code, "next_type", None)),
+                getattr(sent_code, "timeout", None),
+            )
+
+            # Step 2: Resend if needed
+            type_str = _type_name(getattr(sent_code, "type", None)).upper()
+            next_type_str = _type_name(getattr(sent_code, "next_type", None)).upper()
+
+            if type_str != "FRAGMENT_SMS" and next_type_str == "FRAGMENT_SMS":
+                logging.info("First code is %s, next_type is FRAGMENT_SMS → resending to force Fragment.", type_str)
+                try:
+                    sent_code = await client.resend_code(number, phone_code_hash=sent_code.phone_code_hash)
+                    logging.info(
+                        "After resend: type=%s, next_type=%s",
+                        _type_name(getattr(sent_code, "type", None)),
+                        _type_name(getattr(sent_code, "next_type", None)),
+                    )
+                except Exception as e:
+                    logging.error("Resend failed: %s", e)
+                    return False, "ResendError"
+            elif type_str == "FRAGMENT_SMS":
+                logging.info("Code already sent via Fragment SMS.")
+            else:
+                logging.warning("No Fragment type available (type=%s, next_type=%s). Proceeding anyway.", type_str, next_type_str)
+
+            # Step 3: Fetch OTP from Fragment (async to avoid blocking the event loop)
+            from hybrid.plugins.fragment import get_login_code_async
+            otp = None
+            for attempt in range(6):
+                try:
+                    otp = await get_login_code_async(number)
+                except Exception as e:
+                    logging.error("get_login_code failed: %s", e)
+                    otp = None
+
+                if otp:
+                    logging.info("Received OTP: %s", otp)
+                    break
+                logging.info("No OTP yet. Waiting 5s (attempt %d/6).", attempt + 1)
+                await asyncio.sleep(5)
+
+            if not otp:
+                logging.error("No OTP received for %s", number)
+                return False, "OTP"
+
+            # Step 4: Sign in
+            try:
+                await client.sign_in(
+                    phone_number=number,
+                    phone_code_hash=sent_code.phone_code_hash,
+                    phone_code=otp,
+                )
+                logging.info("Signed in successfully.")
+            except PhoneNumberUnoccupied:
+                logging.info("No account exists for this number.")
+                return True, "NoAccount"
+            except PhoneCodeInvalid:
+                logging.error("Invalid OTP.")
+                return False, "InvalidOTP"
+            except SessionPasswordNeeded:
+                if two_fa_password:
+                    try:
+                        await client.check_password(two_fa_password)
+                        logging.info("2FA password accepted.")
+                    except Exception as e:
+                        logging.error("2FA password failed: %s", e)
+                        return False, "Invalid2FAPassword"
+                else:
+                    # CRITICAL: Don't return early. Still attempt deletion to trigger Telegram's 7-day period.
+                    logging.info("2FA enabled, no password. Attempting deletion anyway to trigger 7-day wait...")
+            except PhoneNumberBanned:
+                logging.error("Number banned.")
+                return False, "Banned"
+            except FloodWait as e:
+                logging.warning("FloodWait %s during sign_in. Retrying...", e.value)
+                if getattr(client, "is_connected", False):
+                    await client.disconnect()
+                await asyncio.sleep(e.value + 1)
+                continue
+            except Exception as e:
+                logging.error("Unexpected sign_in error: %s", e)
+                return False, "SignInError"
+
+            # Step 5: Delete account (ALWAYS attempt, even with 2FA — triggers 7-day period if needed)
+            try:
+                await client.invoke(functions.account.DeleteAccount(reason="Cleanup"))
+                logging.info("Account deleted immediately.")
+                return True, "Deleted"
+            except RPCError as e:
+                error_text = str(e).upper()
+                # 2FA without password = 7 day waiting period
+                if "2FA_CONFIRM_WAIT" in error_text or "SESSION_PASSWORD_NEEDED" in error_text:
+                    logging.info("2FA detected - Telegram scheduled deletion in 7 days.")
+                    await save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
+                    return True, "7Days"
+                # Account already scheduled for deletion
+                if "ACCOUNT_DELETE_SCHEDULED" in error_text:
+                    logging.info("Account deletion already scheduled.")
+                    await save_7day_deletion(number, datetime.now(timezone.utc) + timedelta(days=7))
+                    return True, "7Days"
+                logging.error("DeleteAccount RPCError: %s", e)
+                return False, "DeleteError"
+            except Exception as e:
+                logging.error("Unexpected DeleteAccount error: %s", e)
+                return False, "DeleteError"
+
+        except Exception as e:
+            logging.error("Top-level error: %s", e)
+            return False, "Error"
+        finally:
+            if getattr(client, "is_connected", False):
+                await client.disconnect()
+                logging.info("Disconnected client.")
+            logging.info("=== delete_account END ===")
 
 
-async def mark_payment_processed_crypto(inv_id: str):
-    await client.set(f"processed_crypto:{inv_id}", "1", ex=_PROCESSED_TTL)
+async def check_number_conn(number: str) -> bool:
+    from hybrid.plugins.fragment import fragment_api
+    if fragment_api is None:
+        return True  # assume free if API not configured
+    return await fragment_api.check_is_number_free(number)
+
+def normalize_phone(number) -> str | None:
+    """Normalize to +888XXXXXXXX. Returns None if invalid."""
+    if number is None:
+        return None
+    s = str(number).strip().replace(" ", "").replace("-", "")
+    if not s:
+        return None
+    if s.startswith("+888") and len(s) >= 12:
+        return s
+    if s.startswith("888") and len(s) >= 11:
+        return "+" + s
+    if s.isdigit() and len(s) == 8:
+        return "+888" + s
+    return None
+
+def format_number(number) -> str:
+    """Format phone to +888 XXXX XXXX. Never raises - returns safe fallback for invalid input."""
+    clean = normalize_phone(number)
+    if clean and len(clean) >= 12:
+        return f"{clean[:4]} {clean[4:8]} {clean[8:]}"
+    s = str(number or "").strip().replace(" ", "")
+    if (s.startswith("+888") or s.startswith("888")) and len(s) >= 11:
+        pref = s[:4] if s.startswith("+") else "+" + s[:3]
+        rest = s[4:] if s.startswith("+") else s[3:]
+        if len(rest) >= 8:
+            return f"{pref} {rest[:4]} {rest[4:]}"
+    return s if s else "N/A"
+
+def format_date(date_str) -> str:
+    """Parse date string (ISO, strptime formats) and return DD/MM/YY."""
+    if date_str is None:
+        return "N/A"
+    s = str(date_str).strip()
+    if not s:
+        return "N/A"
+    # Strip timezone to avoid parse errors (e.g. .512189+00:00)
+    if "+" in s or s.endswith("Z"):
+        s = s.replace("Z", "").split("+")[0].rstrip("-").rstrip()
+    dt = None
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            break
+        except ValueError:
+            continue
+    if dt is None:
+        return s[:10] if len(s) >= 10 else s
+    return dt.strftime("%d/%m/%y")
+
+from hybrid.plugins.db import get_user_balance, get_number_data, get_rented_data_for_number, get_all_rentals
+
+try:
+    from hybrid.plugins.db import get_all_pool_numbers
+except ImportError:
+    get_all_pool_numbers = None
 
 
-async def is_payment_processed_ton(order_ref: str) -> bool:
-    """True if this TON order was already processed (replay protection)."""
-    return await client.exists(f"processed_ton:{order_ref}")
+async def export_numbers_csv(filename: str = "numbers_export.csv"):
+    """
+    Export all numbers with rental details to a CSV file.
+    Includes pool numbers + rented numbers (admin-assigned may not be in pool).
+    """
+    pool = set(await get_all_pool_numbers()) if get_all_pool_numbers else set()
+    pool = pool or set(temp.NUMBE_RS or [])
+    rented_numbers = {doc.get("number") for doc in await get_all_rentals() if doc.get("number")}
+    all_numbers = sorted(pool | rented_numbers)
+    rows = []
 
+    now = datetime.now(timezone.utc)
+    for number in all_numbers:
+        rented_data = await get_rented_data_for_number(number)
 
-async def mark_payment_processed_ton(order_ref: str):
-    await client.set(f"processed_ton:{order_ref}", "1", ex=_PROCESSED_TTL)
+        if rented_data and rented_data.get("user_id"):
+            user_id = rented_data.get("user_id")
+            balance = await get_user_balance(user_id) or 0.0
+            rent_date = rented_data.get("rent_date")
+            expiry_date = rented_data.get("expiry_date")
+            hours = rented_data.get("hours", 0)
+            rent_date_str = rent_date.strftime("%Y-%m-%d %H:%M:%S") if rent_date else ""
+            expiry_date_str = expiry_date.strftime("%Y-%m-%d %H:%M:%S") if expiry_date else ""
+            if expiry_date and rent_date:
+                remaining = expiry_date - now
+                days_left = max(0, remaining.days)
+                hours_left = max(0, remaining.seconds // 3600)
+            else:
+                days_left = hours_left = 0
 
+            rows.append({
+                "Number": number,
+                "Rented": "Yes",
+                "User ID": user_id,
+                "Balance": balance,
+                "Rent Date": rent_date_str,
+                "Expiry Date": expiry_date_str,
+                "Days Left": days_left,
+                "Hours Left": hours_left,
+                "Rented Amount (Hours)": hours
+            })
+        else:
+            rows.append({
+                "Number": number,
+                "Rented": "No",
+                "User ID": "",
+                "Balance": "",
+                "Rent Date": "",
+                "Expiry Date": "",
+                "Days Left": "",
+                "Hours Left": "",
+                "Rented Amount (Hours)": ""
+            })
 
-# ========= ADMIN AUDIT LOG =========
-async def log_admin_action(admin_id: int, action: str, target: str, details: str = None):
-    """Append an immutable admin action log entry."""
-    entry = json.dumps({
-        "admin_id": admin_id,
-        "action": action,
-        "target": str(target),
-        "timestamp": _now().isoformat(),
-        "details": details or "",
-    })
-    await client.rpush("admin_audit_log", entry)
-    await client.ltrim("admin_audit_log", -50000, -1)  # Keep last 50k entries
+    fieldnames = ["Number", "Rented", "User ID", "Balance", "Rent Date", "Expiry Date", "Days Left", "Hours Left", "Rented Amount (Hours)"]
 
+    def _write_csv():
+        with open(filename, mode="w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
 
-async def record_revenue(user_id: int, number: str, amount: float, hours: int):
-    """Record a completed rental payment for revenue tracking."""
-    now = _now()
-    entry = {
-        "user_id": user_id,
-        "number": number,
-        "amount": str(amount),
-        "hours": hours,
-        "timestamp": now.isoformat(),
-    }
-    key = f"revenue:{now.strftime('%Y%m')}:{user_id}:{now.timestamp()}"
-    await client.hset(key, mapping=entry)
-    await client.zadd("revenue:all", {key: now.timestamp()})
-    # Increment total
-    await client.incrbyfloat("revenue:total", amount)
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _write_csv)
+    return filename
 
+async def give_payment_option(client, msg: Message, user_id: int):
+    from hybrid.plugins.db import check_rate_limit
+    if not await check_rate_limit(user_id, "payment", 15, 60):
+        await msg.reply("⏳ Too many requests. Please try again in a minute.")
+        return
+    rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="set_payment_cryptobot")]]
+    if TON_WALLET:
+        rows.append([InlineKeyboardButton("Tonkeeper", callback_data="set_payment_tonkeeper")])
+    rows.append([InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")])
+    keyboard = InlineKeyboardMarkup(rows)
+    await msg.reply(
+        await t(user_id, "choose_payment_method"),
+        reply_markup=keyboard
+    )
 
-async def get_total_revenue() -> float:
-    """Get total revenue across all time."""
-    val = await client.get("revenue:total")
-    return float(val) if val else 0.0
-
-
-# ========= MAINTENANCE =========
-async def delete_all_data():
-    async for key in client.scan_iter("*"):
-        await client.delete(key)
-    return True, "ALL DATA DELETED"
