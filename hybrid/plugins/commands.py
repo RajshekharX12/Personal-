@@ -1,3 +1,5 @@
+#(©) @Hybrid_Vamp - https://github.com/hybridvamp
+
 import re
 import os
 import html
@@ -277,10 +279,6 @@ async def export_csv_cmd(_, message: Message):
         await msg.delete()
     except Exception as e:
         await message.reply_text(f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to export: {e}", parse_mode=ParseMode.HTML)
-
-@Bot.on_message(filters.command("banned") & filters.private)
-async def banned_cmd(_, message: Message):
-    await message.reply_text("🔒 Banned numbers feature is disabled.", parse_mode=ParseMode.HTML)
 
 @Bot.on_message(filters.command("createbtn") & filters.private)
 async def create_button_cmd(_, message: Message):
