@@ -618,8 +618,6 @@ Details:
 - Enable/Disable Numbers: Toggle the availability of numbers for rent.
 - Enable All: Make all numbers available for rent.
 - Delete Accounts: Delete a Telegram account associated with a number.
-- 🔒 Banned Numbers: (disabled)
-- 🔒 Restricted Auto-Deletion: (disabled)
         """
         keyboard = InlineKeyboardMarkup([
             [
@@ -630,8 +628,6 @@ Details:
                 InlineKeyboardButton("Enable All", callback_data="admin_enable_all"),
                 InlineKeyboardButton("Delete Accounts", callback_data="admin_delete_acc"),
             ],
-            [InlineKeyboardButton("🔒 Banned Numbers", callback_data="banned_disabled")],
-            [InlineKeyboardButton("🔒 Restricted Auto-Deletion", callback_data="restricted_disabled")],
             [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
         ])
         await _safe_edit(query.message, text, reply_markup=keyboard, client=client)
@@ -649,18 +645,6 @@ Details:
 
     elif data == "admin_numbers" and query.from_user.id in ADMINS:
         await show_numbers(query, page=1)
-
-    elif data == "restricted_disabled" and query.from_user.id in ADMINS:
-        await query.answer("🔒 Feature disabled", show_alert=True)
-        return
-
-    elif data == "banned_disabled" and query.from_user.id in ADMINS:
-        await query.answer("🔒 Feature disabled", show_alert=True)
-        return
-
-    elif data == "toggle_restricted_del" and query.from_user.id in ADMINS:
-        await query.answer("🔒 Feature disabled", show_alert=True)
-        return
 
     elif data.startswith("admin_numbers_page_"):
         page = int(data.split("_")[-1])
@@ -1763,10 +1747,6 @@ Details:
         except Exception as e:
             await message.reply_text(f"❌ Failed to export: {e}")
 
-    elif data == "banned_numbers" and query.from_user.id in ADMINS:
-        await query.answer("🔒 Feature disabled", show_alert=True)
-        return
-
     elif data == "change_rental_date" and query.from_user.id in ADMINS:
         try:
             response = await query.message.chat.ask(
@@ -1879,5 +1859,6 @@ Details:
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
 
 
