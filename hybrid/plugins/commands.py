@@ -138,10 +138,6 @@ async def stats_cmd(_, message: Message):
         from hybrid.plugins.db import get_7day_deletions
         pending_deletions = len(await get_7day_deletions())
 
-        # Pending TON orders
-        from hybrid.plugins.db import get_all_pending_ton_orders
-        pending_ton = len(await get_all_pending_ton_orders())
-
         # Pending CryptoBot invoices
         pending_crypto = len(temp.PENDING_INV)
 
@@ -170,7 +166,6 @@ async def stats_cmd(_, message: Message):
             f"• Total Revenue: <b>{total_revenue:.2f} USDT</b>\n\n"
             f"<b>⏳ Pending Payments</b>\n"
             f"• CryptoBot Invoices: <b>{pending_crypto}</b>\n"
-            f"• TON Orders: <b>{pending_ton}</b>\n"
         )
         await msg.edit_text(text, parse_mode=ParseMode.HTML)
     except Exception as e:
