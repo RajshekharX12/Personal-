@@ -654,6 +654,8 @@ def _build_startup_message(bot_username: str, start_timestamp) -> str:
 
 
 class Bot(Client):
+    # Session file: rental-bot.session (in cwd). If you get 401 SessionRevoked after
+    # changing BOT_TOKEN, delete rental-bot.session and restart so Pyrogram logs in with the new token.
     def __init__(self):
         super().__init__(
             name="rental-bot",
