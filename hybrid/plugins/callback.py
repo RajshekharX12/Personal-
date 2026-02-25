@@ -6,6 +6,8 @@ import asyncio
 import subprocess
 import psutil
 import platform
+import logging
+from logging.handlers import RotatingFileHandler
 
 from pyrogram.enums import ParseMode
 from pyrogram.types import Message
@@ -24,6 +26,13 @@ from config import D30_RATE, D60_RATE, D90_RATE, TON_WALLET
 from aiosend.types import Invoice
 from datetime import datetime, timezone
 
+# File-only logger for [CALLBACK] / [SLOW CALLBACK] so they don't spam the terminal
+_file_logger = logging.getLogger("callback.file")
+_file_logger.setLevel(logging.DEBUG)
+_file_logger.propagate = False
+_file_handler = RotatingFileHandler(LOG_FILE_NAME, maxBytes=50000000, backupCount=10, encoding="utf-8")
+_file_handler.setFormatter(logging.Formatter("[%(asctime)s - %(levelname)s] - %(name)s - %(message)s", datefmt="%d-%b-%y %H:%M:%S"))
+_file_logger.addHandler(_file_handler)
 
 if CRYPTO_STAT:
     from hybrid.__init__ import cp
@@ -66,9 +75,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
     finally:
         elapsed_ms = (time.monotonic() - start) * 1000
         if elapsed_ms > 1000:
-            logging.warning(f"[SLOW CALLBACK] data={query.data!r} user={query.from_user.id} took {elapsed_ms:.0f}ms")
+            _file_logger.warning(f"[SLOW CALLBACK] data={query.data!r} user={query.from_user.id} took {elapsed_ms:.0f}ms")
         else:
-            logging.info(f"[CALLBACK] data={query.data!r} user={query.from_user.id} took {elapsed_ms:.0f}ms")
+            _file_logger.info(f"[CALLBACK] data={query.data!r} user={query.from_user.id} took {elapsed_ms:.0f}ms")
 
 
 async def _callback_handler_impl(client: Client, query: CallbackQuery):
@@ -1844,3 +1853,4 @@ Details:
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
