@@ -1,7 +1,3 @@
-# (©) @Hybrid_Vamp - https://github.com/hybridvamp
-# Redis-only database
-# Do not add "from hybrid.plugins.db import ..." in this file (self-import causes circular import).
-
 import asyncio
 import json
 import os
@@ -16,6 +12,9 @@ from datetime import datetime, timezone, timedelta
 # TTL 30 seconds: balances freshness with reducing N+1 calls (get_user_numbers, get_rental_by_owner, etc.).
 _RENTALS_CACHE_TTL = 30.0
 _rentals_cache = (0.0, [])
+
+_number_info_cache: dict = {}  # number -> (timestamp, data)
+_NUMBER_INFO_CACHE_TTL = 60.0  # seconds
 
 def _now():
     return datetime.now(timezone.utc)
@@ -268,32 +267,30 @@ async def get_rented_data_for_number(number: str):
 
 
 async def get_rental_by_owner(user_id: int, number: str):
-    """Find rental for this user+number. Uses get_all_rentals only - same source as admin export."""
+    """Find rental for this user+number. get_all_rentals() called at most once."""
     uid = int(user_id)
     num_clean = str(number or "").strip().replace(" ", "").replace("-", "")
     if not num_clean:
         return None
-    # First try the tolerant lookup which checks rental keys and normalizes forms
-    rented = await get_rented_data_for_number(num_clean)
-    if rented and int(rented.get("user_id") or 0) == uid:
-        return rented
-
-    # normalize lookup form for comparisons
     num_norm = _normalize_for_lookup(num_clean)
-    for doc in await get_all_rentals():
+
+    all_rentals = await get_all_rentals()
+
+    data = await get_number_data(num_clean)
+    if data and int(data.get("user_id") or 0) == uid:
+        return data
+
+    for doc in all_rentals:
         if int(doc.get("user_id") or 0) != uid:
             continue
         doc_num = (doc.get("number") or "").strip()
         if not doc_num:
             continue
-        # direct match (handles exact stored format)
         if doc_num == num_clean:
             return doc
-        # try normalized comparison (handles +/no+ and formatting differences)
         doc_norm = _normalize_for_lookup(doc_num)
         if doc_norm and num_norm and doc_norm == num_norm:
             return doc
-        # fallback: tolerant string compare removing + sign
         if doc_num.lstrip("+") == num_clean.lstrip("+"):
             return doc
     return None
@@ -506,6 +503,7 @@ async def save_number_info(number: str, price_30: float, price_60: float, price_
         "updated_at": data["updated_at"],
     })
     await client.sadd("pool:numbers", number)
+    _number_info_cache.pop(number, None)
     return "UPDATED" if existed else "CREATED"
 
 
@@ -531,24 +529,32 @@ async def edit_number_info(number: str, **kwargs):
         return False, "NO_CHANGES"
     updates["updated_at"] = _now().isoformat()
     await client.hset(key, mapping=updates)
+    _number_info_cache.pop(number, None)
     return True, "UPDATED"
 
 
 async def get_number_info(number: str) -> dict | bool:
     if not number.startswith("+888"):
         number = "+888" + number.lstrip("+")
+    now_ts = time.monotonic()
+    if number in _number_info_cache:
+        ts, cached = _number_info_cache[number]
+        if now_ts - ts < _NUMBER_INFO_CACHE_TTL:
+            return cached
 
     key = f"number:{number}"
     data = await client.hgetall(key)
     if not data:
         return False
-    return {
+    result = {
         "number": data.get("number"),
         "prices": json.loads(data.get("prices") or "{}"),
         "hours": json.loads(data.get("hours") or "{}"),
         "available": data.get("available", "true").lower() == "true",
         "updated_at": _parse_dt(data.get("updated_at")),
     }
+    _number_info_cache[number] = (now_ts, result)
+    return result
 
 
 async def get_all_pool_numbers():
@@ -573,6 +579,20 @@ async def save_user_payment_method(user_id: int, method: str):
 async def get_user_payment_method(user_id: int):
     method = await client.get(f"payment:{user_id}") or "cryptobot"
     return method if method != "tron" else "cryptobot"
+
+
+async def get_user_profile_data(user_id: int):
+    """One round-trip: balance from user:{id}, payment method from payment:{id}."""
+    pipe = client.pipeline()
+    pipe.hgetall(f"user:{user_id}")
+    pipe.get(f"payment:{user_id}")
+    results = await pipe.execute()
+    data = results[0] or {}
+    balance = float(data.get("balance") or 0)
+    method = results[1] or data.get("payment_method") or "cryptobot"
+    if method == "tron":
+        method = "cryptobot"
+    return balance, method
 
 
 # ========= TONKEEPER ORDERS =========
