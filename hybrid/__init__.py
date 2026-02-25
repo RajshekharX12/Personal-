@@ -434,6 +434,76 @@ async def check_7day_accs(client):
                     await temp_client.disconnect()
         await asyncio.sleep(3600)
 
+async def check_restricted_numbers(client):
+    """Check and log restricted numbers from Fragment. Runs once a day"""
+    from hybrid.plugins.func import t
+    while True:
+        from hybrid.plugins.fragment import get_restricted_numbers_async
+        restricted, _ = await get_restricted_numbers_async()
+        if not restricted:
+            logging.error("No Restricted numbers found or failed to fetch.")
+            return
+
+        for num in restricted:
+            logging.info(f"Number {num} is restricted by Fragment.")
+            if num not in temp.RESTRICTED_NUMS:
+                temp.RESTRICTED_NUMS.add(num)
+
+            num_data = await get_number_data(num)
+            user_id = num_data.get("user_id") if num_data else None
+            if not user_id:
+                continue
+
+            stat, reason = await save_restricted_number(num)
+            if not stat and reason == "ALREADY":
+                from hybrid.plugins.db import get_rest_num_date
+                date = await get_rest_num_date(num)
+                now = get_current_datetime()
+
+                if date and date.tzinfo is None:
+                    date = date.replace(tzinfo=timezone.utc)
+
+                if date and (now - date).days >= 3:
+                    if not await is_restricted_del_enabled():
+                        logging.info("Restricted auto-deletion is disabled. Skipping deletion.")
+                        continue
+
+                    try:
+                        from hybrid.plugins.fragment import terminate_all_sessions_async
+                        await terminate_all_sessions_async(num)
+                    except Exception:
+                        pass
+
+                    stat, reason = await delete_account(num, client)
+                    if stat and reason == "7Days":
+                        logging.info(f"Deleted account {num} after 7 days")
+                        from hybrid.plugins.db import save_7day_deletion
+                        await save_7day_deletion(num, now + timedelta(days=7))
+                    if stat:
+                        await remove_number_data(num)
+                        await remove_number(num, user_id)
+                    if not stat and reason == "Banned":
+                        continue  # Banned feature disabled
+                    logging.info(f"Restricted number {num} cleaned up for user {user_id} after 3 days")
+                else:
+                    logging.info(f"Restricted number {num} not yet cleaned up for user {user_id}")
+                    days_remaining = 3 - (now - date).days if date else 3
+                    text = (await t(user_id, "restricted_notify")).format(number=num, days=days_remaining)
+                    try:
+                        await client.send_message(user_id, text)
+                    except Exception as e:
+                        logging.error(f"Failed to notify user {user_id} about restricted number {num}: {e}")
+                continue
+
+            text = (await t(user_id, "restricted_notify")).format(number=num, days=3)
+            try:
+                await client.send_message(user_id, text)
+            except Exception as e:
+                logging.error(f"Failed to notify user {user_id} about restricted number {num}: {e}")
+
+        await asyncio.sleep(86400)
+
+
 async def check_payments(client):
     """Background: verify CryptoBot invoices and Tonkeeper orders. Update messages when paid."""
     import requests
@@ -622,6 +692,8 @@ class Bot(Client):
         logging.info("Started background task to check expired numbers.")
         asyncio.create_task(check_7day_accs(self))
         logging.info("Started background task to check 7-day deletion accounts.")
+        # Restricted numbers detection/deletion DISABLED
+        # asyncio.create_task(check_restricted_numbers(self))
         asyncio.create_task(check_payments(self))
         logging.info("Started payment checker (CryptoBot + Tonkeeper).")
         asyncio.create_task(cleanup_expired_invoices(self))
