@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 import re
 import os
 import html
@@ -52,16 +50,6 @@ DEFAULT_ADMIN_BACK_KEYBOARD = InlineKeyboardMarkup(
 async def start_command(client: Client, message: Message):
     user = message.from_user
     await save_user_id(user.id)
-
-    lang = await get_user_language(user.id)
-    if not lang:
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")],
-            [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
-            [InlineKeyboardButton("🇰🇷 한국어", callback_data="lang_ko")],
-            [InlineKeyboardButton("🇨🇳 中文", callback_data="lang_zh")],
-        ])
-        return await message.reply_text(await t(user.id, "choose_lang"), reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     rows = [
         [InlineKeyboardButton(await t(user.id, "rent"), callback_data="rentnum"),
