@@ -1,3 +1,4 @@
+
 import json
 import math
 import asyncio
@@ -187,7 +188,7 @@ def h(text: str) -> str:
 # English only — no DB/cache for speed
 _EN = LANGUAGES.get("en", {})
 
-async def t(user_id: int, key: str, **kwargs):
+def t(user_id: int, key: str, **kwargs):
     text = _EN.get(key, key)
     _emoji_fallback = {"success":"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji>","error":"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji>","warning":"⚠️","phone":"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>","money":"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>","renew":"<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji>","get_code":"<tg-emoji emoji-id=\"5433811242135331842\">📨</tg-emoji>","back":"⬅️","date":"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji>","loading":"<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>","time":"<tg-emoji emoji-id=\"5413704112220949842\">🕒</tg-emoji>","timeout":"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji>"}
     text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: _emoji_fallback.get(m.group(1), ""), text)
@@ -223,17 +224,17 @@ async def build_rentnum_keyboard(user_id: int, page: int = 0):
 
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton(await t(user_id, "back"), callback_data=f"rentnum_page:{page-1}"))
+        nav_row.append(InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentnum_page:{page-1}"))
         nav_row.append(InlineKeyboardButton(f"Page {page+1}/{math.ceil(len(ordered_numbers) / NUMBERS_PER_PAGE)}", callback_data="pagenumber"))
     if end < len(ordered_numbers):
         if page == 0:
             nav_row.append(InlineKeyboardButton(f"Page {page+1}/{math.ceil(len(ordered_numbers) / NUMBERS_PER_PAGE)}", callback_data="pagenumber"))
-        nav_row.append(InlineKeyboardButton(await t(user_id, "next"), callback_data=f"rentnum_page:{page+1}"))
+        nav_row.append(InlineKeyboardButton(t(user_id, "next"), callback_data=f"rentnum_page:{page+1}"))
 
     if nav_row:
         keyboard.append(nav_row)
 
-    keyboard.append([InlineKeyboardButton(await t(user_id, "back_home"), callback_data="back_home")])
+    keyboard.append([InlineKeyboardButton(t(user_id, "back_home"), callback_data="back_home")])
 
     return InlineKeyboardMarkup(keyboard)
 
@@ -243,11 +244,11 @@ async def build_number_actions_keyboard(user_id: int, number: str, back_data: st
     n = normalize_phone(number) or number
     keyboard = [
         [
-            InlineKeyboardButton(await t(user_id, "renew"), callback_data=f"renew_{n}"),
-            InlineKeyboardButton(await t(user_id, "get_code"), callback_data=f"getcode_{n}"),
+            InlineKeyboardButton(t(user_id, "renew"), callback_data=f"renew_{n}"),
+            InlineKeyboardButton(t(user_id, "get_code"), callback_data=f"getcode_{n}"),
         ],
-        [InlineKeyboardButton(await t(user_id, "transfer"), callback_data=f"transfer_{n}")],
-        [InlineKeyboardButton(await t(user_id, "back"), callback_data=back_data)],
+        [InlineKeyboardButton(t(user_id, "transfer"), callback_data=f"transfer_{n}")],
+        [InlineKeyboardButton(t(user_id, "back"), callback_data=back_data)],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -259,14 +260,14 @@ async def resolve_payment_keyboard(user_id: int, payload: str) -> InlineKeyboard
         if len(parts) >= 3:
             number, hours = parts[1], parts[2]
             return InlineKeyboardMarkup([[
-                InlineKeyboardButton(await t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
+                InlineKeyboardButton(t(user_id, "confirm"), callback_data=f"confirmrent:{number}:{hours}")
             ]])
     if payload.startswith("numinfo:"):
         return InlineKeyboardMarkup([[
-            InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)
+            InlineKeyboardButton(t(user_id, "back"), callback_data=payload)
         ]])
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")
+        InlineKeyboardButton(t(user_id, "back"), callback_data="profile")
     ]])
 
 
@@ -282,7 +283,7 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
     )
     keyboard = [
         [InlineKeyboardButton("💳 Pay", url=invoice.bot_invoice_url)],
-        [InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)],
+        [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
         f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Invoice Created\n\n"
@@ -334,22 +335,22 @@ async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: floa
     """Create Tonkeeper payment screen. Converts USDT to TON, memo auto-filled in Pay link."""
     from hybrid.plugins.db import _gen_order_ref, save_ton_order
     if not TON_WALLET:
-        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]))
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
     ton_price = await get_ton_price_usd()
     if not ton_price or ton_price <= 0:
-        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]))
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
     amount_ton = amount_usdt / ton_price
     order_ref = await _gen_order_ref()
     await save_ton_order(order_ref, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
     pay_url = create_tonkeeper_link(amount_ton, order_ref)
     if not pay_url:
-        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)]]))
+        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
         return
     keyboard = [
         [InlineKeyboardButton("💳 Pay", url=pay_url)],
-        [InlineKeyboardButton(await t(user_id, "back"), callback_data=payload)],
+        [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
         f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Tonkeeper Payment\n\n"
@@ -472,7 +473,7 @@ async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, 
                 try:
                     await client.edit_message_text(
                         order["chat_id"], order["msg_id"],
-                        await t(user_id, "payment_confirmed"),
+                        t(user_id, "payment_confirmed"),
                         reply_markup=keyboard
                     )
                 except Exception:
@@ -798,10 +799,10 @@ async def give_payment_option(client, msg: Message, user_id: int):
     rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="set_payment_cryptobot")]]
     if TON_WALLET:
         rows.append([InlineKeyboardButton("Tonkeeper", callback_data="set_payment_tonkeeper")])
-    rows.append([InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")])
+    rows.append([InlineKeyboardButton(t(user_id, "back"), callback_data="profile")])
     keyboard = InlineKeyboardMarkup(rows)
     await msg.reply(
-        await t(user_id, "choose_payment_method"),
+        t(user_id, "choose_payment_method"),
         reply_markup=keyboard
     )
 
