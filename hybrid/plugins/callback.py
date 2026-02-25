@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 from email.mime import message
 import re
 import os
@@ -324,17 +322,15 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             payment_method = "Tonkeeper"
         else:
             payment_method = "Not set"
-        text, add_bal_lbl, change_pay_lbl, lang_lbl, back_lbl = await asyncio.gather(
+        text, add_bal_lbl, change_pay_lbl, back_lbl = await asyncio.gather(
             t(user.id, "profile_text", id=user.id, fname=user.first_name or "N/A", uname=("@" + user.username) if user.username else "N/A", bal=balance, payment_method=payment_method),
             t(user.id, "add_balance"),
             t(user.id, "change_payment_method"),
-            t(user.id, "language"),
             t(user.id, "back"),
         )
         keyboard = [
             [InlineKeyboardButton(add_bal_lbl, callback_data="add_balance")],
             [InlineKeyboardButton(change_pay_lbl, callback_data="change_payment_method")],
-            [InlineKeyboardButton(lang_lbl, callback_data="language")],
             [InlineKeyboardButton(back_lbl, callback_data="back_home")],
         ]
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
@@ -552,26 +548,6 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         )
         await query.message.edit_text(await t(user_id, "help_text"), reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
-    elif data.startswith("lang_"):
-        lang = query.data.split("_")[1]
-        user_id = query.from_user.id
-
-        await save_user_language(user_id, lang)
-        from hybrid.plugins.func import _lang_cache
-        _lang_cache.pop(user_id, None)
-
-        await query.message.edit("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Language saved! press /start again to continue.", parse_mode=ParseMode.HTML)
-
-    elif data == "language":
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")],
-            [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
-            [InlineKeyboardButton("🇰🇷 한국어", callback_data="lang_ko")],
-            [InlineKeyboardButton("🇨🇳 中文", callback_data="lang_zh")],
-            [InlineKeyboardButton(await t(user_id, "back"), callback_data="profile")]
-        ])
-        await query.message.edit("<tg-emoji emoji-id=\"5399898266265475100\">🌍</tg-emoji> Please choose your language:", reply_markup=keyboard, parse_mode=ParseMode.HTML)
-
     elif data == "admin_panel" and query.from_user.id in ADMINS:
         text = "<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Admin Panel\n\nSelect an option below:"
         keyboard = InlineKeyboardMarkup([
@@ -663,71 +639,13 @@ Details:
     elif data == "admin_tools" and query.from_user.id in ADMINS:
         text = """<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Admin Tools
 
-Details:
-- Change Rules: Update the rental rules text in multiple languages.
-- Check Tx: Verify a transaction ID for balance top-up.
-- Admin Help: Get help on using admin features.
+- Change Rules: Update the rental rules text.
         """
         keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("Check Tx", callback_data="checktx"),
-                InlineKeyboardButton("Change Rules", callback_data="admin_change_rules"),
-            ],
-            [
-                InlineKeyboardButton("❓ Admin Help", callback_data="admin_help")
-            ],
+            [InlineKeyboardButton("Change Rules", callback_data="admin_change_rules")],
             [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
         ])
         await _safe_edit(query.message, text, reply_markup=keyboard, client=client)
-
-    elif data == "checktx" and query.from_user.id in ADMINS:
-        try:
-            response = await query.message.chat.ask(
-                "⚠️ Enter the transaction hash or invoice ID to verify (within 120s):",
-                timeout=120
-            )
-        except Exception:
-            return await query.message.edit_text(
-                "⏰ Timeout! Please try again.",
-                reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD,
-                parse_mode=ParseMode.HTML
-            )
-        tx_id = response.text.strip()
-        await response.delete()
-        try:
-            await response.sent_message.delete()
-        except Exception:
-            pass
-        if not tx_id:
-            return await query.message.edit_text(
-                "❌ No transaction ID provided.",
-                reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD,
-                parse_mode=ParseMode.HTML
-            )
-        result_text = f"🔍 Transaction check for: <code>{tx_id}</code>\n\n"
-        if CRYPTO_STAT:
-            try:
-                from hybrid import cp
-                invoice = await cp.get_invoice(tx_id)
-                if invoice:
-                    result_text += (
-                        f"✅ Found CryptoBot Invoice\n"
-                        f"• Status: {invoice.status}\n"
-                        f"• Amount: {invoice.amount} {invoice.asset}\n"
-                        f"• Payload: {invoice.payload or 'N/A'}\n"
-                        f"• Invoice ID: {invoice.invoice_id}\n"
-                    )
-                else:
-                    result_text += "❌ Invoice not found in CryptoBot.\n"
-            except Exception as e:
-                result_text += f"❌ CryptoBot lookup failed: {e}\n"
-        else:
-            result_text += "⚠️ CryptoBot is not configured.\n"
-        await query.message.edit_text(
-            result_text,
-            reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD,
-            parse_mode=ParseMode.HTML
-        )
 
     elif data == "admin_numbers" and query.from_user.id in ADMINS:
         await show_numbers(query, page=1)
@@ -1171,202 +1089,25 @@ Details:
                 logging.info(f"Number {identifier} is banned (banned feature disabled).")
         return
         
-    elif data == "admin_help" or (data.startswith("admin_help_page_") and query.from_user.id in ADMINS):
-        if not (query.from_user.id in ADMINS):
-            return
-        page = 0
-        if data.startswith("admin_help_page_"):
-            try:
-                page = int(data.replace("admin_help_page_", ""))
-            except ValueError:
-                page = 0
-        ADMIN_HELP_PAGES = [
-            """📘 Admin Help — Page 1/5: Overview & User Management
-
-<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Admin Panel
-User Management — User info, add balance
-Rental Management — Numbers, assign/cancel/extend, change date, export CSV
-Number Control — Enable/disable numbers, delete accounts, banned list, restricted auto-deletion
-Admin Tools — Check Tx, Change Rules, this Help
-
-<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> 1. User Info
-Path: Admin Panel → User Management → User Info
-How to use: Click the button → bot asks Enter the User ID → send a Telegram User ID.
-Example: You send 1412909688
-What happens: Bot shows: name, username, balance (USDT), count of active rentals, list of rented numbers (e.g. +88801497213). User must have started the bot at least once; otherwise you get "User not found".
-
-<tg-emoji emoji-id=\"5422683699130933153\">👤</tg-emoji> 2. User Balances
-Path: Admin Panel → User Management → User Balances
-How to use: Opens a screen with total balance (all users) in USDT and total users with balance. Use ➕ Add Balance to credit a user.
-Example: Click Add Balance → send 1412909688 → then send 25 (USDT). Minimum 0.5 USDT.
-What happens: That user's balance increases by 25 USDT; they get a notification. Bot confirms the new balance.""",
-            """📘 Admin Help — Page 2/5: Rental Management (1/2)
-
-<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 1. Numbers
-Path: Admin Panel → Rental Management → Numbers
-How to use: Browse paginated list of all numbers (e.g. +88801497213). Click a number for details.
-On number screen: Status (<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji> Available / <tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji> Rented), 30/60/90 day prices (USDT), availability. 💵 Change Price → send 30d,60d,90d (e.g. 80,152,224). 🟢 Toggle Availability → hide/show from rent list.
-What happens: Price or visibility updates immediately; users see new prices when renting.
-
-<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 2. Assign Number
-Path: Rental Management → Assign Number
-How to use: Step 1 — enter User ID (e.g. 1412909688). Step 2 — enter Number (e.g. +88801497213 or 88801497213). Step 3 — enter Hours: 720 (30d), 1440 (60d), 2160 (90d).
-Example: User ID 1412909688, Number +88801497213, Hours 720 → 30 days rental.
-What happens: Number is assigned to that user; they receive a message with rental details. Number disappears from public rent list.
-
-<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 3. Cancel Rent
-Path: Rental Management → Cancel Rent
-How to use: Send the number to cancel (e.g. +88801497213 or 88801497213).
-What happens: Rental is removed; user is notified. A 🗑️ Delete Account button appears — use it to delete the Telegram account linked to that number (SMS code and optional 2FA required).""",
-            """📘 Admin Help — Page 3/5: Rental Management (2/2)
-
-<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 4. Extend Rent
-Path: Rental Management → Extend Rent
-How to use: Send number (e.g. +88801497213) → then duration in 6h or 2d format (e.g. 6h, 2d).
-Example: Number +88801497213, duration 2d → adds 2 days to current expiry.
-What happens: Remaining time is extended; user gets a notification with new time left.
-
-<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 5. Change Rental Date
-Path: Rental Management → Change Rental Date
-How to use: Send number (e.g. +88801497213) → choose Change Rental Duration or Change Rented date.
-Duration: Enter e.g. 3d or 72h — total rental length from the original rent date is set to this.
-Date: Enter DD/MM/YYYY (e.g. 14/02/2026) — rent start date is changed; cannot be in the future.
-What happens: Rental data is updated; expiry recalculates accordingly.
-
-<tg-emoji emoji-id=\"5767374504175078683\">🛒</tg-emoji> 6. Export CSV
-Path: Rental Management → 📑 Export CSV (or command /exportcsv)
-How to use: Click once; no input.
-What happens: Bot sends a CSV file with: Number, Rented (Yes/No), User ID, Balance, Rent Date, Expiry, Days/Hours Left.""",
-            """📘 Admin Help — Page 4/5: Number Control
-
-🔢 1. Enable Numbers
-Path: Number Control → Enable Numbers
-How to use: Send one or more numbers, comma-separated: +88801497213 or 88801497213 or 1497213. Example: +88801497213, +88801547639.
-What happens: Those numbers become visible in the rent list (if they exist in DB).
-
-🔢 2. Disable Numbers
-Path: Number Control → Disable Numbers
-How to use: Same format as Enable; send number(s) to hide.
-What happens: Numbers are hidden from the rent list (not deleted from DB).
-
-🔢 3. Enable All
-Path: Number Control → Enable All
-What happens: Every number in the system is set to available for rent in one action.
-
-🔢 4. Delete Accounts
-Path: Number Control → Delete Accounts → send number (e.g. +88801497213).
-How to use: Bot asks for number → Fragment sends login code via SMS → you enter OTP (e.g. in Fragment helper) → then 2FA if enabled. Account is deleted or 7-day deletion starts.
-What happens: Telegram account on that number is deleted. If number becomes Banned, it is added to the Banned list.
-
-🔢 5. Banned Numbers
-Path: Number Control → Banned Numbers (or /banned)
-What happens: Lists all numbers that are banned (e.g. after failed delete). No input.
-
-🔢 6. Restricted Auto-Deletion
-Path: Number Control → toggle (Enable/Disable Restricted Auto-Deletion)
-When ON: Numbers that become restricted on Fragment are auto-deleted after 3 days; users are notified.
-When OFF: No auto-deletion.""",
-            """📘 Admin Help — Page 5/5: Admin Tools & Commands
-
-<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> ADMIN TOOLS
-
-1. Check Tx
-Path: Admin Panel → Admin Tools → Check Tx
-How to use: Enter a transaction hash (e.g. from CryptoBot) to verify.
-What happens: Bot replies whether the tx was found and shows amount/recipient (if supported).
-
-2. Change Rules
-Path: Admin Tools → Change Rules
-How to use: Bot asks for new rules text four times: English → Russian → Korean → Chinese (300s each).
-What happens: Rules are saved; users see them when they tap Accept before renting.
-
-3. Admin Help
-You are here. Use Prev/Next to move between pages.
-
-<tg-emoji emoji-id=\"5440410042773824003\">📌</tg-emoji> COMMANDS (send in chat)
-
-/addadmin 1412909688 — Add that user as admin.
-/remadmin 1412909688 — Remove admin.
-/cleardb — Asks confirmation; type YES to clear all DB.
-/broadcast — Reply to a message → that message is sent to all users (with success/fail count).
-/checknum — Bot asks for number (e.g. +88801497213); replies if available on Fragment.
-/exportcsv — Same as Export CSV button; sends CSV file.
-/logs — Bot sends the log file.
-/update — Git pull then restart.
-/restart — Restart bot.
-/sysinfo — CPU, memory, disk usage.
-/banned — List banned numbers.
-
-For support, contact the bot developer."""
-        ]
-        total_pages = len(ADMIN_HELP_PAGES)
-        page = max(0, min(page, total_pages - 1))
-        text = ADMIN_HELP_PAGES[page]
-        keyboard = []
-        nav = []
-        if page > 0:
-            nav.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_help_page_{page - 1}"))
-        nav.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="admin_help_pageno"))
-        if page < total_pages - 1:
-            nav.append(InlineKeyboardButton("Next ➡️", callback_data=f"admin_help_page_{page + 1}"))
-        if nav:
-            keyboard.append(nav)
-        keyboard.append([InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")])
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
-
-    elif data == "admin_help_pageno" and query.from_user.id in ADMINS:
-        await query.answer("Use Prev / Next to change page.", show_alert=False)
-
     elif data == "admin_change_rules" and query.from_user.id in ADMINS:
         try:
             response = await query.message.chat.ask(
-                "⚠️ Enter the new rules text - ENGLISH (within 300s):",
+                "⚠️ Enter the new rules text (within 300s):",
                 timeout=300
             )
         except Exception:
             return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         new_rules = response.text.strip()
-        await response.delete()
-        await response.sent_message.delete()
+        try:
+            await response.delete()
+        except Exception:
+            pass
+        try:
+            await response.sent_message.delete()
+        except Exception:
+            pass
         await save_rules(new_rules, lang="en")
-
-        try:
-            response = await query.message.chat.ask(
-                "⚠️ Enter the new rules text - RUSSIAN (within 300s):",
-                timeout=300
-            )
-        except Exception:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        new_rules = response.text.strip()
-        await response.delete()
-        await response.sent_message.delete()
-        await save_rules(new_rules, lang="ru")
-
-        try:
-            response = await query.message.chat.ask(
-                "⚠️ Enter the new rules text - KOREAN (within 300s):",
-                timeout=300
-            )
-        except Exception:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        new_rules = response.text.strip()
-        await response.delete()
-        await response.sent_message.delete()
-        await save_rules(new_rules, lang="ko")
-
-        try:
-            response = await query.message.chat.ask(
-                "⚠️ Enter the new rules text - CHINESE (within 300s):",
-                timeout=300
-            )
-        except Exception:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        new_rules = response.text.strip()
-        await response.delete()
-        await response.sent_message.delete()
-        await save_rules(new_rules, lang="zh")
-        
-        await query.message.edit_text("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rules updated successfully in all languages.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        await query.message.edit_text("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rules updated.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data.startswith("delacc_") and query.from_user.id in ADMINS:
         parts = data.replace("delacc_", "").rsplit("_", 1)
@@ -2138,6 +1879,5 @@ For support, contact the bot developer."""
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
 
 
