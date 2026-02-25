@@ -2,6 +2,7 @@
 
 import re
 import os
+import time
 import html
 import random
 import asyncio
@@ -20,6 +21,7 @@ from hybrid import Bot, LOG_FILE_NAME, logging, ADMINS, gen_4letters
 from hybrid.plugins.temp import temp
 from hybrid.plugins.func import *
 from hybrid.plugins.db import *
+from hybrid.plugins.db import ping_redis
 
 from aiosend.types import Invoice
 
@@ -65,6 +67,32 @@ async def start_command(client: Client, message: Message):
         rows.insert(0, [InlineKeyboardButton("🛠️ Admin Panel", callback_data="admin_panel")])
 
     await message.reply_text(t(user.id, "welcome", name=user.mention), reply_markup=InlineKeyboardMarkup(rows), parse_mode=ParseMode.HTML)
+
+
+@Bot.on_message(filters.command("ping") & filters.private & filters.user(ADMINS))
+async def ping_command(client: Client, message: Message):
+    start = time.monotonic()
+    sent = await message.reply("🏓 Pinging...")
+    telegram_ms = (time.monotonic() - start) * 1000
+
+    redis_ms = await ping_redis()
+
+    def speed_emoji(ms):
+        if ms < 200:
+            return "🟢"
+        elif ms < 500:
+            return "🟡"
+        else:
+            return "🔴"
+
+    text = (
+        f"🏓 <b>Pong!</b>\n\n"
+        f"{speed_emoji(telegram_ms)} <b>Telegram:</b> <code>{telegram_ms:.0f}ms</code>\n"
+        f"{speed_emoji(redis_ms)} <b>Redis:</b> <code>{redis_ms:.0f}ms</code>"
+    )
+
+    await sent.edit_text(text, parse_mode=ParseMode.HTML)
+
 
 @Bot.on_message(filters.command("update") & filters.user(ADMINS))
 async def update_restart(_, message):
