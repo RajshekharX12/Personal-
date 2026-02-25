@@ -54,17 +54,17 @@ async def start_command(client: Client, message: Message):
     await save_user_id(user.id)
 
     rows = [
-        [InlineKeyboardButton(await t(user.id, "rent"), callback_data="rentnum"),
-         InlineKeyboardButton(await t(user.id, "my_rentals"), callback_data="my_rentals")],
-        [InlineKeyboardButton(await t(user.id, "profile"), callback_data="profile"),
-         InlineKeyboardButton(await t(user.id, "help"), callback_data="help")],
-        [InlineKeyboardButton(await t(user.id, "contact_support"), url="https://t.me/aress")]
+        [InlineKeyboardButton(t(user.id, "rent"), callback_data="rentnum"),
+         InlineKeyboardButton(t(user.id, "my_rentals"), callback_data="my_rentals")],
+        [InlineKeyboardButton(t(user.id, "profile"), callback_data="profile"),
+         InlineKeyboardButton(t(user.id, "help"), callback_data="help")],
+        [InlineKeyboardButton(t(user.id, "contact_support"), url="https://t.me/aress")]
     ]
 
     if user.id in ADMINS:
         rows.insert(0, [InlineKeyboardButton("🛠️ Admin Panel", callback_data="admin_panel")])
 
-    await message.reply_text(await t(user.id, "welcome", name=user.mention), reply_markup=InlineKeyboardMarkup(rows), parse_mode=ParseMode.HTML)
+    await message.reply_text(t(user.id, "welcome", name=user.mention), reply_markup=InlineKeyboardMarkup(rows), parse_mode=ParseMode.HTML)
 
 @Bot.on_message(filters.command("update") & filters.user(ADMINS))
 async def update_restart(_, message):
