@@ -1,3 +1,5 @@
+#(©) @Hybrid_Vamp - https://github.com/hybridvamp
+
 import sys
 import logging
 import asyncio
@@ -505,23 +507,16 @@ async def check_restricted_numbers(client):
 
 
 async def check_payments(client):
-    """Background: verify CryptoBot invoices and Tonkeeper orders. Update messages when paid."""
+    """Background: verify CryptoBot invoices. Update messages when paid."""
     import requests
     from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from hybrid.plugins.temp import temp
-    from hybrid.plugins.db import get_user_balance, save_user_balance, get_ton_order, delete_ton_order, get_all_pending_ton_orders, is_payment_processed_crypto, mark_payment_processed_crypto
+    from hybrid.plugins.db import get_user_balance, save_user_balance, is_payment_processed_crypto, mark_payment_processed_crypto
     from hybrid.plugins.func import t, resolve_payment_keyboard
-    from config import TON_WALLET, TON_API_TOKEN
 
     while True:
         try:
-            if TON_WALLET:
-                from hybrid.plugins.func import check_tonkeeper_payments
-                await check_tonkeeper_payments(
-                    client, get_user_balance, save_user_balance, delete_ton_order,
-                    get_all_pending_ton_orders, t, TON_WALLET
-                )
-            # 1. CryptoBot pending invoices
+            # CryptoBot pending invoices
             if CRYPTO_STAT:
                 try:
                     cp_client = cp
@@ -565,8 +560,7 @@ async def check_payments(client):
 
         except Exception as e:
             logging.error(f"Payment checker error: {e}")
-        pending_ton = await get_all_pending_ton_orders() if TON_WALLET else []
-        await asyncio.sleep(6 if pending_ton else 12)
+        await asyncio.sleep(12)
 
 
 async def cleanup_expired_invoices(client):
@@ -697,7 +691,7 @@ class Bot(Client):
         # Restricted numbers detection/deletion DISABLED
         # asyncio.create_task(check_restricted_numbers(self))
         asyncio.create_task(check_payments(self))
-        logging.info("Started payment checker (CryptoBot + Tonkeeper).")
+        logging.info("Started payment checker (CryptoBot).")
         asyncio.create_task(cleanup_expired_invoices(self))
         logging.info("Started invoice cleanup task (every 5 min).")
 
