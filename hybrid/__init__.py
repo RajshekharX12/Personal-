@@ -1,3 +1,5 @@
+#(©) @Hybrid_Vamp - https://github.com/hybridvamp
+
 import sys
 import logging
 import asyncio
@@ -142,13 +144,13 @@ async def schedule_reminders(client):
                             continue
                         try:
                             remaining_str = format_remaining_time(doc.get("rent_date"), doc.get("hours", 0))
-                            text = (await t(user_id, "expire_soon")).format(
+                            text = (t(user_id, "expire_soon")).format(
                                 number=number,
                                 remaining_days=remaining_str
                             )
                             keyboard = InlineKeyboardMarkup([[
                                 InlineKeyboardButton(
-                                    await t(user_id, "renew"),
+                                    t(user_id, "renew"),
                                     callback_data=f"renew_{number}"
                                 )
                             ]])
@@ -217,7 +219,7 @@ async def _process_one_expired(number: str, client, now):
         else:
             logging.info(f"Number {number} is in 7-day deletion period — skipping relist.")
         from hybrid.plugins.func import t
-        text = (await t(user_id, "expired_notify")).format(number=number)
+        text = (t(user_id, "expired_notify")).format(number=number)
         try:
             await client.send_message(user_id, text)
         except Exception as e:
@@ -488,14 +490,14 @@ async def check_restricted_numbers(client):
                 else:
                     logging.info(f"Restricted number {num} not yet cleaned up for user {user_id}")
                     days_remaining = 3 - (now - date).days if date else 3
-                    text = (await t(user_id, "restricted_notify")).format(number=num, days=days_remaining)
+                    text = (t(user_id, "restricted_notify")).format(number=num, days=days_remaining)
                     try:
                         await client.send_message(user_id, text)
                     except Exception as e:
                         logging.error(f"Failed to notify user {user_id} about restricted number {num}: {e}")
                 continue
 
-            text = (await t(user_id, "restricted_notify")).format(number=num, days=3)
+            text = (t(user_id, "restricted_notify")).format(number=num, days=3)
             try:
                 await client.send_message(user_id, text)
             except Exception as e:
@@ -552,7 +554,7 @@ async def check_payments(client):
                             try:
                                 await client.edit_message_text(
                                     user_id, msg_id,
-                                    await t(user_id, "payment_confirmed"),
+                                    t(user_id, "payment_confirmed"),
                                     reply_markup=keyboard
                                 )
                             except Exception:
