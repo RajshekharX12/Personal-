@@ -858,8 +858,9 @@ Details:
             available=new_status
         )
 
+        status_label = "<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes" if new_status else "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No"
         await query.message.edit_text(
-            f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Availability for {number} set to {'<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes' if new_status else '<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No'}.",
+            f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Availability for {number} set to {status_label}.",
             parse_mode=ParseMode.HTML,
         )
         # change in temp.AVAILABLE_NUM
