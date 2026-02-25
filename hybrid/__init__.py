@@ -232,7 +232,7 @@ async def check_expired_numbers(client):
         expired_list = await get_expired_numbers()
         if expired_list:
             await asyncio.gather(*[_process_one_expired(number, client, now) for number in expired_list], return_exceptions=True)
-        await asyncio.sleep(600)
+        await asyncio.sleep(120)
 
 async def check_7day_accs(client):
     """Check and complete 7-day scheduled deletions. Reconnects with saved session to finalize deletion."""
@@ -507,12 +507,18 @@ async def check_restricted_numbers(client):
 
 
 async def check_payments(client):
-    """Background: verify CryptoBot invoices. Update messages when paid."""
+    """Background: verify CryptoBot invoices. Update messages when paid. Auto-rent on rentpay payload."""
     import requests
     from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from hybrid.plugins.temp import temp
-    from hybrid.plugins.db import get_user_balance, save_user_balance, is_payment_processed_crypto, mark_payment_processed_crypto
-    from hybrid.plugins.func import t, resolve_payment_keyboard
+    from hybrid.plugins.db import (
+        get_user_balance, save_user_balance, is_payment_processed_crypto, mark_payment_processed_crypto,
+        delete_inv_entry, get_number_info, get_rented_data_for_number,
+        save_number, save_rental_atomic, unlock_number_for_rent, lock_number_for_rent,
+        record_revenue,
+    )
+    from hybrid.plugins.func import t, resolve_payment_keyboard, format_number, format_remaining_time, get_current_datetime, get_remaining_hours
+    from config import D30_RATE, D60_RATE, D90_RATE
 
     while True:
         try:
@@ -531,6 +537,7 @@ async def check_payments(client):
                         if inv and getattr(inv, "status", None) == "paid":
                             if await is_payment_processed_crypto(str(inv_id)):
                                 temp.INV_DICT.pop(user_id, None)
+                                await delete_inv_entry(user_id)
                                 if inv_id in temp.PENDING_INV:
                                     temp.PENDING_INV.remove(inv_id)
                                 continue
@@ -543,16 +550,91 @@ async def check_payments(client):
                             new_bal = current_bal + float(inv.amount)
                             await save_user_balance(user_id, new_bal)
                             await mark_payment_processed_crypto(str(inv_id))
-                            keyboard = await resolve_payment_keyboard(user_id, payload)
-                            try:
-                                await client.edit_message_text(
-                                    user_id, msg_id,
-                                    t(user_id, "payment_confirmed"),
-                                    reply_markup=keyboard
-                                )
-                            except Exception:
-                                pass
+                            # Auto-rent when payload is rentpay:number:hours
+                            if payload.startswith("rentpay:"):
+                                parts = payload.split(":")
+                                number = parts[1] if len(parts) >= 2 else ""
+                                hours = int(parts[2]) if len(parts) >= 3 else 0
+                                from hybrid.plugins.func import normalize_phone
+                                number = normalize_phone(number) or number
+                                num_text = format_number(number)
+                                info = await get_number_info(number)
+                                rented_data = await get_rented_data_for_number(number)
+                                if info and info.get("available", True) and hours:
+                                    if rented_data and rented_data.get("user_id") and int(rented_data.get("user_id", 0)) != user_id:
+                                        keyboard = await resolve_payment_keyboard(user_id, payload)
+                                        try:
+                                            await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
+                                        except Exception:
+                                            pass
+                                    else:
+                                        prices = info.get("prices", {})
+                                        price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
+                                        price = price_map.get(hours)
+                                        if price is not None and new_bal >= price:
+                                            lock_acquired = await lock_number_for_rent(number, user_id, ttl=60)
+                                            if lock_acquired:
+                                                try:
+                                                    rent_date = rented_data.get("rent_date", get_current_datetime()) if rented_data else get_current_datetime()
+                                                    remaining_hours = get_remaining_hours(rent_date, rented_data.get("hours", 0)) if rented_data else 0
+                                                    new_hours = remaining_hours + hours
+                                                    new_balance = new_bal - price
+                                                    if remaining_hours > 0:
+                                                        await save_number(number, user_id, new_hours, extend=True)
+                                                        original_rent_date = rented_data.get("rent_date", get_current_datetime())
+                                                        await save_rental_atomic(user_id, number, new_balance, original_rent_date, new_hours)
+                                                    else:
+                                                        await save_number(number, user_id, new_hours)
+                                                        await save_rental_atomic(user_id, number, new_balance, get_current_datetime(), new_hours)
+                                                    await record_revenue(user_id, number, price, new_hours)
+                                                    async with temp.get_lock():
+                                                        temp.RENTED_NUMS.add(number)
+                                                    duration = format_remaining_time(get_current_datetime(), new_hours)
+                                                    from hybrid.plugins.callback import build_number_actions_keyboard
+                                                    keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
+                                                    try:
+                                                        await client.edit_message_text(
+                                                            user_id, msg_id,
+                                                            t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
+                                                            reply_markup=keyboard
+                                                        )
+                                                    except Exception:
+                                                        pass
+                                                finally:
+                                                    await unlock_number_for_rent(number)
+                                            else:
+                                                try:
+                                                    await client.edit_message_text(
+                                                        user_id, msg_id,
+                                                        t(user_id, "payment_confirmed") + "\n\n⚠️ Number was rented by someone else. Your balance has been credited.",
+                                                        reply_markup=await resolve_payment_keyboard(user_id, payload)
+                                                    )
+                                                except Exception:
+                                                    pass
+                                        else:
+                                            keyboard = await resolve_payment_keyboard(user_id, payload)
+                                            try:
+                                                await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
+                                            except Exception:
+                                                pass
+                                else:
+                                    keyboard = await resolve_payment_keyboard(user_id, payload)
+                                    try:
+                                        await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
+                                    except Exception:
+                                        pass
+                            else:
+                                keyboard = await resolve_payment_keyboard(user_id, payload)
+                                try:
+                                    await client.edit_message_text(
+                                        user_id, msg_id,
+                                        t(user_id, "payment_confirmed"),
+                                        reply_markup=keyboard
+                                    )
+                                except Exception:
+                                    pass
                             temp.INV_DICT.pop(user_id, None)
+                            await delete_inv_entry(user_id)
                             if inv_id in temp.PENDING_INV:
                                 temp.PENDING_INV.remove(inv_id)
                     except Exception as e:
@@ -585,8 +667,10 @@ async def cleanup_expired_invoices(client):
                             stale.append(uid)
                     except Exception as e:
                         logging.debug(f"Invoice cleanup check failed for {inv_id}: {e}")
+            from hybrid.plugins.db import delete_inv_entry
             for uid in stale:
                 inv_id, msg_id = temp.INV_DICT.pop(uid, (None, None))
+                await delete_inv_entry(uid)
                 if inv_id and inv_id in temp.PENDING_INV:
                     temp.PENDING_INV.remove(inv_id)
                 logging.info(f"Cleaned up stale invoice {inv_id} for user {uid}")
@@ -702,6 +786,11 @@ class Bot(Client):
                 ADMINS.append(id)
                 logging.info(f"Added {id} to ADMINS list from DB")
         await load_num_data()
+        from hybrid.plugins.db import load_inv_dict
+        loaded = await load_inv_dict()
+        temp.INV_DICT.clear()
+        temp.INV_DICT.update(loaded)
+        logging.info("Loaded %d persisted invoice(s) into INV_DICT.", len(loaded))
         startup_text = _build_startup_message(self.username, self.start_timestamp)
         for id in ADMINS:
             try:
