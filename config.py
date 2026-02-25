@@ -8,7 +8,7 @@ import base64
 
 load_dotenv() 
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8228954627:AAFevyx_20p_PF1_ygCiG6pPnOtTcppADvc")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "7780014048:AAGuVnYTxEyfaJdHNp0-Mw29q8tKdb5B3uU")
 API_ID = int(os.environ.get("API_ID", "29060335"))
 API_HASH = os.environ.get("API_HASH", "b5b12f67224082319e736dc900a2f604")
 OWNER_ID = int(os.environ.get("OWNER_ID", "7940894807"))
@@ -38,6 +38,7 @@ except ValueError:
     raise Exception("Your Admins list doesn't contain valid integers.")
 
 ADMINS.append(OWNER_ID)
+
 
 
 
