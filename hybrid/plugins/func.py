@@ -273,6 +273,7 @@ async def resolve_payment_keyboard(user_id: int, payload: str) -> InlineKeyboard
 
 
 async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, description: str, msg: Message, payload: str):
+    """Create CryptoBot invoice and edit message. Returns the invoice object so caller can register in INV_DICT if needed."""
     invoice = await cp.create_invoice(
         amount=amount,
         asset="USDT",
@@ -293,6 +294,7 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
         f"Pay using the button below.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    return invoice
 
 
 async def run_7day_deletion_scheduler(app: Client):
@@ -601,19 +603,4 @@ async def export_numbers_csv(filename: str = "numbers_export.csv"):
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _write_csv)
     return filename
-
-async def give_payment_option(client, msg: Message, user_id: int):
-    from hybrid.plugins.db import check_rate_limit
-    if not await check_rate_limit(user_id, "payment", 15, 60):
-        await msg.reply("⏳ Too many requests. Please try again in a minute.")
-        return
-    rows = [
-        [InlineKeyboardButton("CryptoBot (@send)", callback_data="set_payment_cryptobot")],
-        [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
-    ]
-    keyboard = InlineKeyboardMarkup(rows)
-    await msg.reply(
-        t(user_id, "choose_payment_method"),
-        reply_markup=keyboard
-    )
 
