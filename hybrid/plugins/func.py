@@ -1,3 +1,4 @@
+#(©) @Hybrid_Vamp - https://github.com/hybridvamp
 
 import json
 import math
@@ -26,7 +27,7 @@ from pyrogram.errors import (
 )
 
 from hybrid.plugins.temp import temp
-from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH, TON_WALLET
+from config import LANGUAGES, D30_RATE, D60_RATE, D90_RATE, API_ID, API_HASH
 
 
 def get_current_datetime():
@@ -292,196 +293,6 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
         f"Pay using the button below.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-
-
-_ton_price_cache = {"price": 0.0, "ts": 0.0}
-_ton_http_client: httpx.AsyncClient | None = None
-
-def _get_ton_http_client() -> httpx.AsyncClient:
-    global _ton_http_client
-    if _ton_http_client is None or getattr(_ton_http_client, "is_closed", True):
-        _ton_http_client = httpx.AsyncClient(timeout=10.0)
-    return _ton_http_client
-
-async def get_ton_price_usd() -> float:
-    import time
-    if _ton_price_cache["price"] > 0 and time.monotonic() - _ton_price_cache["ts"] < 60:
-        return _ton_price_cache["price"]
-    try:
-        client = _get_ton_http_client()
-        r = await client.get("https://tonapi.io/v2/rates?tokens=ton&currencies=usd")
-        r.raise_for_status()
-        data = r.json()
-        price = float(data["rates"]["TON"]["prices"]["USD"])
-        _ton_price_cache["price"] = price
-        _ton_price_cache["ts"] = time.monotonic()
-        return price
-    except Exception as e:
-        logging.warning(f"Failed to fetch TON price: {e}")
-        return _ton_price_cache["price"]
-
-
-def create_tonkeeper_link(amount_ton: float, order_ref: str) -> str:
-    """Build Tonkeeper TON payment link. Memo (order_ref) auto-filled via text param. No # used (Tonkeeper ignores %23)."""
-    from urllib.parse import quote
-    if not TON_WALLET:
-        return ""
-    amount_nano = int(float(amount_ton) * 1_000_000_000)  # 1 TON = 1e9 nanotons
-    base = f"https://app.tonkeeper.com/transfer/{TON_WALLET}"
-    return f"{base}?amount={amount_nano}&text={quote(order_ref)}"
-
-
-async def send_tonkeeper_invoice(client: Client, user_id: int, amount_usdt: float, description: str, msg: Message, payload: str):
-    """Create Tonkeeper payment screen. Converts USDT to TON, memo auto-filled in Pay link."""
-    from hybrid.plugins.db import _gen_order_ref, save_ton_order
-    if not TON_WALLET:
-        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Tonkeeper payments are not configured. Contact support.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
-        return
-    ton_price = await get_ton_price_usd()
-    if not ton_price or ton_price <= 0:
-        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Could not fetch TON price. Please try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
-        return
-    amount_ton = amount_usdt / ton_price
-    order_ref = await _gen_order_ref()
-    await save_ton_order(order_ref, user_id, amount_usdt, amount_ton, payload, msg.id, msg.chat.id)
-    pay_url = create_tonkeeper_link(amount_ton, order_ref)
-    if not pay_url:
-        await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create Tonkeeper link.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data=payload)]]))
-        return
-    keyboard = [
-        [InlineKeyboardButton("💳 Pay", url=pay_url)],
-        [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
-    ]
-    await msg.edit(
-        f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Tonkeeper Payment\n\n"
-        f"• Amount: {amount_usdt} USDT (~{amount_ton:.4f} TON)\n"
-        f"• Description: {description}\n"
-        f"• Order ID (memo): {order_ref}\n\n"
-        f"Memo is pre-filled when you tap Pay. Payment is checked automatically.",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-def _ton_addresses_match(addr1: str, addr2: str) -> bool:
-    """Compare TON addresses - EQ vs UQ same wallet have different checksums, must decode to raw."""
-    if not addr1 or not addr2:
-        return False
-    try:
-        from pytoniq_core import Address
-        a1 = Address(addr1.strip())
-        a2 = Address(addr2.strip())
-        return a1 == a2 or str(a1) == str(a2)
-    except Exception:
-        s1 = str(addr1).replace("-", "").replace("_", "").replace(" ", "").lower()
-        s2 = str(addr2).replace("-", "").replace("_", "").replace(" ", "").lower()
-        return s1 == s2
-
-
-def _extract_comment(in_msg: dict) -> str:
-    """Extract comment from TON in_msg per asset-processing. Handles msg.dataText and msg.dataRaw (BOC)."""
-    import base64
-    msg_data = in_msg.get("msg_data") or {}
-    comment = (msg_data.get("message") or "").strip()
-    if comment:
-        return comment
-    text_b64 = msg_data.get("text")
-    if text_b64:
-        try:
-            raw = base64.b64decode(text_b64)
-            if len(raw) >= 4 and raw[:4] == b"\x00\x00\x00\x00":
-                return raw[4:].decode("utf-8", errors="ignore").strip()
-            return raw.decode("utf-8", errors="ignore").strip()
-        except Exception:
-            pass
-    body = msg_data.get("body")
-    if body:
-        try:
-            from pytoniq_core import Cell
-            cell = Cell.one_from_boc(base64.b64decode(body))
-            return cell.begin_parse().load_snake_string().replace("\x00", "").strip()
-        except Exception:
-            try:
-                raw = base64.b64decode(body)
-                for start in range(min(20, len(raw))):
-                    try:
-                        s = raw[start:].decode("utf-8", errors="strict").strip().replace("\x00", "")
-                        if 4 <= len(s) <= 64 and s.isprintable():
-                            return s
-                    except (UnicodeDecodeError, ValueError):
-                        continue
-            except Exception:
-                pass
-    return ""
-
-
-# Tonkeeper payment checker (TonCenter API v2 - TON asset processing)
-async def check_tonkeeper_payments(client, get_user_balance, save_user_balance, delete_ton_order,
-                                   get_all_pending_ton_orders, t, TON_WALLET):
-    """Poll TonCenter getTransactions, parse in_msg comment and value. Credit on match. Same flow as CryptoBot."""
-    if not TON_WALLET:
-        return
-    pending = await get_all_pending_ton_orders()
-    if not pending:
-        return
-    try:
-        from urllib.parse import quote
-        addr_param = quote(TON_WALLET.strip(), safe="")
-        url = f"https://toncenter.com/api/v2/getTransactions?address={addr_param}&limit=50"
-        async with httpx.AsyncClient(timeout=8.0) as http_client:
-            r = await http_client.get(url)
-        if r.status_code != 200:
-            return
-        data = r.json()
-        if not data.get("ok") or "result" not in data:
-            return
-        txs = data.get("result") or []
-        for order_ref, order in pending:
-            memo_needle = order_ref
-            amount_ton = order.get("amount_ton") or (float(order["amount"]) / 5.0)
-            amount_nano_min = int(float(amount_ton) * 1_000_000_000 * 0.98)
-            for tx in txs:
-                in_msg = tx.get("in_msg")
-                if not in_msg:
-                    continue
-                dest = in_msg.get("destination") or ""
-                if not _ton_addresses_match(TON_WALLET, dest):
-                    continue
-                try:
-                    amt = int(in_msg.get("value") or 0)
-                except (ValueError, TypeError):
-                    amt = 0
-                if amt < amount_nano_min:
-                    continue
-                comment = _extract_comment(in_msg)
-                if memo_needle not in comment and (comment or "").strip() != memo_needle:
-                    continue
-                from hybrid.plugins.db import is_payment_processed_ton, mark_payment_processed_ton
-                if await is_payment_processed_ton(order_ref):
-                    await delete_ton_order(order_ref)
-                    break
-                user_id = order["user_id"]
-                payload = (order.get("payload") or "").strip()
-                try:
-                    await client.edit_message_text(order["chat_id"], order["msg_id"], "<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>")
-                except Exception:
-                    pass
-                current_bal = await get_user_balance(user_id) or 0.0
-                new_bal = current_bal + float(order["amount"])
-                await save_user_balance(user_id, new_bal)
-                await mark_payment_processed_ton(order_ref)
-                keyboard = await resolve_payment_keyboard(user_id, payload)
-                try:
-                    await client.edit_message_text(
-                        order["chat_id"], order["msg_id"],
-                        t(user_id, "payment_confirmed"),
-                        reply_markup=keyboard
-                    )
-                except Exception:
-                    pass
-                await delete_ton_order(order_ref)
-                break
-    except Exception as e:
-        logging.error(f"Tonkeeper check error: {e}")
 
 
 async def run_7day_deletion_scheduler(app: Client):
@@ -796,10 +607,10 @@ async def give_payment_option(client, msg: Message, user_id: int):
     if not await check_rate_limit(user_id, "payment", 15, 60):
         await msg.reply("⏳ Too many requests. Please try again in a minute.")
         return
-    rows = [[InlineKeyboardButton("CryptoBot (@send)", callback_data="set_payment_cryptobot")]]
-    if TON_WALLET:
-        rows.append([InlineKeyboardButton("Tonkeeper", callback_data="set_payment_tonkeeper")])
-    rows.append([InlineKeyboardButton(t(user_id, "back"), callback_data="profile")])
+    rows = [
+        [InlineKeyboardButton("CryptoBot (@send)", callback_data="set_payment_cryptobot")],
+        [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
+    ]
     keyboard = InlineKeyboardMarkup(rows)
     await msg.reply(
         t(user_id, "choose_payment_method"),
