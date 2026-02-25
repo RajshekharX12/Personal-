@@ -8,11 +8,11 @@ import base64
 
 load_dotenv() 
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "7780014048:AAGuVnYTxEyfaJdHNp0-Mw29q8tKdb5B3uU")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8650792494:AAFH7vmlJV-7hP8k22UYlnUu_H4teR2r4NA")
 API_ID = int(os.environ.get("API_ID", "29060335"))
 API_HASH = os.environ.get("API_HASH", "b5b12f67224082319e736dc900a2f604")
 OWNER_ID = int(os.environ.get("OWNER_ID", "7940894807"))
-REDIS_URI = os.environ.get("REDIS_URL", "redis://:Vu9yPldfEJJo3N9IvoVFw1NPRvTofWAi@redis-18639.c56.east-us.azure.cloud.redislabs.com:18639/0")
+REDIS_URI = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 DB_NAME = os.environ.get("DATABASE_NAME", "rental")
 CRYPTO_API = os.environ.get("CRYPTO_API", "523718:AAEQO6x6qx2PXerElEVuIvBcuL5rdHgDR4Q")
 TON_WALLET = os.environ.get("TON_WALLET", "UQAYH3MHNSUABi73Z6HwIcuXkmws1tBDDN-lWIPhXZW455bI")  # TON wallet address for Tonkeeper payments
@@ -38,6 +38,7 @@ except ValueError:
     raise Exception("Your Admins list doesn't contain valid integers.")
 
 ADMINS.append(OWNER_ID)
+
 
 
 
