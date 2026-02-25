@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 import sys
 import logging
 import asyncio
@@ -43,7 +41,8 @@ logging.basicConfig(
             LOG_FILE_NAME,
             maxBytes=50000000,
             backupCount=10
-        )
+        ),
+        logging.StreamHandler()
     ]
 )
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
