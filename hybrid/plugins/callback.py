@@ -771,18 +771,22 @@ Details:
         available = number_data.get("available", True)
         rented_user = await get_user_by_number(number)
         if rented_user:
-            rented_status = f"<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji> Rented by User ID: {rented_user[0]}"   
+            rented_status = f"<tg-emoji emoji-id=\"5323535839391653590\">🔴</tg-emoji> Rented by User ID: {rented_user[0]}"
         else:
             rented_status = "<tg-emoji emoji-id=\"5323307196807653127\">🟢</tg-emoji> Available"
+        avail_str = "<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes" if available else "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No"
+        db_yes_no = "<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes" if number_data else "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No"
+        updated_at_val = number_data.get("updated_at", "N/A")
+        updated_str = updated_at_val.strftime('%Y-%m-%d %H:%M:%S UTC') if hasattr(updated_at_val, 'strftime') else str(updated_at_val)
         text = f"""<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji> Number: {number}
 {rented_status}
 • <tg-emoji emoji-id=\"5197434882321567830\">💵</tg-emoji> Prices:
     • 30 days: {price_30d} USDT
     • 60 days: {price_60d} USDT
     • 90 days: {price_90d} USDT
-• 📦 Available: {"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes" if available else "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No"}
-• <tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Last Updated: {number_data.get("updated_at", "N/A").strftime('%Y-%m-%d %H:%M:%S UTC')}
-• <tg-emoji emoji-id=\"5190458330719461749\">🆔</tg-emoji> In Database: {"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Yes" if number_data else "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> No"}
+• 📦 Available: {avail_str}
+• <tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Last Updated: {updated_str}
+• <tg-emoji emoji-id=\"5190458330719461749\">🆔</tg-emoji> In Database: {db_yes_no}
 """
         kb = [
             [InlineKeyboardButton("💵 Change Price", callback_data=f"change_price_{number}_{page}")],
