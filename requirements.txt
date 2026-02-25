@@ -1,7 +1,6 @@
 # pyrotgfork[fast]
 # TgCrypto
 pyroblack
-pytoniq-core
 # pyromod
 python-dotenv
 requests
