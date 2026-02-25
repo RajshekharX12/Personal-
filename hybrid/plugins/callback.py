@@ -103,11 +103,9 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         raw = data.replace("num_", "")
         number = normalize_phone(raw) or raw
         num_text = format_number(number)
-        rented_data, no_rentals_t, back_t = await asyncio.gather(
-            get_rented_data_for_number(number),
-            t(user_id, "no_rentals"),
-            t(user_id, "back"),
-        )
+        rented_data = await get_rented_data_for_number(number)
+        no_rentals_t = t(user_id, "no_rentals")
+        back_t = t(user_id, "back")
         owner_id = int(rented_data.get("user_id") or 0) if rented_data else 0
         if not rented_data or owner_id != int(user_id):
             return await query.message.edit_text(
@@ -1230,12 +1228,10 @@ Details:
         )
 
         if rented_data and rented_data.get("user_id"):  # Already rented
-            unav_t, days_t, date_t, back_t = await asyncio.gather(
-                t(user_id, 'unavailable'),
-                t(user_id, 'days'),
-                t(user_id, 'date'),
-                t(user_id, "back"),
-            )
+            unav_t = t(user_id, 'unavailable')
+            days_t = t(user_id, 'days')
+            date_t = t(user_id, 'date')
+            back_t = t(user_id, "back")
             rent_date = rented_data.get("rent_date")
             date_str = format_date(str(rent_date))
             remaining_days = format_remaining_time(rent_date, rented_data.get("hours", 0))
@@ -1266,12 +1262,10 @@ Details:
                 return
 
             # number available, show rent buttons
-            available_t, rent_now_t, days_t, back_t = await asyncio.gather(
-                t(user_id, 'available'),
-                t(user_id, 'rent_now'),
-                t(user_id, 'days'),
-                t(user_id, "back"),
-            )
+            available_t = t(user_id, 'available')
+            rent_now_t = t(user_id, 'rent_now')
+            days_t = t(user_id, 'days')
+            back_t = t(user_id, "back")
             prices = info.get("prices", {})
             txt = (
                 f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>: {num_text}\n"
