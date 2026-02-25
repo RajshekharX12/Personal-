@@ -927,3 +927,10 @@ async def delete_all_data():
     async for key in client.scan_iter("*"):
         await client.delete(key)
     return True, "ALL DATA DELETED"
+
+
+async def ping_redis() -> float:
+    import time
+    start = time.monotonic()
+    await client.ping()
+    return (time.monotonic() - start) * 1000
