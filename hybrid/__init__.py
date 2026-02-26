@@ -48,6 +48,8 @@ logging.basicConfig(
     ]
 )
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
+logging.getLogger("aiosend.client").setLevel(logging.WARNING)
+logging.getLogger("aiosend.polling").setLevel(logging.WARNING)
 
 CRYPTO_STAT = False
 if CRYPTO_API:
@@ -95,10 +97,9 @@ async def load_num_data():
         rented = await get_number_data(num)
         if info and info.get("available", True):
             temp.AVAILABLE_NUM.add(num)
-            logging.info(f"Number {num} is available.")
         if rented and rented.get("user_id"):
             temp.RENTED_NUMS.add(num)
-            logging.info(f"Number {num} is rented.")
+    logging.info(f"Numbers loaded — {len(temp.NUMBE_RS)} total | {len(temp.AVAILABLE_NUM)} available | {len(temp.RENTED_NUMS)} rented")
 
 
 from hybrid.plugins.db import get_number_data, get_remaining_rent_days, is_restricted_del_enabled, remove_number, remove_number_data, save_restricted_number, get_all_rentals, get_expired_numbers
@@ -750,7 +751,6 @@ async def check_payments(client):
                             else:
                                 temp.INV_DICT.pop(user_id, None)
                                 await delete_inv_entry(user_id)
-                                await redis_client.delete(f"inv_expiry:{inv_id}")
                                 await redis_client.delete(f"inv_amount:{inv_id}")
                                 if inv_id in temp.PENDING_INV:
                                     temp.PENDING_INV.remove(inv_id)
@@ -787,50 +787,38 @@ async def check_payments(client):
         await asyncio.sleep(12)
 
 
-async def cleanup_expired_invoices(client):
-    """Remove stale invoices from temp.INV_DICT that are older than 30 minutes."""
+async def cleanup_old_invoices(client):
+    """Monthly cleanup: remove unpaid invoices older than 30 days."""
     while True:
+        await asyncio.sleep(30 * 24 * 3600)  # sleep 30 days first
         try:
+            from hybrid.plugins.db import delete_inv_entry
             now = get_current_datetime()
-            stale = []
+            cleaned = 0
             for uid, (inv_id, msg_id) in list(temp.INV_DICT.items()):
                 if not CRYPTO_STAT:
                     continue
                 try:
                     inv = await cp.get_invoice(inv_id)
                     if inv and getattr(inv, "status", None) == "paid":
-                        logging.warning(f"Attempted to delete PAID invoice {inv_id} for user {uid} — skipped")
-                        continue
-                    if inv and getattr(inv, "status", None) == "pending":
+                        continue  # never touch paid
+                    if inv and getattr(inv, "status", None) == "active":
                         created = getattr(inv, "created_at", None)
                         if created:
                             age = (now - created.replace(tzinfo=timezone.utc)).total_seconds()
-                            if age > 1800:  # 30 minutes
-                                await cp.cancel_invoice(inv_id)
-                                stale.append(uid)
-                    elif inv and getattr(inv, "status", None) != "pending":
-                        stale.append(uid)
+                            if age < 30 * 24 * 3600:
+                                continue  # less than 30 days old, skip
+                    temp.INV_DICT.pop(uid, None)
+                    await delete_inv_entry(uid)
+                    if inv_id in temp.PENDING_INV:
+                        temp.PENDING_INV.remove(inv_id)
+                    cleaned += 1
                 except Exception as e:
-                    logging.debug(f"Invoice cleanup check failed for {inv_id}: {e}")
-            from hybrid.plugins.db import delete_inv_entry
-            for uid in stale:
-                inv_id, msg_id = temp.INV_DICT.get(uid, (None, None))
-                if inv_id:
-                    try:
-                        inv = await cp.get_invoice(inv_id)
-                        if inv and getattr(inv, "status", None) == "paid":
-                            logging.warning(f"Attempted to delete PAID invoice {inv_id} for user {uid} — skipped")
-                            continue
-                    except Exception:
-                        pass
-                temp.INV_DICT.pop(uid, None)
-                await delete_inv_entry(uid)
-                if inv_id and inv_id in temp.PENDING_INV:
-                    temp.PENDING_INV.remove(inv_id)
-                logging.info(f"Cleaned up stale invoice {inv_id} for user {uid}")
+                    logging.debug(f"Monthly cleanup check failed for {inv_id}: {e}")
+            if cleaned:
+                logging.info(f"Monthly invoice cleanup: removed {cleaned} old unpaid invoices.")
         except Exception as e:
-            logging.error(f"Invoice cleanup error: {e}")
-        await asyncio.sleep(300)  # Run every 5 minutes
+            logging.error(f"Monthly invoice cleanup error: {e}")
 
 
 def _build_startup_message(bot_username: str, start_timestamp) -> str:
@@ -930,8 +918,8 @@ class Bot(Client):
         # asyncio.create_task(check_restricted_numbers(self))
         asyncio.create_task(check_payments(self))
         logging.info("Started payment checker (CryptoBot).")
-        asyncio.create_task(cleanup_expired_invoices(self))
-        logging.info("Started invoice cleanup task (every 5 min).")
+        asyncio.create_task(cleanup_old_invoices(self))
+        logging.info("Monthly invoice cleanup scheduled.")
 
         from hybrid.plugins.db import get_all_admins
         AD_MINS = await get_all_admins()
