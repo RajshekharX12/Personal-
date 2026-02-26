@@ -1,3 +1,5 @@
+#(©) @Hybrid_Vamp - https://github.com/hybridvamp
+
 from email.mime import message
 import re
 import os
@@ -372,16 +374,6 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         enter_amount_t = t(user_id, "enter_amount")
         back_t = t(user_id, "back")
 
-        if not CRYPTO_STAT:
-            keyboard = InlineKeyboardMarkup(
-                [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
-            )
-            return await query.message.edit_text(
-                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> CryptoBot payments are currently disabled. Please choose another method.",
-                reply_markup=keyboard,
-                parse_mode=ParseMode.HTML,
-            )
-
         if not await check_rate_limit(user_id, "payment_create", 5, 60):
             return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
         try:
@@ -406,96 +398,109 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         except Exception:
             pass
 
-        # Encode amount for callback_data (e.g. 15.5 -> "15_5")
-        amount_key = str(amount).replace(".", "_")
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💳 Pay via CryptoBot (3% fee)", callback_data=f"pay_cryptobot_{amount_key}")],
-            [InlineKeyboardButton("💸 Pay Direct (0% fee)", callback_data=f"pay_direct_{amount_key}")],
-            [InlineKeyboardButton(back_t, callback_data="profile")],
-        ])
-        await query.message.edit_text(
-            f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji> Amount: <b>{amount}</b> USDT\n\nChoose payment method:",
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
+        instructions = (
+            "Open @send in Telegram\n\n"
+            f"Create a check for exactly <b>${amount}</b> USDT\n\n"
+            "Then send me the check link here (starts with t.me/send?start=CQ...)"
         )
-        return
-
-    elif data.startswith("pay_cryptobot_"):
-        user_id = query.from_user.id
-        amount_str = data.replace("pay_cryptobot_", "").replace("_", ".")
         try:
-            amount = float(amount_str)
-        except ValueError:
-            await query.answer("❌ Invalid amount.", show_alert=True)
-            return
-        if amount <= 0:
-            await query.answer("❌ Invalid amount.", show_alert=True)
-            return
-        back_t = t(user_id, "back")
-
-        if not CRYPTO_STAT:
+            link_response = await chat.ask(instructions, timeout=300)
+        except Exception:
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
             return await query.message.edit_text(
-                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Payments are currently disabled.",
+                "<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.",
                 reply_markup=keyboard,
                 parse_mode=ParseMode.HTML,
             )
-        try:
+
+        raw_link = (link_response.text or "").strip()
+        if "\n" in raw_link:
+            raw_link = raw_link.split("\n")[0].strip()
+        if raw_link.startswith("https://"):
+            raw_link = raw_link.replace("https://", "", 1)
+        elif raw_link.startswith("http://"):
+            raw_link = raw_link.replace("http://", "", 1)
+        if not raw_link.lower().startswith("t.me/send?start=cq"):
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
             await query.message.edit_text(
-                "<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Creating check...",
+                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid link. The check link must start with t.me/send?start=CQ...",
+                reply_markup=keyboard,
                 parse_mode=ParseMode.HTML,
             )
-            await client.send_message(SEND_BOT_USERNAME, "/start")
-            await asyncio.sleep(1)
-            await client.send_message(SEND_BOT_USERNAME, str(amount))
-            check_link = None
-            check_id = None
-            for _ in range(30):
+            try:
+                await link_response.delete()
+            except Exception:
+                pass
+            return
+
+        link_to_send = raw_link if raw_link.startswith("http") else "https://" + raw_link
+        back_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
+
+        try:
+            await query.message.edit_text(
+                "<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Verifying with @send...",
+                parse_mode=ParseMode.HTML,
+            )
+            await client.send_message(SEND_BOT_USERNAME, link_to_send)
+            confirmed_amount = None
+            for _ in range(90):
                 await asyncio.sleep(2)
                 try:
                     messages = await client.get_messages(SEND_BOT_USERNAME, limit=10)
                     for m in messages:
-                        text = (m.text or m.caption or "") if m else ""
-                        match = re.search(r'(https?://)?t\.me/send\?start=(CHK_[A-Za-z0-9_-]+)', text, re.I)
-                        if match:
-                            check_id = match.group(2)
-                            check_link = (match.group(1) or "https://") + "t.me/send?start=" + check_id
-                            if not check_link.startswith("http"):
-                                check_link = "https://" + check_link
+                        if getattr(m, "outgoing", True):
+                            continue
+                        text = (getattr(m, "text", None) or getattr(m, "caption", None) or "") or ""
+                        numbers = re.findall(r"\d+(?:\.\d+)?", text)
+                        for n in numbers:
+                            try:
+                                a = float(n)
+                                if abs(a - amount) < 0.01:
+                                    confirmed_amount = a
+                                    break
+                            except ValueError:
+                                continue
+                        if confirmed_amount is not None:
                             break
-                        match = re.search(r'(CHK_[A-Za-z0-9_-]+)', text)
-                        if match:
-                            check_id = match.group(1)
-                            check_link = f"https://t.me/send?start={check_id}"
-                            break
-                    if check_link and check_id:
+                        if numbers:
+                            try:
+                                confirmed_amount = float(numbers[0])
+                                break
+                            except ValueError:
+                                pass
+                    if confirmed_amount is not None:
                         break
                 except Exception as e:
                     logging.debug(f"Check reply poll: {e}")
-            if not check_link or not check_id:
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
-                await query.message.edit_text(
-                    "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to get check link from @send. Please try again.",
-                    reply_markup=keyboard,
+            if confirmed_amount is None:
+                return await query.message.edit_text(
+                    "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Did not receive confirmation from @send in time. Please try again.",
+                    reply_markup=back_keyboard,
                     parse_mode=ParseMode.HTML,
                 )
-                return
-            await save_pending_check(check_id, user_id, amount)
-            text = (
-                f"Click the link below to activate your <b>${amount}</b> USDT check.\n\n"
-                f"Once activated your balance will be credited automatically."
-            )
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("💳 Open check", url=check_link)],
-                [InlineKeyboardButton(back_t, callback_data="profile")],
-            ])
-            await query.message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            logging.error(f"Check creation error: {e}")
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
+            if abs(confirmed_amount - amount) > 0.01:
+                return await query.message.edit_text(
+                    f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Amount mismatch: expected ${amount}, got ${confirmed_amount}. Please create a check for the correct amount.",
+                    reply_markup=back_keyboard,
+                    parse_mode=ParseMode.HTML,
+                )
+            current_bal = await get_user_balance(user_id) or 0.0
+            new_bal = current_bal + confirmed_amount
+            await save_user_balance(user_id, new_bal)
             await query.message.edit_text(
-                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create check. Please try again.",
-                reply_markup=keyboard,
+                t(user_id, "payment_confirmed"),
+                reply_markup=back_keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            try:
+                await link_response.delete()
+            except Exception:
+                pass
+        except Exception as e:
+            logging.error(f"Add balance check flow error: {e}")
+            await query.message.edit_text(
+                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Something went wrong. Please try again.",
+                reply_markup=back_keyboard,
                 parse_mode=ParseMode.HTML,
             )
 
@@ -1897,3 +1902,4 @@ Details:
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
