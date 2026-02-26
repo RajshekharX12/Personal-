@@ -1,3 +1,5 @@
+#(©) @Hybrid_Vamp - https://github.com/hybridvamp
+
 import sys
 import logging
 import asyncio
@@ -710,15 +712,15 @@ async def check_payments(client):
                                                                 pass
                                                         finally:
                                                             await unlock_number_for_rent(number)
-                                                        else:
-                                                            try:
-                                                                await client.edit_message_text(
-                                                                    user_id, msg_id,
-                                                                    t(user_id, "payment_confirmed") + "\n\n⚠️ Number was rented by someone else. Your balance has been credited.",
-                                                                    reply_markup=await resolve_payment_keyboard(user_id, payload)
-                                                                )
-                                                            except Exception:
-                                                                pass
+                                                    else:
+                                                        try:
+                                                            await client.edit_message_text(
+                                                                user_id, msg_id,
+                                                                t(user_id, "payment_confirmed") + "\n\n⚠️ Number was rented by someone else. Your balance has been credited.",
+                                                                reply_markup=await resolve_payment_keyboard(user_id, payload)
+                                                            )
+                                                        except Exception:
+                                                            pass
                                                 else:
                                                     keyboard = await resolve_payment_keyboard(user_id, payload)
                                                     try:
@@ -741,10 +743,10 @@ async def check_payments(client):
                                             )
                                         except Exception:
                                             pass
-                                temp.INV_DICT.pop(user_id, None)
-                                await delete_inv_entry(user_id)
-                                if inv_id in temp.PENDING_INV:
-                                    temp.PENDING_INV.remove(inv_id)
+                                    temp.INV_DICT.pop(user_id, None)
+                                    await delete_inv_entry(user_id)
+                                    if inv_id in temp.PENDING_INV:
+                                        temp.PENDING_INV.remove(inv_id)
                             else:
                                 temp.INV_DICT.pop(user_id, None)
                                 await delete_inv_entry(user_id)
