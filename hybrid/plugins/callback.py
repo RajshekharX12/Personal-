@@ -79,8 +79,6 @@ async def callback_handler(client: Client, query: CallbackQuery):
         elapsed_ms = (time.monotonic() - start) * 1000
         if elapsed_ms > 1000:
             _file_logger.warning(f"[SLOW CALLBACK] data={query.data!r} user={query.from_user.id} took {elapsed_ms:.0f}ms")
-        else:
-            _file_logger.info(f"[CALLBACK] data={query.data!r} user={query.from_user.id} took {elapsed_ms:.0f}ms")
 
 
 async def _callback_handler_impl(client: Client, query: CallbackQuery):
@@ -524,95 +522,6 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             )
         except Exception:
             pass
-
-    elif data.startswith("extend_inv:"):
-        user_id = query.from_user.id
-        inv_id = data.replace("extend_inv:", "").strip()
-        if not inv_id:
-            return await query.answer("❌ Invalid request.", show_alert=True)
-        owner_id = None
-        msg_id = None
-        for uid, (iid, mid) in list(temp.INV_DICT.items()):
-            if iid == inv_id:
-                owner_id = uid
-                msg_id = mid
-                break
-        if owner_id is None or int(owner_id) != int(user_id):
-            return await query.answer("❌ This invoice is not yours or no longer pending.", show_alert=True)
-        remaining_raw = await redis_client.get(f"inv_expiry:{inv_id}")
-        if not remaining_raw:
-            return await query.answer("❌ Invoice expired or already processed.", show_alert=True)
-        try:
-            remaining = float(remaining_raw) - time.time()
-        except (TypeError, ValueError):
-            return await query.answer("❌ Could not read expiry.", show_alert=True)
-        if remaining > 60:
-            return await query.answer(
-                "⏳ Extension is only available in the last minute before expiry.",
-                show_alert=True
-            )
-        ext_key = f"inv_ext:{user_id}"
-        try:
-            ext_count = int(await redis_client.get(ext_key) or 0)
-        except (TypeError, ValueError):
-            ext_count = 0
-        if ext_count >= 3:
-            return await query.answer("Maximum extensions reached.", show_alert=True)
-        amount_raw = await redis_client.get(f"inv_amount:{inv_id}")
-        if not amount_raw:
-            return await query.answer("❌ Invoice data not found.", show_alert=True)
-        try:
-            amount = float(amount_raw)
-        except (TypeError, ValueError):
-            return await query.answer("❌ Invalid amount.", show_alert=True)
-        if not CRYPTO_STAT:
-            return await query.answer("❌ Payments disabled.", show_alert=True)
-        from hybrid import cp
-        try:
-            inv = await cp.get_invoice(inv_id)
-            if getattr(inv, "status", None) == "paid":
-                logging.warning(f"Attempted to extend PAID invoice {inv_id} for user {user_id} — skipped")
-                return await query.answer("This invoice was already paid.", show_alert=True)
-            payload = (getattr(inv, "payload", "") or "").strip() if inv else ""
-        except Exception:
-            payload = ""
-        if not payload:
-            return await query.answer("❌ Could not get invoice payload.", show_alert=True)
-        import httpx
-        try:
-            async with httpx.AsyncClient() as http:
-                await http.post(
-                    "https://pay.crypt.bot/api/deleteInvoice",
-                    headers={"Crypto-Pay-API-Token": CRYPTO_API},
-                    json={"invoice_id": inv_id}
-                )
-        except Exception as e:
-            logging.debug(f"deleteInvoice {inv_id}: {e}")
-        new_inv = await send_cp_invoice(cp, client, user_id, amount, f"Payment (extended)", query.message, payload, expires_in=120)
-        if not new_inv:
-            return await query.answer("❌ Failed to create new invoice.", show_alert=True)
-        new_id = new_inv.invoice_id
-        await redis_client.set(f"inv_expiry:{new_id}", str(time.time() + 120), ex=300)
-        await redis_client.set(f"inv_amount:{new_id}", str(amount), ex=300)
-        await redis_client.delete(f"inv_expiry:{inv_id}")
-        await redis_client.delete(f"inv_amount:{inv_id}")
-        temp.INV_DICT[user_id] = (new_id, msg_id)
-        await save_inv_entry(user_id, new_id, msg_id)
-        temp.PENDING_INV.discard(inv_id)
-        temp.PENDING_INV.add(new_id)
-        await redis_client.incr(ext_key)
-        await redis_client.expire(ext_key, 86400)
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💳 Pay", url=new_inv.bot_invoice_url)],
-            [InlineKeyboardButton("⏱ +2 min", callback_data=f"extend_inv:{new_id}")],
-            [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
-        ])
-        await query.message.edit_text(
-            f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Invoice extended (+2 min).\n\nAmount: {amount} USDT\nPay using the button below.",
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
-        )
-        await query.answer("Invoice extended by 2 minutes.")
 
     elif data == "check_payment_" or data.startswith("check_payment_"):
         user_id = query.from_user.id
@@ -1668,19 +1577,17 @@ Details:
             if not await check_rate_limit(user_id, "payment_create", 5, 60):
                 return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
             from hybrid import cp
-            inv = await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}", expires_in=900)
+            inv = await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             if inv:
                 temp.INV_DICT[user_id] = (inv.invoice_id, query.message.id)
                 await save_inv_entry(user_id, inv.invoice_id, query.message.id)
                 temp.PENDING_INV.add(inv.invoice_id)
-                await redis_client.set(f"inv_expiry:{inv.invoice_id}", str(time.time() + 900), ex=1000)
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("💳 Pay", url=inv.bot_invoice_url)],
-                    [InlineKeyboardButton("⏱ +2 min", callback_data=f"extend_inv:{inv.invoice_id}")],
                     [InlineKeyboardButton(t(user_id, "back"), callback_data=f"numinfo:{number}:0")],
                 ])
                 await query.message.edit_text(
-                    f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Invoice Created\n\nAmount: {amount} USDT\nDescription: Payment for {num_text}\nPay using the button below. (15 min to pay)",
+                    f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Invoice Created\n\nAmount: {amount} USDT\nDescription: Payment for {num_text}\nPay using the button below.",
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML,
                 )
@@ -1764,19 +1671,17 @@ Details:
             if not await check_rate_limit(user_id, "payment_create", 5, 60):
                 return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
             from hybrid import cp
-            inv = await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}", expires_in=900)
+            inv = await send_cp_invoice(cp, client, user_id, amount, f"Payment for {num_text}", query.message, f"rentpay:{number}:{hours}")
             if inv:
                 temp.INV_DICT[user_id] = (inv.invoice_id, query.message.id)
                 await save_inv_entry(user_id, inv.invoice_id, query.message.id)
                 temp.PENDING_INV.add(inv.invoice_id)
-                await redis_client.set(f"inv_expiry:{inv.invoice_id}", str(time.time() + 900), ex=1000)
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("💳 Pay", url=inv.bot_invoice_url)],
-                    [InlineKeyboardButton("⏱ +2 min", callback_data=f"extend_inv:{inv.invoice_id}")],
                     [InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentpay:{number}:{hours}")],
                 ])
                 await query.message.edit_text(
-                    f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Invoice Created\n\nAmount: {amount} USDT\nDescription: Payment for {num_text}\nPay using the button below. (15 min to pay)",
+                    f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Invoice Created\n\nAmount: {amount} USDT\nDescription: Payment for {num_text}\nPay using the button below.",
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML,
                 )
@@ -1967,3 +1872,6 @@ Details:
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+
+
