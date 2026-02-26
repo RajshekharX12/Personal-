@@ -836,6 +836,31 @@ async def delete_direct_pay(user_id: int):
     await client.delete(f"direct_pay:{user_id}")
 
 
+# ========= PENDING CHECK (@send check link -> user credit) =========
+_PENDING_CHECK_TTL = 1800  # 30 minutes
+
+async def save_pending_check(check_id: str, user_id: int, amount: float):
+    """Store pending @send check: when activated, credit user_id with amount. TTL 1800s."""
+    await client.set(f"pending_check:{check_id}", json.dumps({"user_id": user_id, "amount": amount}), ex=_PENDING_CHECK_TTL)
+
+
+async def get_pending_check(check_id: str):
+    """Get (user_id, amount) for pending check, or None."""
+    raw = await client.get(f"pending_check:{check_id}")
+    if not raw:
+        return None
+    try:
+        d = json.loads(raw)
+        return (int(d["user_id"]), float(d["amount"]))
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return None
+
+
+async def delete_pending_check(check_id: str):
+    """Remove pending check entry."""
+    await client.delete(f"pending_check:{check_id}")
+
+
 # ========= ADMIN AUDIT LOG =========
 async def log_admin_action(admin_id: int, action: str, target: str, details: str = None):
     """Append an immutable admin action log entry."""
