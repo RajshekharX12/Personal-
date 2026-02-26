@@ -516,7 +516,6 @@ async def check_payments(client):
         delete_inv_entry, get_number_info, get_rented_data_for_number,
         save_number, save_rental_atomic, unlock_number_for_rent, lock_number_for_rent,
         record_revenue,
-        get_direct_pay, delete_direct_pay,
     )
     from hybrid.plugins.func import t, resolve_payment_keyboard, format_number, format_remaining_time, get_current_datetime, get_remaining_hours
     from config import D30_RATE, D60_RATE, D90_RATE
@@ -548,7 +547,10 @@ async def check_payments(client):
                                 pass
                             payload = (getattr(inv, "payload", "") or "").strip()
                             current_bal = await get_user_balance(user_id) or 0.0
-                            new_bal = current_bal + float(inv.amount)
+                            fiat_amount = await redis_client.get(f"inv_amount:{inv_id}")
+                            credit = float(fiat_amount) if fiat_amount else float(inv.amount)
+                            new_bal = current_bal + credit
+                            await redis_client.delete(f"inv_amount:{inv_id}")
                             await save_user_balance(user_id, new_bal)
                             await mark_payment_processed_crypto(str(inv_id))
                             # Auto-rent when payload is rentpay:number:hours
@@ -573,7 +575,7 @@ async def check_payments(client):
                                         price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
                                         price = price_map.get(hours)
                                         if price is not None and new_bal >= price:
-                                            lock_acquired = await lock_number_for_rent(number, user_id, ttl=60)
+                                            lock_acquired = await lock_number_for_rent(number, user_id, ttl=1800)
                                             if lock_acquired:
                                                 try:
                                                     rent_date = rented_data.get("rent_date", get_current_datetime()) if rented_data else get_current_datetime()
@@ -640,48 +642,6 @@ async def check_payments(client):
                                 temp.PENDING_INV.remove(inv_id)
                     except Exception as e:
                         logging.debug(f"CryptoBot check invoice {inv_id}: {e}")
-
-            # Direct USDT transfers (0% fee): poll getTransfers, match comment to pending direct_pay
-            if cp_client and hasattr(cp_client, "get_transfers"):
-                try:
-                    transfers = await cp_client.get_transfers()
-                    items = transfers if isinstance(transfers, list) else (getattr(transfers, "items", None) or getattr(transfers, "result", None) or [])
-                    if not isinstance(items, list):
-                        items = list(items) if items else []
-                    for tr in items:
-                            comment = (getattr(tr, "comment", None) or getattr(tr, "comment_text", None) or "").strip()
-                            amount_val = getattr(tr, "amount", None)
-                            if amount_val is None:
-                                continue
-                            try:
-                                amount_float = float(amount_val)
-                            except (TypeError, ValueError):
-                                continue
-                            try:
-                                uid = int(comment)
-                            except (TypeError, ValueError):
-                                continue
-                            expected = await get_direct_pay(uid)
-                            if expected is None:
-                                continue
-                            if abs(amount_float - expected) > 0.001:
-                                continue
-                            current_bal = await get_user_balance(uid) or 0.0
-                            new_bal = current_bal + amount_float
-                            await save_user_balance(uid, new_bal)
-                            await delete_direct_pay(uid)
-                            try:
-                                from pyrogram.enums import ParseMode
-                                await client.send_message(
-                                    uid,
-                                    t(uid, "payment_confirmed"),
-                                    parse_mode=ParseMode.HTML,
-                                )
-                            except Exception as e:
-                                logging.debug(f"Direct pay confirm message to {uid}: {e}")
-                            logging.info(f"Direct pay credited {amount_float} USDT to user {uid}")
-                except Exception as e:
-                    logging.debug(f"get_transfers check: {e}")
 
         except Exception as e:
             logging.error(f"Payment checker error: {e}")
