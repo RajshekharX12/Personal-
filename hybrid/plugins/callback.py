@@ -830,17 +830,17 @@ Details:
         if success:
             await log_admin_action(query.from_user.id, "admin_cancel_rent", number, f"user_id={user_id}")
             try:
-                is_free = await fragment_api.check_is_number_free(number)
-                if is_free:
-                    logging.info(f"Number {number} already free — skipping termination.")
-                else:
+                is_connected = await check_number_conn(number)
+                if is_connected:
                     try:
                         from hybrid.plugins.fragment import terminate_all_sessions_async
                         await terminate_all_sessions_async(number)
                     except Exception as e:
                         logging.warning(f"Session termination failed for {number}: {e}")
+                else:
+                    logging.info(f"Number {number} has no active account — skipping termination.")
             except Exception as e:
-                logging.warning(f"Could not check Fragment status for {number}: {e} — skipping termination.")
+                logging.warning(f"Could not check connection status for {number}: {e} — skipping termination.")
             async with temp.get_lock():
                 temp.RENTED_NUMS.discard(number)
                 temp.UN_AV_NUMS.discard(number)
@@ -1894,4 +1894,3 @@ The number will appear as 🟢 available in the listing immediately.
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
