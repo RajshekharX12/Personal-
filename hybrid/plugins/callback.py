@@ -847,6 +847,8 @@ Details:
 • Rented On: {user_data[2]}
 • Time Left: {format_remaining_time(user_data[2], user_data[1])}
 • Cancelled By: {query.from_user.mention} (ID: {query.from_user.id})
+
+The number will appear as 🟢 available in the listing immediately.
             """
             keyboard = [
                 [InlineKeyboardButton("🗑️ Delete Account", callback_data=f"delacc_{number}_{user_id}")],
