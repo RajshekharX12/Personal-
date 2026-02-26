@@ -812,30 +812,6 @@ async def delete_inv_entry(user_id: int):
     await client.hdel("inv_dict", str(user_id))
 
 
-# ========= DIRECT PAY (0% fee USDT transfer via @send) =========
-_DIRECT_PAY_TTL = 1800  # 30 minutes
-
-async def save_direct_pay(user_id: int, amount: float):
-    """Store pending direct transfer: expected amount for user_id. TTL 1800s."""
-    await client.set(f"direct_pay:{user_id}", str(amount), ex=_DIRECT_PAY_TTL)
-
-
-async def get_direct_pay(user_id: int):
-    """Get expected amount for pending direct pay, or None."""
-    raw = await client.get(f"direct_pay:{user_id}")
-    if raw is None:
-        return None
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return None
-
-
-async def delete_direct_pay(user_id: int):
-    """Remove pending direct pay entry."""
-    await client.delete(f"direct_pay:{user_id}")
-
-
 # ========= PENDING CHECK (@send check link -> user credit) =========
 _PENDING_CHECK_TTL = 1800  # 30 minutes
 
