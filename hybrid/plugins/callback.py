@@ -23,8 +23,9 @@ from hybrid.plugins.temp import temp
 from hybrid.plugins.func import *
 from hybrid.plugins.db import *
 from hybrid.plugins.fragment import *
-from config import D30_RATE, D60_RATE, D90_RATE, SEND_BOT_USERNAME
+from config import D30_RATE, D60_RATE, D90_RATE
 
+from aiosend.types import Invoice
 from datetime import datetime, timezone
 
 # File-only logger for [CALLBACK] / [SLOW CALLBACK] so they don't spam the terminal
@@ -374,6 +375,16 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         enter_amount_t = t(user_id, "enter_amount")
         back_t = t(user_id, "back")
 
+        if not CRYPTO_STAT:
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]
+            )
+            return await query.message.edit_text(
+                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> CryptoBot payments are currently disabled. Please choose another method.",
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+
         if not await check_rate_limit(user_id, "payment_create", 5, 60):
             return await query.answer("⏳ Too many payment attempts. Try again in a minute.", show_alert=True)
         try:
@@ -392,117 +403,55 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid input. Please enter a valid number.", parse_mode=ParseMode.HTML)
 
         user_id = query.from_user.id
+
+        invoice = await cp.create_invoice(
+            amount=amount,
+            asset="USDT",
+            description=f"Top-up for {user_id}",
+            payload=f"{user_id}_{query.message.id}",
+            allow_comments=False,
+            allow_anonymous=False,
+            expires_in=1800
+        )
+
+        # Cancel any old pending invoice for this user
+        if user_id in temp.INV_DICT:
+            old_inv_id, old_msg_id = temp.INV_DICT[user_id]
+            try:
+                old_invoice = await cp.get_invoice(old_inv_id)
+                if old_invoice.status == "pending":
+                    await cp.cancel_invoice(old_inv_id)
+            except Exception:
+                pass
+            try:
+                msg = await client.get_messages(chat.id, old_msg_id)
+                await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This invoice has been cancelled due to a new top-up request.", parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+            temp.INV_DICT.pop(user_id, None)
+            await delete_inv_entry(user_id)
+
+        temp.INV_DICT[user_id] = (invoice.invoice_id, query.message.id)
+        await save_inv_entry(user_id, invoice.invoice_id, query.message.id)
+        temp.PENDING_INV.add(invoice.invoice_id)
+
+        pay_url = invoice.bot_invoice_url
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💳 Pay", url=pay_url)],
+            [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
+        ])
+
+        await query.message.edit_text(
+            t(user_id, "payment_pending", amount=amount, inv=invoice.invoice_id),
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+        )
         await response.delete()
         try:
             await response.sent_message.delete()
         except Exception:
             pass
-
-        instructions = (
-            "Open @send in Telegram\n\n"
-            f"Create a check for exactly <b>${amount}</b> USDT\n\n"
-            "Then send me the check link here (starts with t.me/send?start=CQ...)"
-        )
-        try:
-            link_response = await chat.ask(instructions, timeout=300)
-        except Exception:
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
-            return await query.message.edit_text(
-                "<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.",
-                reply_markup=keyboard,
-                parse_mode=ParseMode.HTML,
-            )
-
-        raw_link = (link_response.text or "").strip()
-        if "\n" in raw_link:
-            raw_link = raw_link.split("\n")[0].strip()
-        if raw_link.startswith("https://"):
-            raw_link = raw_link.replace("https://", "", 1)
-        elif raw_link.startswith("http://"):
-            raw_link = raw_link.replace("http://", "", 1)
-        if not raw_link.lower().startswith("t.me/send?start=cq"):
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
-            await query.message.edit_text(
-                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid link. The check link must start with t.me/send?start=CQ...",
-                reply_markup=keyboard,
-                parse_mode=ParseMode.HTML,
-            )
-            try:
-                await link_response.delete()
-            except Exception:
-                pass
-            return
-
-        link_to_send = raw_link if raw_link.startswith("http") else "https://" + raw_link
-        back_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
-
-        try:
-            await query.message.edit_text(
-                "<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Verifying with @send...",
-                parse_mode=ParseMode.HTML,
-            )
-            await client.send_message(SEND_BOT_USERNAME, link_to_send)
-            confirmed_amount = None
-            for _ in range(90):
-                await asyncio.sleep(2)
-                try:
-                    messages = await client.get_messages(SEND_BOT_USERNAME, limit=10)
-                    for m in messages:
-                        if getattr(m, "outgoing", True):
-                            continue
-                        text = (getattr(m, "text", None) or getattr(m, "caption", None) or "") or ""
-                        numbers = re.findall(r"\d+(?:\.\d+)?", text)
-                        for n in numbers:
-                            try:
-                                a = float(n)
-                                if abs(a - amount) < 0.01:
-                                    confirmed_amount = a
-                                    break
-                            except ValueError:
-                                continue
-                        if confirmed_amount is not None:
-                            break
-                        if numbers:
-                            try:
-                                confirmed_amount = float(numbers[0])
-                                break
-                            except ValueError:
-                                pass
-                    if confirmed_amount is not None:
-                        break
-                except Exception as e:
-                    logging.debug(f"Check reply poll: {e}")
-            if confirmed_amount is None:
-                return await query.message.edit_text(
-                    "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Did not receive confirmation from @send in time. Please try again.",
-                    reply_markup=back_keyboard,
-                    parse_mode=ParseMode.HTML,
-                )
-            if abs(confirmed_amount - amount) > 0.01:
-                return await query.message.edit_text(
-                    f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Amount mismatch: expected ${amount}, got ${confirmed_amount}. Please create a check for the correct amount.",
-                    reply_markup=back_keyboard,
-                    parse_mode=ParseMode.HTML,
-                )
-            current_bal = await get_user_balance(user_id) or 0.0
-            new_bal = current_bal + confirmed_amount
-            await save_user_balance(user_id, new_bal)
-            await query.message.edit_text(
-                t(user_id, "payment_confirmed"),
-                reply_markup=back_keyboard,
-                parse_mode=ParseMode.HTML,
-            )
-            try:
-                await link_response.delete()
-            except Exception:
-                pass
-        except Exception as e:
-            logging.error(f"Add balance check flow error: {e}")
-            await query.message.edit_text(
-                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Something went wrong. Please try again.",
-                reply_markup=back_keyboard,
-                parse_mode=ParseMode.HTML,
-            )
+        return
 
     elif data.startswith("pay_direct_"):
         user_id = query.from_user.id
