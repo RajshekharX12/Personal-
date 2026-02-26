@@ -66,9 +66,8 @@ def gen_4letters():
 
 async def load_num_data():
     """
-    Load numbers from Fragment at startup. Runs sync get_fragment_numbers() in a thread
-    so the event loop is not blocked, and we keep the same cookie/request behavior that
-    was working before (httpx async path can differ re cookies and may return empty).
+    Load numbers from Fragment at startup. New numbers are checked for free on Fragment
+    (with Redis cache); known numbers use Redis rental data only. Single summary log at end.
     """
     logging.info("Loading numbers from Fragment API...")
     from hybrid.plugins.fragment import get_fragment_numbers
@@ -82,23 +81,58 @@ async def load_num_data():
         logging.error("Failed to load numbers from Fragment API (stat: %s).", stat)
         return
     temp.NUMBE_RS_SET = set(temp.NUMBE_RS)
-    for n in NU_MS:
-        if n not in temp.NUMBE_RS_SET:
-            temp.NUMBE_RS.append(n)
-            temp.NUMBE_RS_SET.add(n)
+    new_numbers = [n for n in NU_MS if n not in temp.NUMBE_RS_SET]
     from hybrid.plugins.db import get_number_data, get_number_info, save_number_info
+    from hybrid.plugins.fragment import fragment_api
+
+    # Clear and repopulate so we don't carry stale state
+    temp.AVAILABLE_NUM.clear()
+    temp.RENTED_NUMS.clear()
+
+    # NEW numbers only — check if free on Fragment before listing (with Redis cache)
+    for num in new_numbers:
+        checked = await redis_client.get(f"num_checked:{num}")
+        if checked is not None:
+            temp.NUMBE_RS.append(num)
+            temp.NUMBE_RS_SET.add(num)
+            temp.AVAILABLE_NUM.add(num)
+            continue
+        try:
+            is_free = await fragment_api.check_is_number_free(num)
+        except Exception as e:
+            logging.debug("Fragment check_is_number_free(%s) failed: %s", num, e)
+            await asyncio.sleep(1)
+            continue
+        if is_free:
+            await redis_client.set(f"num_checked:{num}", "1")
+            temp.NUMBE_RS.append(num)
+            temp.NUMBE_RS_SET.add(num)
+            temp.AVAILABLE_NUM.add(num)
+            info = await get_number_info(num)
+            if not info:
+                await save_number_info(num, D30_RATE, D60_RATE, D90_RATE, available=True)
+        else:
+            logging.debug("Number %s not free on Fragment — not listed.", num)
+        await asyncio.sleep(1)
+
+    # ALREADY KNOWN numbers — skip Fragment; use Redis rental data only
     for num in temp.NUMBE_RS:
         info = await get_number_info(num)
         if not info:
             await save_number_info(num, D30_RATE, D60_RATE, D90_RATE, available=True)
-            info = await get_number_info(num)
         rented = await get_number_data(num)
-        if info and info.get("available", True):
-            temp.AVAILABLE_NUM.add(num)
-            logging.info(f"Number {num} is available.")
         if rented and rented.get("user_id"):
             temp.RENTED_NUMS.add(num)
-            logging.info(f"Number {num} is rented.")
+        else:
+            temp.AVAILABLE_NUM.add(num)
+
+    logging.info(
+        "Numbers loaded — Total: %s | Available: %s | Rented: %s | New: %s",
+        len(temp.NUMBE_RS),
+        len(temp.AVAILABLE_NUM),
+        len(temp.RENTED_NUMS),
+        len(new_numbers),
+    )
 
 
 from hybrid.plugins.db import get_number_data, get_remaining_rent_days, is_restricted_del_enabled, remove_number, remove_number_data, save_restricted_number, get_all_rentals, get_expired_numbers
