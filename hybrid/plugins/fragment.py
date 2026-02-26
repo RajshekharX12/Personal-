@@ -577,10 +577,11 @@ class FragmentAPI:
         return response_data
 
     async def check_is_number_free(self, number: str) -> bool:
+        num_clean = number.replace("+", "").replace(" ", "")
         response_data = await self._request(
             data = {
                 "type": 3,
-                "username": number,
+                "username": num_clean,
                 "auction": "true",
                 "method": "canSellItem"
             }
