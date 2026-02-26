@@ -829,8 +829,18 @@ Details:
 
         if success:
             await log_admin_action(query.from_user.id, "admin_cancel_rent", number, f"user_id={user_id}")
-            from hybrid.plugins.fragment import terminate_all_sessions_async
-            await terminate_all_sessions_async(number)
+            try:
+                is_free = await fragment_api.check_is_number_free(number)
+            except Exception:
+                is_free = False
+            if not is_free:
+                try:
+                    from hybrid.plugins.fragment import terminate_all_sessions_async
+                    await terminate_all_sessions_async(number)
+                except Exception as e:
+                    logging.warning(f"Session termination failed for {number}: {e} — continuing with cancel.")
+            else:
+                logging.info(f"Number {number} already free on Fragment — skipping termination.")
             async with temp.get_lock():
                 temp.RENTED_NUMS.discard(number)
                 temp.UN_AV_NUMS.discard(number)
@@ -1117,6 +1127,17 @@ The number will appear as 🟢 available in the listing immediately.
         user_id = int(parts[1]) if len(parts) == 2 and parts[1].isdigit() else None
 
         # ========== Delete Account logic ========== #
+        try:
+            is_connected = not await fragment_api.check_is_number_free(number)
+        except Exception:
+            is_connected = True  # assume connected if check fails, proceed normally
+        if not is_connected:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
+            return await query.message.edit_text(
+                f"ℹ️ Number {number} is already disconnected — no account to delete.",
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+            )
         stat, reason = await delete_account(number, app=client)
         if stat:
             await log_admin_action(query.from_user.id, "admin_delete_acc", number, f"reason={reason}")
@@ -1874,3 +1895,4 @@ The number will appear as 🟢 available in the listing immediately.
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
