@@ -21,7 +21,6 @@ TON_WALLET = os.environ.get("TON_WALLET", "UQAYH3MHNSUABi73Z6HwIcuXkmws1tBDDN-lW
 FRAGMENT_API_HASH = os.environ.get("FRAGMENT_API_HASH", "38f80e92d2dbe5065b")
 
 # ============== Other Configs =============
-SEND_BOT_USERNAME = os.environ.get("@rentt888Bot", "send")  # @send wallet bot for check-based top-up
 D30_RATE = float(os.environ.get("D30_RATE", "80.0"))
 D60_RATE = float(os.environ.get("D60_RATE", "152.0"))
 D90_RATE = float(os.environ.get("D90_RATE", "224.0"))
@@ -38,6 +37,7 @@ except ValueError:
     raise Exception("Your Admins list doesn't contain valid integers.")
 
 ADMINS.append(OWNER_ID)
+
 
 
 
