@@ -688,6 +688,59 @@ async def check_payments(client):
         await asyncio.sleep(12)
 
 
+async def check_send_checks_activated(client):
+    """Background: poll @send bot for messages that a check was activated; credit user and notify."""
+    import re
+    from config import SEND_BOT_USERNAME
+    from hybrid.plugins.db import (
+        get_pending_check,
+        delete_pending_check,
+        get_user_balance,
+        save_user_balance,
+    )
+    from hybrid.plugins.func import t
+
+    while True:
+        try:
+            try:
+                messages = await client.get_messages(SEND_BOT_USERNAME, limit=20)
+            except Exception as e:
+                logging.debug(f"check_send_checks get_messages: {e}")
+                await asyncio.sleep(30)
+                continue
+            if not messages:
+                await asyncio.sleep(30)
+                continue
+            for msg in messages:
+                if getattr(msg, "outgoing", True):
+                    continue
+                text = (getattr(msg, "text", None) or getattr(msg, "caption", None) or "") or ""
+                match = re.search(r"CHK_[A-Za-z0-9_-]+", text)
+                if not match:
+                    continue
+                check_id = match.group(0)
+                pending = await get_pending_check(check_id)
+                if not pending:
+                    continue
+                user_id, amount = pending
+                await delete_pending_check(check_id)
+                current_bal = await get_user_balance(user_id) or 0.0
+                new_bal = current_bal + amount
+                await save_user_balance(user_id, new_bal)
+                try:
+                    await client.send_message(
+                        user_id,
+                        t(user_id, "payment_confirmed"),
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception as e:
+                    logging.debug(f"Check confirm message to {user_id}: {e}")
+                logging.info(f"Check {check_id} activated: credited {amount} USDT to user {user_id}")
+        except Exception as e:
+            logging.error(f"check_send_checks_activated error: {e}")
+        await asyncio.sleep(30)
+
+
 async def cleanup_expired_invoices(client):
     """Remove stale invoices from temp.INV_DICT that are older than 30 minutes."""
     while True:
@@ -819,6 +872,8 @@ class Bot(Client):
         # asyncio.create_task(check_restricted_numbers(self))
         asyncio.create_task(check_payments(self))
         logging.info("Started payment checker (CryptoBot).")
+        asyncio.create_task(check_send_checks_activated(self))
+        logging.info("Started @send check activation poller.")
         asyncio.create_task(cleanup_expired_invoices(self))
         logging.info("Started invoice cleanup task (every 5 min).")
 
