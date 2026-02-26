@@ -516,6 +516,7 @@ async def check_payments(client):
         delete_inv_entry, get_number_info, get_rented_data_for_number,
         save_number, save_rental_atomic, unlock_number_for_rent, lock_number_for_rent,
         record_revenue,
+        get_direct_pay, delete_direct_pay,
     )
     from hybrid.plugins.func import t, resolve_payment_keyboard, format_number, format_remaining_time, get_current_datetime, get_remaining_hours
     from config import D30_RATE, D60_RATE, D90_RATE
@@ -639,6 +640,48 @@ async def check_payments(client):
                                 temp.PENDING_INV.remove(inv_id)
                     except Exception as e:
                         logging.debug(f"CryptoBot check invoice {inv_id}: {e}")
+
+            # Direct USDT transfers (0% fee): poll getTransfers, match comment to pending direct_pay
+            if cp_client and hasattr(cp_client, "get_transfers"):
+                try:
+                    transfers = await cp_client.get_transfers()
+                    items = transfers if isinstance(transfers, list) else (getattr(transfers, "items", None) or getattr(transfers, "result", None) or [])
+                    if not isinstance(items, list):
+                        items = list(items) if items else []
+                    for tr in items:
+                            comment = (getattr(tr, "comment", None) or getattr(tr, "comment_text", None) or "").strip()
+                            amount_val = getattr(tr, "amount", None)
+                            if amount_val is None:
+                                continue
+                            try:
+                                amount_float = float(amount_val)
+                            except (TypeError, ValueError):
+                                continue
+                            try:
+                                uid = int(comment)
+                            except (TypeError, ValueError):
+                                continue
+                            expected = await get_direct_pay(uid)
+                            if expected is None:
+                                continue
+                            if abs(amount_float - expected) > 0.001:
+                                continue
+                            current_bal = await get_user_balance(uid) or 0.0
+                            new_bal = current_bal + amount_float
+                            await save_user_balance(uid, new_bal)
+                            await delete_direct_pay(uid)
+                            try:
+                                from pyrogram.enums import ParseMode
+                                await client.send_message(
+                                    uid,
+                                    t(uid, "payment_confirmed"),
+                                    parse_mode=ParseMode.HTML,
+                                )
+                            except Exception as e:
+                                logging.debug(f"Direct pay confirm message to {uid}: {e}")
+                            logging.info(f"Direct pay credited {amount_float} USDT to user {uid}")
+                except Exception as e:
+                    logging.debug(f"get_transfers check: {e}")
 
         except Exception as e:
             logging.error(f"Payment checker error: {e}")
