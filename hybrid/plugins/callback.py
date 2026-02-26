@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 from email.mime import message
 import re
 import os
@@ -23,9 +21,8 @@ from hybrid.plugins.temp import temp
 from hybrid.plugins.func import *
 from hybrid.plugins.db import *
 from hybrid.plugins.fragment import *
-from config import D30_RATE, D60_RATE, D90_RATE
+from config import D30_RATE, D60_RATE, D90_RATE, SEND_BOT_USERNAME
 
-from aiosend.types import Invoice
 from datetime import datetime, timezone
 
 # File-only logger for [CALLBACK] / [SLOW CALLBACK] so they don't spam the terminal
@@ -434,66 +431,73 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         if amount <= 0:
             await query.answer("❌ Invalid amount.", show_alert=True)
             return
-        chat = query.message.chat
         back_t = t(user_id, "back")
 
         if not CRYPTO_STAT:
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
             return await query.message.edit_text(
-                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> CryptoBot payments are currently disabled.",
+                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Payments are currently disabled.",
                 reply_markup=keyboard,
                 parse_mode=ParseMode.HTML,
             )
         try:
-            invoice = await cp.create_invoice(
-                amount=amount,
-                asset="USDT",
-                description=f"Top-up for {user_id}",
-                payload=str(f"{user_id}_{query.message.id}"),
-                allow_comments=False,
-                allow_anonymous=False,
-                expires_in=1800
+            await query.message.edit_text(
+                "<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Creating check...",
+                parse_mode=ParseMode.HTML,
             )
+            await client.send_message(SEND_BOT_USERNAME, "/start")
+            await asyncio.sleep(1)
+            await client.send_message(SEND_BOT_USERNAME, str(amount))
+            check_link = None
+            check_id = None
+            for _ in range(30):
+                await asyncio.sleep(2)
+                try:
+                    messages = await client.get_messages(SEND_BOT_USERNAME, limit=10)
+                    for m in messages:
+                        text = (m.text or m.caption or "") if m else ""
+                        match = re.search(r'(https?://)?t\.me/send\?start=(CHK_[A-Za-z0-9_-]+)', text, re.I)
+                        if match:
+                            check_id = match.group(2)
+                            check_link = (match.group(1) or "https://") + "t.me/send?start=" + check_id
+                            if not check_link.startswith("http"):
+                                check_link = "https://" + check_link
+                            break
+                        match = re.search(r'(CHK_[A-Za-z0-9_-]+)', text)
+                        if match:
+                            check_id = match.group(1)
+                            check_link = f"https://t.me/send?start={check_id}"
+                            break
+                    if check_link and check_id:
+                        break
+                except Exception as e:
+                    logging.debug(f"Check reply poll: {e}")
+            if not check_link or not check_id:
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
+                await query.message.edit_text(
+                    "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to get check link from @send. Please try again.",
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+            await save_pending_check(check_id, user_id, amount)
+            text = (
+                f"Click the link below to activate your <b>${amount}</b> USDT check.\n\n"
+                f"Once activated your balance will be credited automatically."
+            )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💳 Open check", url=check_link)],
+                [InlineKeyboardButton(back_t, callback_data="profile")],
+            ])
+            await query.message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
         except Exception as e:
-            logging.error(f"Create invoice error: {e}")
+            logging.error(f"Check creation error: {e}")
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
-            return await query.message.edit_text(
-                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create invoice. Please try again.",
+            await query.message.edit_text(
+                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create check. Please try again.",
                 reply_markup=keyboard,
                 parse_mode=ParseMode.HTML,
             )
-
-        if user_id in temp.INV_DICT:
-            old_inv_id, old_msg_id = temp.INV_DICT[user_id]
-            try:
-                old_invoice = await cp.get_invoice(old_inv_id)
-                if old_invoice.status == "pending":
-                    await cp.cancel_invoice(old_inv_id)
-            except Exception:
-                pass
-            try:
-                msg = await client.get_messages(chat.id, old_msg_id)
-                await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This invoice has been cancelled due to a new top-up request.", parse_mode=ParseMode.HTML)
-            except Exception:
-                pass
-            temp.INV_DICT.pop(user_id, None)
-            await delete_inv_entry(user_id)
-
-        temp.INV_DICT[user_id] = (invoice.invoice_id, query.message.id)
-        await save_inv_entry(user_id, invoice.invoice_id, query.message.id)
-        temp.PENDING_INV.add(invoice.invoice_id)
-
-        pay_url = invoice.bot_invoice_url
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💳 Pay", url=pay_url)],
-            [InlineKeyboardButton(back_t, callback_data="profile")],
-        ])
-        await query.message.edit_text(
-            t(user_id, "payment_pending", amount=amount, inv=invoice.invoice_id),
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
-        )
-        return
 
     elif data.startswith("pay_direct_"):
         user_id = query.from_user.id
@@ -1893,4 +1897,3 @@ Details:
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
