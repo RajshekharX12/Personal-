@@ -831,16 +831,16 @@ Details:
             await log_admin_action(query.from_user.id, "admin_cancel_rent", number, f"user_id={user_id}")
             try:
                 is_free = await fragment_api.check_is_number_free(number)
-            except Exception:
-                is_free = False
-            if not is_free:
-                try:
-                    from hybrid.plugins.fragment import terminate_all_sessions_async
-                    await terminate_all_sessions_async(number)
-                except Exception as e:
-                    logging.warning(f"Session termination failed for {number}: {e} — continuing with cancel.")
-            else:
-                logging.info(f"Number {number} already free on Fragment — skipping termination.")
+                if is_free:
+                    logging.info(f"Number {number} already free — skipping termination.")
+                else:
+                    try:
+                        from hybrid.plugins.fragment import terminate_all_sessions_async
+                        await terminate_all_sessions_async(number)
+                    except Exception as e:
+                        logging.warning(f"Session termination failed for {number}: {e}")
+            except Exception as e:
+                logging.warning(f"Could not check Fragment status for {number}: {e} — skipping termination.")
             async with temp.get_lock():
                 temp.RENTED_NUMS.discard(number)
                 temp.UN_AV_NUMS.discard(number)
@@ -861,7 +861,6 @@ Details:
 The number will appear as 🟢 available in the listing immediately.
             """
             keyboard = [
-                [InlineKeyboardButton("🗑️ Delete Account", callback_data=f"delacc_{number}_{user_id}")],
                 [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
             ]
             await query.message.edit_text(TEXT, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
