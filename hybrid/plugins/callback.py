@@ -1737,12 +1737,12 @@ Details:
         choose_renew_t = t(user_id, "choose_renew")
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"30 {days_lbl} - {prices.get('30d', D30_RATE)} USDT",
-                                  callback_data=f"rentfor:{number}:720")],
+                                  callback_data=f"confirmrent:{number}:720")],
             [InlineKeyboardButton(f"60 {days_lbl} - {prices.get('60d', D60_RATE)} USDT",
-                                  callback_data=f"rentfor:{number}:1440")],
+                                  callback_data=f"confirmrent:{number}:1440")],
             [InlineKeyboardButton(f"90 {days_lbl} - {prices.get('90d', D90_RATE)} USDT",
-                                  callback_data=f"rentfor:{number}:2160")],
-            [InlineKeyboardButton(back_lbl, callback_data="back_home")],
+                                  callback_data=f"confirmrent:{number}:2160")],
+            [InlineKeyboardButton(back_lbl, callback_data="my_rentals")],
         ])
         await query.message.edit_text(
             choose_renew_t.format(number=num_text),
@@ -1872,6 +1872,3 @@ Details:
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
-
-
