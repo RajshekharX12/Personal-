@@ -25,7 +25,6 @@ from hybrid.plugins.db import *
 from hybrid.plugins.fragment import *
 from config import D30_RATE, D60_RATE, D90_RATE
 
-from aiosend.types import Invoice
 from datetime import datetime, timezone
 
 # File-only logger for [CALLBACK] / [SLOW CALLBACK] so they don't spam the terminal
@@ -406,7 +405,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
 
         invoice = await cp.create_invoice(
             amount=amount,
-            asset="USDT",
+            currency_type="fiat",
+            fiat="USD",
             description=f"Top-up for {user_id}",
             payload=f"{user_id}_{query.message.id}",
             allow_comments=False,
@@ -1851,4 +1851,3 @@ Details:
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
