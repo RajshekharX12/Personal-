@@ -273,18 +273,42 @@ async def resolve_payment_keyboard(user_id: int, payload: str) -> InlineKeyboard
 
 
 async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, description: str, msg: Message, payload: str):
-    """Create CryptoBot invoice and edit message. Returns the invoice object so caller can register in INV_DICT if needed."""
-    invoice = await cp.create_invoice(
-        amount=amount,
-        asset="USDT",
-        description=description,
-        paid_btn_name="openBot",
-        paid_btn_url="https://t.me/{}".format((await client.get_me()).username),
-        expires_in=1800,
-        payload=payload
-    )
+    """Create CryptoBot invoice via API and edit message. Returns object with invoice_id and bot_invoice_url."""
+    import httpx
+    from config import CRYPTO_API
+    from hybrid.plugins.db import client as redis_client
+
+    me = await client.get_me()
+    bot_username = me.username or ""
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            "https://pay.crypt.bot/api/createInvoice",
+            headers={"Crypto-Pay-API-Token": CRYPTO_API},
+            json={
+                "currency_type": "fiat",
+                "fiat": "USD",
+                "amount": str(amount),
+                "description": description,
+                "paid_btn_name": "openBot",
+                "paid_btn_url": "https://t.me/{}".format(bot_username),
+                "expires_in": 1800,
+                "payload": payload,
+                "allow_comments": False,
+                "allow_anonymous": False,
+            }
+        )
+        resp.raise_for_status()
+        j = resp.json()
+        if not j.get("ok") or "result" not in j:
+            raise ValueError(j.get("error", {}).get("message", "API error"))
+        data = j["result"]
+
+    invoice_id = data["invoice_id"]
+    bot_invoice_url = data["bot_invoice_url"]
+    await redis_client.set(f"inv_amount:{invoice_id}", str(amount), ex=1800)
+
     keyboard = [
-        [InlineKeyboardButton("💳 Pay", url=invoice.bot_invoice_url)],
+        [InlineKeyboardButton("💳 Pay", url=bot_invoice_url)],
         [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
@@ -294,7 +318,7 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
         f"Pay using the button below.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    return invoice
+    return type("_Invoice", (), {"invoice_id": invoice_id, "bot_invoice_url": bot_invoice_url})()
 
 
 async def run_7day_deletion_scheduler(app: Client):
@@ -603,4 +627,5 @@ async def export_numbers_csv(filename: str = "numbers_export.csv"):
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _write_csv)
     return filename
+
 
