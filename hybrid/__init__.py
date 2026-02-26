@@ -95,7 +95,6 @@ async def load_num_data():
         if checked is not None:
             temp.NUMBE_RS.append(num)
             temp.NUMBE_RS_SET.add(num)
-            temp.AVAILABLE_NUM.add(num)
             continue
         try:
             is_free = await fragment_api.check_is_number_free(num)
