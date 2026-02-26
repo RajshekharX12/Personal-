@@ -23,7 +23,8 @@ from hybrid.plugins.temp import temp
 from hybrid.plugins.func import *
 from hybrid.plugins.db import *
 from hybrid.plugins.fragment import *
-from config import D30_RATE, D60_RATE, D90_RATE
+from config import D30_RATE, D60_RATE, D90_RATE, CRYPTO_API
+from hybrid.plugins.db import client as redis_client
 
 from datetime import datetime, timezone
 
@@ -403,16 +404,40 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
 
         user_id = query.from_user.id
 
-        invoice = await cp.create_invoice(
-            amount=amount,
-            currency_type="fiat",
-            fiat="USD",
-            description=f"Top-up for {user_id}",
-            payload=f"{user_id}_{query.message.id}",
-            allow_comments=False,
-            allow_anonymous=False,
-            expires_in=1800
-        )
+        import httpx
+        try:
+            async with httpx.AsyncClient() as http:
+                resp = await http.post(
+                    "https://pay.crypt.bot/api/createInvoice",
+                    headers={"Crypto-Pay-API-Token": CRYPTO_API},
+                    json={
+                        "currency_type": "fiat",
+                        "fiat": "USD",
+                        "amount": str(amount),
+                        "description": f"Top-up for {user_id}",
+                        "payload": f"{user_id}_{query.message.id}",
+                        "allow_comments": False,
+                        "allow_anonymous": False,
+                        "expires_in": 1800
+                    }
+                )
+                resp.raise_for_status()
+                j = resp.json()
+                if not j.get("ok") or "result" not in j:
+                    raise ValueError(j.get("error", {}).get("message", "API error"))
+                data = j["result"]
+        except Exception as e:
+            logging.error(f"Create invoice API error: {e}")
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
+            return await query.message.edit_text(
+                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create invoice. Please try again.",
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+
+        invoice_id = data["invoice_id"]
+        bot_invoice_url = data["bot_invoice_url"]
+        await redis_client.set(f"inv_amount:{invoice_id}", str(amount), ex=1800)
 
         # Cancel any old pending invoice for this user
         if user_id in temp.INV_DICT:
@@ -431,18 +456,17 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             temp.INV_DICT.pop(user_id, None)
             await delete_inv_entry(user_id)
 
-        temp.INV_DICT[user_id] = (invoice.invoice_id, query.message.id)
-        await save_inv_entry(user_id, invoice.invoice_id, query.message.id)
-        temp.PENDING_INV.add(invoice.invoice_id)
+        temp.INV_DICT[user_id] = (invoice_id, query.message.id)
+        await save_inv_entry(user_id, invoice_id, query.message.id)
+        temp.PENDING_INV.add(invoice_id)
 
-        pay_url = invoice.bot_invoice_url
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💳 Pay", url=pay_url)],
+            [InlineKeyboardButton("💳 Pay", url=bot_invoice_url)],
             [InlineKeyboardButton(t(user_id, "back"), callback_data="profile")],
         ])
 
         await query.message.edit_text(
-            t(user_id, "payment_pending", amount=amount, inv=invoice.invoice_id),
+            t(user_id, "payment_pending", amount=amount, inv=invoice_id),
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML,
         )
@@ -455,27 +479,13 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
 
     elif data.startswith("pay_direct_"):
         user_id = query.from_user.id
-        amount_str = data.replace("pay_direct_", "").replace("_", ".")
-        try:
-            amount = float(amount_str)
-        except ValueError:
-            await query.answer("❌ Invalid amount.", show_alert=True)
-            return
-        if amount <= 0:
-            await query.answer("❌ Invalid amount.", show_alert=True)
-            return
-        await save_direct_pay(user_id, amount)
         back_t = t(user_id, "back")
-        text = (
-            f"Send exactly <b>${amount}</b> USDT to @send bot wallet.\n\n"
-            f"In the comment field write your ID: <code>{user_id}</code>\n\n"
-            f"Then click ✅ I Sent It button below."
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(back_t, callback_data="profile")]])
+        await query.message.edit_text(
+            "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Direct pay is currently unavailable.",
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
         )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ I Sent It", callback_data=f"check_direct_{user_id}_{amount_str.replace('.', '_')}")],
-            [InlineKeyboardButton(back_t, callback_data="profile")],
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     elif data.startswith("check_direct_"):
         user_id = query.from_user.id
@@ -1851,3 +1861,4 @@ Details:
             f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
