@@ -272,8 +272,8 @@ async def resolve_payment_keyboard(user_id: int, payload: str) -> InlineKeyboard
     ]])
 
 
-async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, description: str, msg: Message, payload: str, expires_in: int = 1800):
-    """Create CryptoBot invoice via API and edit message. Returns object with invoice_id and bot_invoice_url."""
+async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, description: str, msg: Message, payload: str):
+    """Create CryptoBot invoice via API and edit message. Returns object with invoice_id and bot_invoice_url. No expiry."""
     import httpx
     from config import CRYPTO_API
     from hybrid.plugins.db import client as redis_client
@@ -291,7 +291,6 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
                 "description": description,
                 "paid_btn_name": "openBot",
                 "paid_btn_url": "https://t.me/{}".format(bot_username),
-                "expires_in": expires_in,
                 "payload": payload,
                 "allow_comments": False,
                 "allow_anonymous": False,
@@ -305,7 +304,7 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
 
     invoice_id = data["invoice_id"]
     bot_invoice_url = data["bot_invoice_url"]
-    await redis_client.set(f"inv_amount:{invoice_id}", str(amount), ex=max(expires_in + 200, 1800))
+    await redis_client.set(f"inv_amount:{invoice_id}", str(amount), ex=86400 * 90)
 
     keyboard = [
         [InlineKeyboardButton("💳 Pay", url=bot_invoice_url)],
@@ -627,4 +626,5 @@ async def export_numbers_csv(filename: str = "numbers_export.csv"):
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _write_csv)
     return filename
+
 
