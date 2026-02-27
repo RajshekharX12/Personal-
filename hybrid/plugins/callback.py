@@ -102,10 +102,22 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
 
         your_rentals_t = t(user_id, "your_rentals")
         back_t = t(user_id, "back")
-        keyboard = [
-            [InlineKeyboardButton(format_number(normalize_phone(n) or n), callback_data=f"num_{normalize_phone(n) or n}")]
-            for n in numbers
-        ]
+        from hybrid.plugins.db import get_rented_data_for_number
+        from hybrid.plugins.func import format_remaining_time
+        keyboard = []
+        for n in numbers:
+            norm = normalize_phone(n) or n
+            rented = await get_rented_data_for_number(norm)
+            if rented:
+                time_left = format_remaining_time(rented.get("rent_date"), rented.get("hours", 0))
+            else:
+                time_left = "N/A"
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{format_number(norm)} — {time_left}",
+                    callback_data=f"num_{norm}"
+                )
+            ])
         keyboard.append([InlineKeyboardButton(back_t, callback_data="back_home")])
 
         await _safe_edit(query.message, your_rentals_t, reply_markup=InlineKeyboardMarkup(keyboard), client=client)
