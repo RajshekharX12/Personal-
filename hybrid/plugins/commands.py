@@ -116,6 +116,36 @@ async def command_restart(_, message):
 async def logs_cmd(_, message):
     await message.reply_document(document=LOG_FILE_NAME)
 
+
+@Bot.on_message(filters.command("setprices") & filters.user(ADMINS))
+async def set_prices_cmd(client, message):
+    try:
+        args = message.text.split()[1]
+        prices = list(map(float, args.strip().split(",")))
+        if len(prices) != 3 or any(p <= 0 for p in prices):
+            return await message.reply("❌ Usage: /setprices 90,170,250")
+        price_30, price_60, price_90 = prices
+    except Exception:
+        return await message.reply(
+            "❌ Usage: /setprices 90,170,250\n"
+            "Updates prices for ALL numbers at once."
+        )
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Confirm", callback_data=f"setprices_confirm|{price_30}|{price_60}|{price_90}"),
+            InlineKeyboardButton("❌ Cancel", callback_data="setprices_cancel"),
+        ]
+    ])
+    await message.reply(
+        f"⚠️ Are you sure you want to update prices for ALL numbers?\n\n"
+        f"• 30 days: {price_30} USDT\n"
+        f"• 60 days: {price_60} USDT\n"
+        f"• 90 days: {price_90} USDT",
+        reply_markup=keyboard
+    )
+
+
 @Bot.on_message(filters.command("stats") & filters.user(ADMINS))
 async def stats_cmd(_, message: Message):
     try:
