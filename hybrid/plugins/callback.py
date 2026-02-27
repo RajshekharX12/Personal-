@@ -1,3 +1,5 @@
+#(©) @Hybrid_Vamp - https://github.com/hybridvamp
+
 from email.mime import message
 import re
 import os
@@ -1456,6 +1458,33 @@ The number will appear as 🟢 available in the listing immediately.
                     temp.AVAILABLE_NUM.add(num)
         await query.message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Enabled all numbers ({len(enabled)} total).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
+    elif data == "setprices_cancel" and query.from_user.id in ADMINS:
+        await query.answer()
+        await query.message.edit_text("❌ Price update cancelled.")
+
+    elif data.startswith("setprices_confirm|") and query.from_user.id in ADMINS:
+        await query.answer()
+        parts = data.split("|")
+        price_30 = float(parts[1])
+        price_60 = float(parts[2])
+        price_90 = float(parts[3])
+        await query.message.edit_text("⏳ Updating prices for all numbers...")
+        updated = 0
+        for number in temp.NUMBE_RS:
+            info = await get_number_info(number)
+            if info:
+                await save_number_info(
+                    number, price_30, price_60, price_90,
+                    available=info.get("available", True)
+                )
+                updated += 1
+        await query.message.edit_text(
+            f"✅ Updated prices for {updated} numbers.\n"
+            f"• 30 days: {price_30} USDT\n"
+            f"• 60 days: {price_60} USDT\n"
+            f"• 90 days: {price_90} USDT"
+        )
+
     elif data == "admin_transfer_number" and query.from_user.id in ADMINS:
         await query.answer()
         try:
@@ -1862,5 +1891,4 @@ The number will appear as 🟢 available in the listing immediately.
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
-
 
