@@ -5,6 +5,7 @@
 import asyncio
 import json
 import os
+import random
 import ssl
 import time
 import redis.asyncio as redis
@@ -882,7 +883,8 @@ async def record_transaction(user_id: int, amount: float, tx_type: str, descript
     """Record a transaction. Auto-expires after 30 days."""
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
-    key = f"tx:{user_id}:{int(now.timestamp())}"
+    rand = random.randint(1000, 9999)
+    key = f"tx:{user_id}:{int(now.timestamp())}:{rand}"
     await client.hset(key, mapping={
         "user_id": str(user_id),
         "amount": str(amount),
