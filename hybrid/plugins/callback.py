@@ -1,5 +1,3 @@
-#(©) @Hybrid_Vamp - https://github.com/hybridvamp
-
 from email.mime import message
 import re
 import os
@@ -102,8 +100,6 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
 
         your_rentals_t = t(user_id, "your_rentals")
         back_t = t(user_id, "back")
-        from hybrid.plugins.db import get_rented_data_for_number
-        from hybrid.plugins.func import format_remaining_time
         keyboard = []
         for n in numbers:
             norm = normalize_phone(n) or n
@@ -1866,3 +1862,5 @@ The number will appear as 🟢 available in the listing immediately.
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
+
+
