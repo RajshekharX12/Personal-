@@ -195,6 +195,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         return
 
     elif data.startswith("transfer_"):
+        await query.answer()
         raw = data.replace("transfer_", "").strip()
         if not raw:
             return await query.answer("Invalid request.", show_alert=True)
@@ -370,6 +371,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         await _safe_edit(query.message, welcome_t, reply_markup=keyboard, client=client)
 
     elif data == "add_balance":
+        await query.answer()
         chat = query.message.chat
         enter_amount_t = t(user_id, "enter_amount")
         back_t = t(user_id, "back")
@@ -715,6 +717,7 @@ Details:
         )
 
     elif data.startswith("change_price_") and query.from_user.id in ADMINS:
+        await query.answer()
         remainder = data[len("change_price_"):]
         parts = remainder.rsplit("_", 1)
         if len(parts) != 2 or not parts[1].isdigit():
@@ -792,6 +795,7 @@ Details:
         return
 
     elif data == "admin_cancel_rent" and query.from_user.id in ADMINS:
+        await query.answer()
         user = query.from_user
         try:
             response = await query.message.chat.ask(
@@ -882,6 +886,7 @@ The number will appear as 🟢 available in the listing immediately.
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
 
     elif data == "admin_add_balance" and query.from_user.id in ADMINS:
+        await query.answer()
         try:
             response = await query.message.chat.ask(
                 "⚠️ Enter the User ID to add balance to (within 120s):",
@@ -976,6 +981,7 @@ The number will appear as 🟢 available in the listing immediately.
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
 
     elif data == "admin_delete_acc" and query.from_user.id in ADMINS:
+        await query.answer()
         # TEST - ask for number to delete account using chat.ask do not check anything with db just ask for number and call delete_account from func.py also ask for code and 2fa if needed
         try:
             response = await query.message.chat.ask(
@@ -1017,6 +1023,7 @@ The number will appear as 🟢 available in the listing immediately.
         return
         
     elif data == "admin_change_rules" and query.from_user.id in ADMINS:
+        await query.answer()
         try:
             response = await query.message.chat.ask(
                 "⚠️ Enter the new rules text (within 300s):",
@@ -1237,6 +1244,7 @@ The number will appear as 🟢 available in the listing immediately.
             await query.message.edit_text(txt, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     elif data.startswith("admin_enable_numbers") and query.from_user.id in ADMINS:
+        await query.answer()
         user = query.from_user
         try:
             response = await query.message.chat.ask(
@@ -1302,6 +1310,7 @@ The number will appear as 🟢 available in the listing immediately.
         await query.message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Enabled the following numbers:\n" + "\n".join(enabled), reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data.startswith("admin_disable_numbers") and query.from_user.id in ADMINS:
+        await query.answer()
         user = query.from_user
         try:
             response = await query.message.chat.ask(
@@ -1411,6 +1420,7 @@ The number will appear as 🟢 available in the listing immediately.
         await query.message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Enabled all numbers ({len(enabled)} total).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data == "admin_transfer_number" and query.from_user.id in ADMINS:
+        await query.answer()
         try:
             response = await query.message.chat.ask(
                 "⚠️ Enter the number to transfer (starting with +888, within 120s):",
@@ -1726,6 +1736,7 @@ The number will appear as 🟢 available in the listing immediately.
             await message.reply_text(f"❌ Failed to export: {e}")
 
     elif data == "admin_change_date" and query.from_user.id in ADMINS:
+        await query.answer()
         try:
             response = await query.message.chat.ask(
                 "⚠️ Enter the number (starting with +888, within 120s):",
@@ -1807,3 +1818,4 @@ The number will appear as 🟢 available in the listing immediately.
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
+
