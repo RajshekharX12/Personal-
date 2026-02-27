@@ -26,6 +26,7 @@ from hybrid.plugins.db import *
 from hybrid.plugins.fragment import *
 from config import D30_RATE, D60_RATE, D90_RATE, CRYPTO_API
 from hybrid.plugins.db import client as redis_client
+from hybrid.plugins.db import lock_number_for_rent, unlock_number_for_rent
 
 from datetime import datetime, timedelta, timezone
 
@@ -155,7 +156,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         number = normalize_phone(raw_num) or raw_num
         logging.info(f"Transfer confirm: user_id={user_id}, raw_num={raw_num}, normalized={number}, to_user_id={to_user_id}")
         rented_data = await get_rental_by_owner(user_id, number)
-        logging.info(f"Rental data for transfer: {rented_data}")
+        logging.info(f"Rental data found for transfer: number={number}, owner={rented_data.get('user_id') if rented_data else None}")
         if not rented_data:
             # Try alternative lookup
             alt_data = await get_number_data(number)
@@ -543,7 +544,10 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 payload = (invoice.payload or "").strip()
                 keyboard = await resolve_payment_keyboard(user_id, payload)
                 current_bal = await get_user_balance(user_id) or 0.0
-                new_bal = current_bal + float(invoice.amount)
+                fiat_amount = await redis_client.get(f"inv_amount:{inv_id}")
+                credit = float(fiat_amount) if fiat_amount else float(invoice.amount)
+                new_bal = current_bal + credit
+                await redis_client.delete(f"inv_amount:{inv_id}")
                 await save_user_balance(user_id, new_bal)
                 await mark_payment_processed_crypto(str(inv_id))
                 await query.message.edit_text(
@@ -1671,24 +1675,30 @@ The number will appear as 🟢 available in the listing immediately.
         new_hours = remaining_hours + hours
         new_balance = balance - price
 
-        if remaining_hours > 0:
-            await save_number(number, user.id, new_hours, extend=True)
-            original_rent_date = rented_data.get("rent_date", get_current_datetime())
-            await save_rental_atomic(user.id, number, new_balance, original_rent_date, new_hours)
-        else:
-            await save_number(number, user.id, new_hours)
-            await save_rental_atomic(user.id, number, new_balance, get_current_datetime(), new_hours)
+        lock_acquired = await lock_number_for_rent(number, user.id, ttl=1800)
+        if not lock_acquired:
+            return await query.answer(t(user_id, "unavailable"), show_alert=True)
+        try:
+            if remaining_hours > 0:
+                await save_number(number, user.id, new_hours, extend=True)
+                original_rent_date = rented_data.get("rent_date", get_current_datetime())
+                await save_rental_atomic(user.id, number, new_balance, original_rent_date, new_hours)
+            else:
+                await save_number(number, user.id, new_hours)
+                await save_rental_atomic(user.id, number, new_balance, get_current_datetime(), new_hours)
 
-        await record_revenue(user.id, number, price, new_hours)
-        async with temp.get_lock():
-            if number not in temp.RENTED_NUMS:
+            await record_revenue(user.id, number, price, new_hours)
+            async with temp.get_lock():
                 temp.RENTED_NUMS.add(number)
-        duration = format_remaining_time(get_current_datetime(), new_hours)
-        keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
-        await query.message.edit_text(
-            t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
-            reply_markup=keyboard
-        )
+                temp.AVAILABLE_NUM.discard(number)
+            duration = format_remaining_time(get_current_datetime(), new_hours)
+            keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
+            await query.message.edit_text(
+                t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
+                reply_markup=keyboard
+            )
+        finally:
+            await unlock_number_for_rent(number)
 
     elif data.startswith("renew_"):
         raw = data.replace("renew_", "")
@@ -1818,4 +1828,3 @@ The number will appear as 🟢 available in the listing immediately.
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
-
