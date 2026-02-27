@@ -1,6 +1,5 @@
 #(©) @Hybrid_Vamp - https://github.com/hybridvamp
 
-from email.mime import message
 import re
 import os
 import random
@@ -21,12 +20,57 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMedi
 
 from hybrid import Bot, LOG_FILE_NAME, logging, ADMINS, CRYPTO_STAT, gen_4letters
 from hybrid.plugins.temp import temp
-from hybrid.plugins.func import *
-from hybrid.plugins.db import *
-from hybrid.plugins.fragment import *
-from config import D30_RATE, D60_RATE, D90_RATE, CRYPTO_API
+from hybrid.plugins.func import (
+    t,
+    format_number,
+    normalize_phone,
+    format_remaining_time,
+    get_current_datetime,
+    resolve_payment_keyboard,
+    get_remaining_hours,
+    delete_account,
+    check_number_conn,
+    build_number_actions_keyboard,
+    build_rentnum_keyboard,
+    show_numbers,
+    export_numbers_csv,
+    format_date,
+)
+from hybrid.plugins.db import (
+    get_user_numbers,
+    get_rented_data_for_number,
+    get_rental_by_owner,
+    get_number_data,
+    transfer_number,
+    get_user_profile_data,
+    get_user_transactions,
+    get_user_balance,
+    get_number_info,
+    save_number_info,
+    get_user_by_number,
+    remove_number,
+    remove_number_data,
+    log_admin_action,
+    get_total_balance,
+    save_user_balance,
+    delete_inv_entry,
+    save_inv_entry,
+    is_payment_processed_crypto,
+    mark_payment_processed_crypto,
+    get_7day_deletions,
+    get_7day_date,
+    remove_7day_deletion,
+    save_7day_deletion,
+    get_rules,
+    save_rules,
+    save_number,
+    save_rental_atomic,
+    lock_number_for_rent,
+    unlock_number_for_rent,
+)
 from hybrid.plugins.db import client as redis_client
-from hybrid.plugins.db import lock_number_for_rent, unlock_number_for_rent
+from hybrid.plugins.fragment import fragment_api, terminate_all_sessions_async, get_login_code_async
+from config import D30_RATE, D60_RATE, D90_RATE, CRYPTO_API
 
 from datetime import datetime, timedelta, timezone
 
@@ -64,8 +108,8 @@ async def _safe_edit(msg, text=None, reply_markup=None, client=None, **kwargs):
         if text and client:
             try:
                 return await client.send_message(msg.chat.id, text, reply_markup=reply_markup, **kwargs)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"_safe_edit send_message fallback failed: {e}")
         return None
 
 
@@ -80,8 +124,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
     except MessageNotModified:
         try:
             await query.answer()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"callback query.answer failed: {e}")
     finally:
         elapsed_ms = (time.monotonic() - start) * 1000
         if elapsed_ms > 1000:
@@ -208,8 +252,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 f"⚠️ The previous owner no longer has access. Good luck, Friend :)",
                 parse_mode=ParseMode.HTML,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"edit_message_text failed after transfer success: {e}")
         return
 
     elif data.startswith("transfer_"):
@@ -249,14 +293,14 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         await response.delete()
         try:
             await response.sent_message.delete()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"delete sent_message failed in transfer ask: {e}")
         to_user = None
         if identifier.startswith("@"):
             try:
                 to_user = await client.get_users(identifier)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"get_users failed for identifier {identifier}: {e}")
         else:
             try:
                 uid = int(identifier)
@@ -325,7 +369,6 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         number = normalize_phone(raw) or raw
         num_text = format_number(number)
         # await query.message.edit_text(f"{t(user_id, 'getting_code')} `{num_text}`...")
-        from hybrid.plugins.fragment import get_login_code_async
         code = await get_login_code_async(number)
         if code and code.isdigit():
             keyboard = [
@@ -365,7 +408,6 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
 
     elif data == "tx_history":
-        from hybrid.plugins.db import get_user_transactions
         txs = await get_user_transactions(user_id)
         if not txs:
             return await query.message.edit_text(
@@ -496,13 +538,13 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                     )
                 if getattr(old_invoice, "status", None) == "pending":
                     await cp.cancel_invoice(old_inv_id)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"cancel_invoice or cleanup failed for user_id={user_id} old_inv_id={old_inv_id}: {e}")
             try:
                 msg = await client.get_messages(chat.id, old_msg_id)
                 await msg.edit("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This invoice has been cancelled due to a new top-up request.", parse_mode=ParseMode.HTML)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"edit old invoice message failed user_id={user_id}: {e}")
             temp.INV_DICT.pop(user_id, None)
             await delete_inv_entry(user_id)
 
@@ -523,8 +565,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         await response.delete()
         try:
             await response.sent_message.delete()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"delete sent_message failed in add_balance: {e}")
         return
 
     elif data.startswith("pay_direct_"):
@@ -563,8 +605,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 reply_markup=keyboard,
                 parse_mode=ParseMode.HTML,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"edit_message_text failed for check_direct user_id={user_id}: {e}")
 
     elif data == "check_payment_" or data.startswith("check_payment_"):
         user_id = query.from_user.id
@@ -878,7 +920,6 @@ Details:
                 is_connected = await check_number_conn(number)
                 if is_connected:
                     try:
-                        from hybrid.plugins.fragment import terminate_all_sessions_async
                         await terminate_all_sessions_async(number)
                     except Exception as e:
                         logging.warning(f"Session termination failed for {number}: {e}")
@@ -918,9 +959,9 @@ The number will appear as 🟢 available in the listing immediately.
                     f"For more info, contact support.",
                     parse_mode=ParseMode.HTML,
                 )
-            except Exception:
-                pass
-        
+            except Exception as e:
+                logging.debug(f"send_message failed notifying user {user.id} after admin cancel rent number={number}: {e}")
+
     elif data == "admin_balances" and query.from_user.id in ADMINS:
         to_tal, to_user = await get_total_balance()
         text = f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji> Total User Balances:\n\n• Total Balance: {to_tal} USDT\n• Total Users with Balance: {to_user}"
@@ -948,7 +989,8 @@ The number will appear as 🟢 available in the listing immediately.
             return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid input. Please enter a valid User ID.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         try:
             user = await client.get_users(user_id)
-        except Exception:
+        except Exception as e:
+            logging.debug(f"get_users failed for user_id={user_id}: {e}")
             user = None
         if not user:
             return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> User not found/invalid User ID. (User must start this bot first)", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
@@ -987,8 +1029,8 @@ The number will appear as 🟢 available in the listing immediately.
                 f"For more info, contact support.",
                 parse_mode=ParseMode.HTML,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"send_message failed notifying user {user.id} after admin add balance: {e}")
 
     elif data == "admin_user_info" and query.from_user.id in ADMINS:
         try:
@@ -1079,12 +1121,12 @@ The number will appear as 🟢 available in the listing immediately.
         new_rules = response.text.strip()
         try:
             await response.delete()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"response.delete failed in admin_change_rules: {e}")
         try:
             await response.sent_message.delete()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"response.sent_message.delete failed in admin_change_rules: {e}")
         await save_rules(new_rules, lang="en")
         await query.message.edit_text("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rules updated.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
@@ -1096,7 +1138,8 @@ The number will appear as 🟢 available in the listing immediately.
         # ========== Delete Account logic ========== #
         try:
             is_connected = not await fragment_api.check_is_number_free(number)
-        except Exception:
+        except Exception as e:
+            logging.debug(f"fragment_api.check_is_number_free failed for number={number}: {e}")
             is_connected = True  # assume connected if check fails, proceed normally
         if not is_connected:
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
@@ -1575,8 +1618,8 @@ The number will appear as 🟢 available in the listing immediately.
             try:
                 to_user = await client.get_users(to_user_id)
                 await client.send_message(to_user_id, f"✅ Number {format_number(number)} has been transferred to you by an admin.")
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"send_message failed notifying to_user_id={to_user_id} after admin transfer number={number}: {e}")
         else:
             await query.message.reply(f"❌ Transfer failed: {err}", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
