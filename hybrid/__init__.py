@@ -525,7 +525,7 @@ async def check_payments(client):
         get_user_balance, save_user_balance, is_payment_processed_crypto, mark_payment_processed_crypto,
         delete_inv_entry, get_number_info, get_rented_data_for_number,
         save_number, save_rental_atomic, unlock_number_for_rent, lock_number_for_rent,
-        record_revenue,
+        record_revenue, record_transaction,
     )
     from hybrid.plugins.func import t, resolve_payment_keyboard, format_number, format_remaining_time, get_current_datetime, get_remaining_hours
     from config import D30_RATE, D60_RATE, D90_RATE
@@ -563,6 +563,7 @@ async def check_payments(client):
                             await redis_client.delete(f"inv_amount:{inv_id}")
                             await save_user_balance(user_id, new_bal)
                             await mark_payment_processed_crypto(str(inv_id))
+                            await record_transaction(user_id, credit, "deposit", "Balance top-up via CryptoBot")
                             # Auto-rent when payload is rentpay:number:hours
                             if payload.startswith("rentpay:"):
                                 parts = payload.split(":")
@@ -600,6 +601,7 @@ async def check_payments(client):
                                                         await save_number(number, user_id, new_hours)
                                                         await save_rental_atomic(user_id, number, new_balance, get_current_datetime(), new_hours)
                                                     await record_revenue(user_id, number, price, new_hours)
+                                                    await record_transaction(user_id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
                                                     async with temp.get_lock():
                                                         temp.RENTED_NUMS.add(number)
                                                         temp.AVAILABLE_NUM.discard(number)
@@ -672,6 +674,7 @@ async def check_payments(client):
                                     await redis_client.delete(f"inv_amount:{inv_id}")
                                     await save_user_balance(user_id, new_bal)
                                     await mark_payment_processed_crypto(str(inv_id))
+                                    await record_transaction(user_id, credit, "deposit", "Balance top-up via CryptoBot")
                                     if payload.startswith("rentpay:"):
                                         parts = payload.split(":")
                                         number = parts[1] if len(parts) >= 2 else ""
@@ -708,6 +711,7 @@ async def check_payments(client):
                                                                 await save_number(number, user_id, new_hours)
                                                                 await save_rental_atomic(user_id, number, new_balance, get_current_datetime(), new_hours)
                                                             await record_revenue(user_id, number, price, new_hours)
+                                                            await record_transaction(user_id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
                                                             async with temp.get_lock():
                                                                 temp.RENTED_NUMS.add(number)
                                                                 temp.AVAILABLE_NUM.discard(number)
