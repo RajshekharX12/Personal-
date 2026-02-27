@@ -172,6 +172,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             msg = err if err else "Transfer failed."
             return await query.answer(msg, show_alert=True)
         num_text = format_number(number)
+        await record_transaction(user_id, 0, "transfer", f"Transferred {num_text} to user {to_user_id}")
         async with temp.get_lock():
             temp.RENTED_NUMS.discard(number)
             temp.RENTED_NUMS.add(number)
@@ -342,9 +343,32 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         back_lbl = t(user.id, "back")
         keyboard = [
             [InlineKeyboardButton(add_bal_lbl, callback_data="add_balance")],
+            [InlineKeyboardButton("📋 Transaction History", callback_data="tx_history")],
             [InlineKeyboardButton(back_lbl, callback_data="back_home")],
         ]
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+
+    elif data == "tx_history":
+        from hybrid.plugins.db import get_user_transactions
+        txs = await get_user_transactions(user_id)
+        if not txs:
+            return await query.message.edit_text(
+                "📋 No transactions found.\n\n"
+                "⚠️ Transaction history is kept for 30 days only.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]),
+                parse_mode=ParseMode.HTML,
+            )
+        lines = ["<b>📋 Transaction History</b>", "<i>Last 30 days only</i>\n"]
+        for tx in txs:
+            amount = float(tx.get("amount", 0))
+            emoji = "➕" if amount > 0 else "➖" if amount < 0 else "↔️"
+            lines.append(
+                f"{emoji} <b>{abs(amount):.2f} USDT</b> — {tx.get('description', '')}\n"
+                f"   📅 {tx.get('date', 'N/A')}"
+            )
+        text = "\n".join(lines)
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
+        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     elif data == "back_home":
         user = query.from_user
@@ -550,6 +574,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 await redis_client.delete(f"inv_amount:{inv_id}")
                 await save_user_balance(user_id, new_bal)
                 await mark_payment_processed_crypto(str(inv_id))
+                await record_transaction(user_id, credit, "deposit", "Balance top-up via CryptoBot")
                 await query.message.edit_text(
                     t(user_id, "payment_confirmed"),
                     reply_markup=keyboard,
@@ -1688,6 +1713,7 @@ The number will appear as 🟢 available in the listing immediately.
                 await save_rental_atomic(user.id, number, new_balance, get_current_datetime(), new_hours)
 
             await record_revenue(user.id, number, price, new_hours)
+            await record_transaction(user.id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
             async with temp.get_lock():
                 temp.RENTED_NUMS.add(number)
                 temp.AVAILABLE_NUM.discard(number)
