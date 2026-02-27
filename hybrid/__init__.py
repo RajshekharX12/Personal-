@@ -11,6 +11,7 @@ from datetime import timedelta, timezone
 from pyrogram import Client
 from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import FloodWait
 
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
@@ -155,10 +156,18 @@ async def schedule_reminders(client):
                                     callback_data=f"renew_{number}"
                                 )
                             ]])
-                            await client.send_message(user_id, text, reply_markup=keyboard)
-                            # Mark as sent, expire key after threshold so it doesn't linger
-                            await redis_client.set(redis_key, "1", ex=int(threshold_secs) + 3600)
-                            logging.info(f"Sent {label} reminder to {user_id} for {number}")
+                            try:
+                                await client.send_message(user_id, text, reply_markup=keyboard)
+                                # Mark as sent with a 7-day TTL to prevent duplicate reminders across restarts
+                                await redis_client.set(redis_key, "1", ex=7 * 24 * 3600)
+                                logging.info(f"Sent {label} reminder to {user_id} for {number}")
+                            except FloodWait as e:
+                                await asyncio.sleep(e.value + 1)
+                                try:
+                                    await client.send_message(user_id, text, reply_markup=keyboard)
+                                    await redis_client.set(redis_key, "1", ex=7 * 24 * 3600)
+                                except Exception:
+                                    pass
                         except Exception as e:
                             logging.error(f"Failed to send {label} reminder to {user_id} for {number}: {e}")
         except Exception as e:
@@ -593,6 +602,7 @@ async def check_payments(client):
                                                     await record_revenue(user_id, number, price, new_hours)
                                                     async with temp.get_lock():
                                                         temp.RENTED_NUMS.add(number)
+                                                        temp.AVAILABLE_NUM.discard(number)
                                                     duration = format_remaining_time(get_current_datetime(), new_hours)
                                                     from hybrid.plugins.callback import build_number_actions_keyboard
                                                     keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
@@ -700,6 +710,7 @@ async def check_payments(client):
                                                             await record_revenue(user_id, number, price, new_hours)
                                                             async with temp.get_lock():
                                                                 temp.RENTED_NUMS.add(number)
+                                                                temp.AVAILABLE_NUM.discard(number)
                                                             duration = format_remaining_time(get_current_datetime(), new_hours)
                                                             from hybrid.plugins.callback import build_number_actions_keyboard
                                                             keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
@@ -948,4 +959,3 @@ class Bot(Client):
         except Exception as e:
             logging.debug("Fragment session close on stop: %s", e)
         logging.info("Bot stopped.")
-
