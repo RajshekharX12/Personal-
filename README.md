@@ -70,31 +70,22 @@ Once processed, the transaction is permanently marked to prevent reuse.
 ```bash
 git clone https://github.com/yourusername/888-rental-bot.git
 cd 888-rental-bot
-### 1️⃣ Clone the repository
-
-```bash
-git clone https://github.com/yourusername/888-rental-bot.git
-cd 888-rental-bot
 ```
 
-2️⃣ Create a virtual environment
+### 2️⃣ Create a virtual environment
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate   # On Windows: venv\Scripts\activate
 ```
 
-3️⃣ Install dependencies
+### 3️⃣ Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-4️⃣ Configure environment variables
-
-Create a .env file in the project root:
-
-4️⃣ Configure environment variables
+### 4️⃣ Configure environment variables
 
 Create a .env file in the project root:
 
@@ -107,7 +98,7 @@ TON_API_TOKEN=your_ton_api_token
 OWNER_ID=your_telegram_id
 ```
 
-▶️ Running the Bot
+### 5️⃣ Running the Bot
 
 ```bash
 python -m bot
