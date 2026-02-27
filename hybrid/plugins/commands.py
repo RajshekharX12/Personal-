@@ -9,6 +9,7 @@ import asyncio
 import subprocess
 import psutil
 import platform
+from datetime import datetime, timezone, timedelta
 
 from pyrogram.enums import ParseMode
 from pyrogram.types import Message
@@ -142,8 +143,16 @@ async def stats_cmd(_, message: Message):
         pending_crypto = len(temp.PENDING_INV)
 
         # Revenue
-        from hybrid.plugins.db import get_total_revenue
+        from hybrid.plugins.db import get_total_revenue, client as redis_client
         total_revenue = await get_total_revenue()
+        now = datetime.now(timezone.utc)
+        this_month_key = f"revenue:month:{now.strftime('%Y%m')}"
+        last_month = now.replace(day=1) - timedelta(days=1)
+        last_month_key = f"revenue:month:{last_month.strftime('%Y%m')}"
+        this_month_rev = await redis_client.get(this_month_key)
+        last_month_rev = await redis_client.get(last_month_key)
+        this_month_rev = float(this_month_rev) if this_month_rev else 0.0
+        last_month_rev = float(last_month_rev) if last_month_rev else 0.0
 
         # Total balances
         total_balance, users_with_balance = await get_total_balance()
@@ -163,7 +172,9 @@ async def stats_cmd(_, message: Message):
             f"• Active Rentals: <b>{active_rentals}</b>\n"
             f"• Pending 7-Day Deletions: <b>{pending_deletions}</b>\n\n"
             f"<b>💰 Revenue</b>\n"
-            f"• Total Revenue: <b>{total_revenue:.2f} USDT</b>\n\n"
+            f"• This Month: <b>{this_month_rev:.2f} USDT</b>\n"
+            f"• Last Month: <b>{last_month_rev:.2f} USDT</b>\n"
+            f"• All Time:   <b>{total_revenue:.2f} USDT</b>\n\n"
             f"<b>⏳ Pending Payments</b>\n"
             f"• CryptoBot Invoices: <b>{pending_crypto}</b>\n"
         )
