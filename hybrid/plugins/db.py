@@ -866,12 +866,48 @@ async def record_revenue(user_id: int, number: str, amount: float, hours: int):
     await client.zadd("revenue:all", {key: now.timestamp()})
     # Increment total
     await client.incrbyfloat("revenue:total", amount)
+    # Monthly revenue (for stats breakdown)
+    month_key = f"revenue:month:{now.strftime('%Y%m')}"
+    await client.incrbyfloat(month_key, amount)
+    await client.expire(month_key, 90 * 24 * 3600)
 
 
 async def get_total_revenue() -> float:
     """Get total revenue across all time."""
     val = await client.get("revenue:total")
     return float(val) if val else 0.0
+
+
+async def record_transaction(user_id: int, amount: float, tx_type: str, description: str):
+    """Record a transaction. Auto-expires after 30 days."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    key = f"tx:{user_id}:{int(now.timestamp())}"
+    await client.hset(key, mapping={
+        "user_id": str(user_id),
+        "amount": str(amount),
+        "type": tx_type,
+        "description": description,
+        "date": now.strftime("%d/%m/%Y %H:%M"),
+    })
+    await client.expire(key, 30 * 24 * 3600)
+    list_key = f"tx:list:{user_id}"
+    await client.rpush(list_key, key)
+    await client.expire(list_key, 30 * 24 * 3600)
+
+
+async def get_user_transactions(user_id: int) -> list:
+    """Get last 20 transactions for user. Returns newest first."""
+    list_key = f"tx:list:{user_id}"
+    keys = await client.lrange(list_key, -20, -1)
+    if not keys:
+        return []
+    txs = []
+    for k in reversed(keys):
+        data = await client.hgetall(k)
+        if data:
+            txs.append(data)
+    return txs
 
 
 # ========= MAINTENANCE =========
