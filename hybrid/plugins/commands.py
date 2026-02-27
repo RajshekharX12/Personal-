@@ -20,9 +20,21 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from hybrid import Bot, LOG_FILE_NAME, logging, ADMINS, gen_4letters
 from hybrid.plugins.temp import temp
-from hybrid.plugins.func import *
-from hybrid.plugins.db import *
-from hybrid.plugins.db import ping_redis
+from hybrid.plugins.func import t, restart, check_number_conn, export_numbers_csv
+from hybrid.plugins.db import (
+    save_user_id,
+    ping_redis,
+    get_all_user_ids,
+    get_all_rentals,
+    get_total_balance,
+    get_7day_deletions,
+    get_total_revenue,
+    remove_admin,
+    add_admin,
+    delete_all_data,
+    log_admin_action,
+)
+from hybrid.plugins.db import client as redis_client
 
 from aiosend.types import Invoice
 
@@ -166,14 +178,12 @@ async def stats_cmd(_, message: Message):
         unavailable = len(temp.UN_AV_NUMS)
 
         # 7-day pending deletions
-        from hybrid.plugins.db import get_7day_deletions
         pending_deletions = len(await get_7day_deletions())
 
         # Pending CryptoBot invoices
         pending_crypto = len(temp.PENDING_INV)
 
         # Revenue
-        from hybrid.plugins.db import get_total_revenue, client as redis_client
         total_revenue = await get_total_revenue()
         now = datetime.now(timezone.utc)
         this_month_key = f"revenue:month:{now.strftime('%Y%m')}"
@@ -225,7 +235,6 @@ async def clear_db_cmd(_, message):
         return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Database clear operation cancelled.", parse_mode=ParseMode.HTML)
     stat, _ = await delete_all_data()
     if stat:
-        from hybrid.plugins.db import log_admin_action
         await log_admin_action(message.from_user.id, "cleardb", "all", None)
         await message.reply_text("<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> All data has been cleared from the database.", parse_mode=ParseMode.HTML)
 
@@ -258,7 +267,6 @@ async def add_admin_cmd(_, message):
         return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid user ID. Please provide a valid integer.", parse_mode=ParseMode.HTML)
     success, status = await add_admin(user_id)
     if success:
-        from hybrid.plugins.db import log_admin_action
         await log_admin_action(message.from_user.id, "addadmin", str(user_id), None)
         await message.reply_text(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> User {user_id} has been added as an admin.", parse_mode=ParseMode.HTML)
     else:
@@ -274,7 +282,6 @@ async def remove_admin_cmd(_, message):
         return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid user ID. Please provide a valid integer.", parse_mode=ParseMode.HTML)
     success, status = await remove_admin(user_id)
     if success:
-        from hybrid.plugins.db import log_admin_action
         await log_admin_action(message.from_user.id, "remadmin", str(user_id), None)
         await message.reply_text(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> User {user_id} has been removed from admins.", parse_mode=ParseMode.HTML)
     else:
