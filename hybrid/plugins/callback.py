@@ -27,7 +27,7 @@ from hybrid.plugins.fragment import *
 from config import D30_RATE, D60_RATE, D90_RATE, CRYPTO_API
 from hybrid.plugins.db import client as redis_client
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 # File-only logger for [CALLBACK] / [SLOW CALLBACK] so they don't spam the terminal
 _file_logger = logging.getLogger("callback.file")
@@ -604,24 +604,20 @@ Details:
 
 Details:
 - Numbers: View all rented numbers and their details.
-- Assign Number: Manually assign a number to a user.
 - Cancel Rent: Cancel a user's rental by User ID or Number.
-- Extend Rent: Extend a user's rental duration by User ID or Number.
-- Change Rental Date: Modify the rental dates for a user's number.
+- Transfer Number: Transfer a rented number to another user.
+- Change Date: Set new expiry or extend/reduce rental duration.
 - Export CSV: Export all rental data in CSV format.
         """
         keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("Numbers", callback_data="admin_numbers"),
-                InlineKeyboardButton("Assign Number", callback_data="admin_assign_number"),
-            ],
+            [InlineKeyboardButton("Numbers", callback_data="admin_numbers")],
             [
                 InlineKeyboardButton("Cancel Rent", callback_data="admin_cancel_rent"),
-                InlineKeyboardButton("Extend Rent", callback_data="admin_extend_rent"),
+                InlineKeyboardButton("🔄 Transfer Number", callback_data="admin_transfer_number"),
             ],
             [
-                InlineKeyboardButton("Change Rental Date", callback_data="change_rental_date"),
-                InlineKeyboardButton("📑 Export CSV", callback_data="exportcsv")
+                InlineKeyboardButton("📅 Change Date", callback_data="admin_change_date"),
+                InlineKeyboardButton("📑 Export CSV", callback_data="exportcsv"),
             ],
             [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
         ])
@@ -876,86 +872,6 @@ The number will appear as 🟢 available in the listing immediately.
             except Exception:
                 pass
         
-    elif data == "admin_extend_rent" and query.from_user.id in ADMINS:
-        user = query.from_user
-        try:
-            response = await query.message.chat.ask(
-                "⚠️ Enter the Number (starting with +888) to extend rent (within 120s):",
-                timeout=60
-            )
-        except Exception:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        identifier = response.text.strip()
-        identifier = identifier.replace(" ", "")
-        await response.delete()
-        await response.sent_message.delete()
-        if identifier.startswith("+888"):
-            number = identifier
-            user_data = await get_user_by_number(number)
-            if not user_data:
-                return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-            user_id = user_data[0]
-        elif identifier.startswith("888") and identifier.isdigit():
-            number = f"+{identifier}"
-            user_data = await get_user_by_number(number)
-            if not user_data:
-                return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-            user_id = user_data[0]
-        else:
-            return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid input. Please enter a valid Number.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        user = await client.get_users(user_id)
-        try:
-            response = await query.message.chat.ask(
-                f"⚠️ Enter the number of hours/days (6h or 2d format) to extend for {number} (within 120s):",
-                timeout=60
-            )
-        except Exception:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        duration_str = response.text.strip().lower()
-        await response.delete()
-        await response.sent_message.delete()
-        match = re.match(r"^(\d+)([hd])$", duration_str)
-        if not match:
-            return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid format. Use number followed by 'h' or 'd' (e.g., 6h or 2d).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        amount, unit = match.groups()
-        amount = int(amount)
-        extension_hours = amount * 24 if unit == "d" else amount
-        existing_data = await get_number_data(number)
-        existing_hours = int(existing_data.get("hours", 0)) if existing_data else 0
-        existing_rent_date = existing_data.get("rent_date") if existing_data else get_current_datetime()
-        total_hours = existing_hours + extension_hours
-        success, status = await save_number(number, user_id, total_hours, extend=True)
-        if success:
-            await save_number_data(number, user_id, existing_rent_date, total_hours)
-            await log_admin_action(query.from_user.id, "admin_extend_rent", number, f"user_id={user_id} hours={total_hours}")
-            new_time_left = format_remaining_time(existing_rent_date, total_hours)
-            h_days = extension_hours // 24
-            _bal = await get_user_balance(user.id) or 0.0
-            TEXT = f"""<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Rental for number {number} has been extended by {h_days} days.
-• User ID: {user.id}
-• Username: @{user.username if user.username else 'N/A'}
-• Name: {user.first_name if user.first_name else 'N/A'}
-• Balance: {_bal}
-• Rented On: {existing_rent_date.strftime('%Y-%m-%d %H:%M:%S UTC') if hasattr(existing_rent_date, 'strftime') else existing_rent_date}
-• New Time Left: {new_time_left}
-• Extended By: {query.from_user.mention} (ID: {query.from_user.id})
-            """
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]
-            ]
-            await query.message.edit_text(TEXT, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
-            try:
-                await client.send_message(
-                    user.id,
-                    f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Your rental for number {number} has been extended by {h_days} days by the admin.\n"
-                    f"• Rented On: {user_data[2].strftime('%Y-%m-%d %H:%M:%S UTC') if hasattr(user_data[2], 'strftime') else str(user_data[2])}\n"
-                    f"• New Time Left: {new_time_left}\n"
-                    f"For more info, contact support.",
-                    parse_mode=ParseMode.HTML,
-                )
-            except Exception:
-                pass
-
     elif data == "admin_balances" and query.from_user.id in ADMINS:
         to_tal, to_user = await get_total_balance()
         text = f"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji> Total User Balances:\n\n• Total Balance: {to_tal} USDT\n• Total Users with Balance: {to_user}"
@@ -1451,6 +1367,20 @@ The number will appear as 🟢 available in the listing immediately.
         await query.message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Disabled the following numbers:\n" + "\n".join(disabled), reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data == "admin_enable_all" and query.from_user.id in ADMINS:
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Yes, Enable All", callback_data="admin_enable_all_confirm"),
+                InlineKeyboardButton("❌ Cancel", callback_data="number_control"),
+            ]
+        ])
+        await query.message.edit_text(
+            "⚠️ Are you sure you want to enable ALL numbers?\n"
+            "This will make every number available for rent.",
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif data == "admin_enable_all_confirm" and query.from_user.id in ADMINS:
         user = query.from_user
         all_numbers = temp.NUMBE_RS
         if not all_numbers:
@@ -1480,80 +1410,93 @@ The number will appear as 🟢 available in the listing immediately.
                     temp.AVAILABLE_NUM.add(num)
         await query.message.reply(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Enabled all numbers ({len(enabled)} total).", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
-    elif data == "admin_assign_number" and query.from_user.id in ADMINS:
-        user = query.from_user
+    elif data == "admin_transfer_number" and query.from_user.id in ADMINS:
         try:
             response = await query.message.chat.ask(
-                "⚠️ Enter the User ID to assign number to (within 120s):",
-                timeout=60
+                "⚠️ Enter the number to transfer (starting with +888, within 120s):",
+                timeout=120
             )
         except Exception:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        identifier = response.text.strip()
+            return await query.message.edit_text("⏰ Timeout.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        number = response.text.strip().replace(" ", "")
         await response.delete()
         await response.sent_message.delete()
-        try:
-            user_id = int(identifier)
-        except ValueError:
-            return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid input. Please enter a valid User ID.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        try:
-            user = await client.get_users(user_id)
-        except Exception:
-            user = None
-        if not user:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> User not found/invalid User ID. (User must start this bot first)", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        try:
-            response = await query.message.chat.ask(
-                f"⚠️ Enter the Number (starting with +888) to assign to user {user.first_name} (ID: {user.id}) (within 120s):",
-                timeout=60
-            )
-        except Exception:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        number = response.text.strip()
-        number = number.replace(" ", "")
-        await response.delete()
-        await response.sent_message.delete()
-        if not number.startswith("+888") or not number[1:].isdigit():
-            return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid number format. It should start with +888 followed by digits.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        number_data = await get_number_info(number)
-        if not number_data:
-            await save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=True)
-            logging.info(f"Number {number} not found in DB. Created with default prices.")
-        number_data = await get_number_info(number)
-        if not number_data.get("available", True):
-            return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> This number is currently marked as unavailable. Cannot assign.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        if number.startswith("888") and not number.startswith("+888"):
+            number = "+" + number
+        if not number.startswith("+888"):
+            return await query.message.reply("❌ Invalid number format.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
         rented_data = await get_rented_data_for_number(number)
-        if rented_data and rented_data.get("user_id"):
-            return await query.message.reply("❌ This number is already rented to another user.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        if not rented_data or not rented_data.get("user_id"):
+            return await query.message.reply("❌ This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        current_owner_id = rented_data.get("user_id")
         try:
-            response = await query.message.chat.ask(
-                f"⚠️ Enter the number of hours (e.g., 720 for 30 days) to assign for {number} \n\n 30 days - 720 hours\n 60 days - 1440 hours\n 90 days - 2160 hours\n\n (within 120s):",
-                timeout=60
+            current_owner = await client.get_users(current_owner_id)
+            owner_name = f"@{current_owner.username}" if current_owner.username else current_owner.first_name
+        except Exception:
+            owner_name = str(current_owner_id)
+        try:
+            response2 = await query.message.chat.ask(
+                f"📞 Number: {format_number(number)}\n"
+                f"👤 Current owner: {owner_name}\n\n"
+                f"Enter @username or User ID to transfer to (within 120s):",
+                timeout=120
             )
         except Exception:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        hours = response.text.strip()
-        await response.delete()
-        await response.sent_message.delete()
-        if not hours.isdigit():
-            return await query.message.reply("❌ Invalid input. Please enter a valid number of hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        hours = int(hours)
-        if hours <= 0:
-            return await query.message.reply("❌ Invalid input. Please enter a positive number of hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        # Assign the number to the user (add to pool so it appears in exports)
-        await save_number_info(number, D30_RATE, D60_RATE, D90_RATE, available=False)
-        await save_number(number, user.id, hours)
-        await save_number_data(number, user_id=user.id, rent_date=get_current_datetime(), hours=hours)
-        async with temp.get_lock():
-            if number not in temp.RENTED_NUMS:
-                temp.RENTED_NUMS.add(number)
-        await query.message.reply(f"✅ Assigned number {number} to user {user.first_name} (ID: {user.id}) for {hours} hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        await client.send_message(
-            user.id,
-            f"✅ An admin has assigned you the number {number} for {hours} hours.\n"
-            f"• Rented On: {get_current_datetime().strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
-            f"For more info, contact support."
+            return await query.message.edit_text("⏰ Timeout.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        identifier = response2.text.strip()
+        await response2.delete()
+        await response2.sent_message.delete()
+        to_user = None
+        try:
+            if identifier.startswith("@"):
+                to_user = await client.get_users(identifier)
+            else:
+                to_user = await client.get_users(int(identifier))
+        except Exception:
+            return await query.message.reply("❌ User not found. They must have started this bot first.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        if to_user.is_bot:
+            return await query.message.reply("❌ Cannot transfer to a bot.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        recipient_name = f"@{to_user.username}" if to_user.username else to_user.first_name
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Confirm", callback_data=f"admin_transfer_confirm|{number}|{to_user.id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data="rental_management"),
+            ]
+        ])
+        await query.message.edit_text(
+            f"⚠️ Confirm Transfer\n\n"
+            f"📞 Number: {format_number(number)}\n"
+            f"👤 From: {owner_name}\n"
+            f"➡️ To: {recipient_name} (ID: {to_user.id})",
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
         )
+
+    elif data.startswith("admin_transfer_confirm|") and query.from_user.id in ADMINS:
+        parts = data.split("|")
+        number = parts[1]
+        to_user_id = int(parts[2])
+        rented_data = await get_rented_data_for_number(number)
+        if not rented_data or not rented_data.get("user_id"):
+            return await query.message.reply("❌ Rental not found.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        from_user_id = rented_data.get("user_id")
+        success, err = await transfer_number(number, from_user_id, to_user_id)
+        if success:
+            await log_admin_action(query.from_user.id, "admin_transfer_number", number, f"from={from_user_id} to={to_user_id}")
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
+            await query.message.edit_text(
+                f"✅ Number {format_number(number)} transferred successfully.\n"
+                f"From: {from_user_id} → To: {to_user_id}",
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            try:
+                to_user = await client.get_users(to_user_id)
+                await client.send_message(to_user_id, f"✅ Number {format_number(number)} has been transferred to you by an admin.")
+            except Exception:
+                pass
+        else:
+            await query.message.reply(f"❌ Transfer failed: {err}", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
 
     elif data.startswith("rentfor:"):
         parts = data.split(":")
@@ -1782,115 +1725,85 @@ The number will appear as 🟢 available in the listing immediately.
         except Exception as e:
             await message.reply_text(f"❌ Failed to export: {e}")
 
-    elif data == "change_rental_date" and query.from_user.id in ADMINS:
+    elif data == "admin_change_date" and query.from_user.id in ADMINS:
         try:
             response = await query.message.chat.ask(
-                "⚠️ Enter the Number (starting with +888) to change rental date (within 120s):",
-                timeout=60
+                "⚠️ Enter the number (starting with +888, within 120s):",
+                timeout=120
             )
         except Exception:
-            return await query.message.edit_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        identifier = response.text.strip()
-        identifier = identifier.replace(" ", "")
+            return await query.message.edit_text("⏰ Timeout.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        number = response.text.strip().replace(" ", "")
         await response.delete()
         await response.sent_message.delete()
-        if identifier.startswith("888") and not identifier.startswith("+888"):
-            identifier = "+" + identifier
-        if not identifier.startswith("+888"):
-            return await query.message.reply("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid number format. It should start with +888 followed by digits.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        number_data = await get_number_info(identifier)
-        if not number_data:
-            return await query.message.reply("❌ This number does not exist in the database.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        rented_data = await get_rented_data_for_number(identifier)
+        if number.startswith("888") and not number.startswith("+888"):
+            number = "+" + number
+        if not number.startswith("+888"):
+            return await query.message.reply("❌ Invalid number format.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        rented_data = await get_rented_data_for_number(number)
         if not rented_data or not rented_data.get("user_id"):
             return await query.message.reply("❌ This number is not currently rented.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        keyboard = [
-            [InlineKeyboardButton("Change Rental Duration", callback_data=f"changerental_duration_{identifier}")],
-            [InlineKeyboardButton("Change Rented date", callback_data=f"changerental_date_{identifier}")],
-            [InlineKeyboardButton("⬅️ Back", callback_data="rental_management")]
-        ]
-        await query.message.edit_text(
-            f"📞 Number: {identifier}\n"
-            f"👤 Rented by User ID: {rented_data.get('user_id')}\n"
-            f"⏰ Currently rented for (days): {rented_data.get('hours', 0) // 24}\n"
-            f"📅 Rented On: {rented_data.get('rent_date').strftime('%Y-%m-%d %H:%M:%S')}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    elif data.startswith("changerental_duration_") and query.from_user.id in ADMINS:
-        identifier = data.replace("changerental_duration_", "")
-        rented_data = await get_rented_data_for_number(identifier)
-        user_id = rented_data.get("user_id")
-        rented_date = rented_data.get("rent_date")
-        user = await client.get_users(user_id)
+        current_rent_date = rented_data.get("rent_date")
+        current_hours = rented_data.get("hours", 0)
+        if hasattr(current_rent_date, "replace") and getattr(current_rent_date, "tzinfo", None) is None:
+            current_rent_date = current_rent_date.replace(tzinfo=timezone.utc)
+        expiry = current_rent_date + timedelta(hours=current_hours)
         try:
-            response = await query.message.chat.ask(
-                f"⚠️ Enter the new rental duration in hours or days (e.g. 2h or 3d) for {identifier} (currently rented for {rented_data.get('hours', 0)} hours) (within 120s):",
-                timeout=60
+            response2 = await query.message.chat.ask(
+                f"📞 Number: {format_number(number)}\n"
+                f"📅 Rented on: {current_rent_date.strftime('%d/%m/%Y')}\n"
+                f"⏰ Expires on: {expiry.strftime('%d/%m/%Y')}\n\n"
+                f"Enter new EXPIRY date in DD/MM/YYYY format\n"
+                f"OR enter +1d, +7d, +30d to extend\n"
+                f"OR enter -1d, -7d to reduce\n"
+                f"(within 120s):",
+                timeout=120
             )
         except Exception:
-            return await query.message.reply("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        hours = response.text.strip()
-        hours = hours.replace(" ", "").lower()
-        if hours.endswith("d") and hours[:-1].isdigit():
-            hours = int(hours[:-1]) * 24
-        elif hours.endswith("h") and hours[:-1].isdigit():
-            hours = int(hours[:-1])
-        await response.delete()
-        await response.sent_message.delete()
-        hours = int(hours)
-        if hours <= 0:
-            return await query.message.reply("❌ Invalid input. Please enter a positive number of hours.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        await save_number(identifier, user.id, hours, extend=True)
-        await save_number_data(identifier, user_id=user.id, rent_date=rented_date, hours=hours)
-        duration = format_remaining_time(rented_date, hours)
-        keyboard = [
-            [
-                InlineKeyboardButton("Back to Rental Management", callback_data="rental_management")
-            ]
-        ]
-        await query.message.reply(
-            f"✅ Updated rental duration for number {identifier} to {hours} hours (Duration: {duration}).",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            return await query.message.edit_text("⏰ Timeout.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+        raw_input = response2.text.strip()
+        await response2.delete()
+        await response2.sent_message.delete()
 
-    elif data.startswith("changerental_date_") and query.from_user.id in ADMINS:
-        identifier = data.replace("changerental_date_", "")
-        rented_data = await get_rented_data_for_number(identifier)
-        user_id = rented_data.get("user_id")
-        rented_date = rented_data.get("rent_date")
-        hours = rented_data.get("hours", 0)
-        user = await client.get_users(user_id)
+        new_expiry = None
         try:
-            response = await query.message.chat.ask(
-                f"⚠️ Enter the new rental start date for {identifier} in format DD/MM/YYYY (currently rented on {rented_data.get('rent_date').strftime('%Y-%m-%d %H:%M:%S')}) (within 120s):",
-                timeout=60
-            )
+            if raw_input.startswith("+") or raw_input.startswith("-"):
+                sign = 1 if raw_input.startswith("+") else -1
+                val = raw_input[1:].strip().lower()
+                if val.endswith("d") and val[:-1].isdigit():
+                    delta_hours = sign * int(val[:-1]) * 24
+                elif val.endswith("h") and val[:-1].isdigit():
+                    delta_hours = sign * int(val[:-1])
+                else:
+                    raise ValueError("Invalid format")
+                new_expiry = expiry + timedelta(hours=delta_hours)
+            else:
+                new_expiry = datetime.strptime(raw_input, "%d/%m/%Y").replace(
+                    hour=expiry.hour, minute=expiry.minute, second=expiry.second,
+                    tzinfo=timezone.utc
+                )
         except Exception:
-            return await query.message.reply("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        date_str = response.text.strip()
-        await response.delete()
-        await response.sent_message.delete()
-        try:
-            new_rent_date = datetime.strptime(date_str, "%d/%m/%Y")
-        except ValueError:
-            return await query.message.reply("❌ Invalid date format. Please use DD/MM/YYYY.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
-        
-        new_rent_date = new_rent_date.replace(tzinfo=timezone.utc)
-        now = get_current_datetime()
-        now = now.replace(tzinfo=timezone.utc)
-        if new_rent_date > now:
-            return await query.message.reply("❌ Rental date cannot be in the future.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+            return await query.message.reply(
+                "❌ Invalid input. Use DD/MM/YYYY or +7d/-1d format.",
+                reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD,
+                parse_mode=ParseMode.HTML
+            )
 
-        await save_number(identifier, user.id, hours, date=new_rent_date, extend=True)
-        await save_number_data(identifier, user_id=user.id, rent_date=new_rent_date, hours=hours)
-        duration = format_remaining_time(new_rent_date, hours)
-        keyboard = [
-            [
-                InlineKeyboardButton("Back to Rental Management", callback_data="rental_management")
-            ]
-        ]
+        new_hours = int((new_expiry - current_rent_date).total_seconds() / 3600)
+        if new_hours <= 0:
+            return await query.message.reply("❌ New expiry must be in the future relative to rent start.", reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD, parse_mode=ParseMode.HTML)
+
+        user_id_owner = rented_data.get("user_id")
+        user = await client.get_users(user_id_owner)
+        await save_number(number, user.id, new_hours, date=current_rent_date, extend=True)
+        await save_number_data(number, user_id_owner, current_rent_date, new_hours)
+        await log_admin_action(query.from_user.id, "admin_change_date", number, f"new_expiry={new_expiry.strftime('%d/%m/%Y')} hours={new_hours}")
+
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="rental_management")]])
         await query.message.reply(
-            f"✅ Updated rental start date for number {identifier} to {new_rent_date.strftime('%Y-%m-%d %H:%M:%S')} UTC (Duration: {duration}).",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            f"✅ Expiry updated for {format_number(number)}\n"
+            f"📅 New expiry: {new_expiry.strftime('%d/%m/%Y')}\n"
+            f"⏰ Total hours: {new_hours}",
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML
         )
