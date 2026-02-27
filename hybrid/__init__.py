@@ -166,8 +166,8 @@ async def schedule_reminders(client):
                                 try:
                                     await client.send_message(user_id, text, reply_markup=keyboard)
                                     await redis_client.set(redis_key, "1", ex=7 * 24 * 3600)
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    logging.debug(f"schedule_reminders send_message failed user_id={user_id} number={number} label={label}: {e}")
                         except Exception as e:
                             logging.error(f"Failed to send {label} reminder to {user_id} for {number}: {e}")
         except Exception as e:
@@ -190,8 +190,8 @@ async def _process_one_expired(number: str, client, now):
             try:
                 from hybrid.plugins.fragment import terminate_all_sessions_async
                 await terminate_all_sessions_async(number)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"_process_one_expired terminate_all_sessions_async failed number={number}: {e}")
             stat, reason = await delete_account(number, client)
         if stat:
             await remove_number_data(number)
@@ -244,6 +244,45 @@ async def check_expired_numbers(client):
             await asyncio.gather(*[_process_one_expired(number, client, now) for number in expired_list], return_exceptions=True)
         await asyncio.sleep(120)
 
+
+async def _finalize_7day_deletion(number, client):
+    """Full cleanup + notify + relist flow after a 7-day deletion is complete."""
+    from hybrid.plugins.db import get_user_by_number, remove_number_data, remove_number, remove_7day_deletion
+    user_id, _, _ = await get_user_by_number(number)
+    if user_id:
+        await remove_number_data(number)
+        await remove_number(number, user_id)
+    await remove_7day_deletion(number)
+    if user_id:
+        try:
+            await client.send_message(
+                user_id,
+                f"✅ The Telegram account linked to your number <b>{number}</b> has been permanently deleted.\n"
+                f"The number may now be available for re-rent.",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as notify_err:
+            logging.error(f"Failed to notify user {user_id} after 7-day deletion of {number}: {notify_err}")
+    async with temp.get_lock():
+        if number in temp.RENTED_NUMS:
+            temp.RENTED_NUMS.remove(number)
+    try:
+        from hybrid.plugins.fragment import fragment_api
+        is_free = await fragment_api.check_is_number_free(number)
+        if is_free:
+            async with temp.get_lock():
+                if number not in temp.AVAILABLE_NUM:
+                    temp.AVAILABLE_NUM.add(number)
+            logging.info(f"Number {number} confirmed free on Fragment, relisted.")
+        else:
+            logging.info(f"Number {number} not yet free on Fragment, skipping relist.")
+    except Exception as e:
+        logging.error(f"Fragment check failed for {number}: {e}")
+        async with temp.get_lock():
+            if number not in temp.AVAILABLE_NUM:
+                temp.AVAILABLE_NUM.add(number)
+
+
 async def check_7day_accs(client):
     """Check and complete 7-day scheduled deletions. Reconnects with saved session to finalize deletion."""
     from pyrogram.raw import functions
@@ -263,7 +302,6 @@ async def check_7day_accs(client):
             temp_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
             try:
                 await temp_client.connect()
-                # Check if still logged in from initial attempt (session may be in pending-deletion state)
                 try:
                     me = await temp_client.get_me()
                 except Exception:
@@ -288,77 +326,11 @@ async def check_7day_accs(client):
                             logging.error(f"Failed to complete deletion for {num}: {e}")
                             if getattr(temp_client, "is_connected", False):
                                 await temp_client.disconnect()
-                            # Fallback: full re-login via delete_account
                             stat, reason = await delete_account(num, client)
                             if stat:
-                                async with temp.get_lock():
-                                    if num in temp.RENTED_NUMS:
-                                        temp.RENTED_NUMS.remove(num)
-                                try:
-                                    from hybrid.plugins.fragment import fragment_api
-                                    is_free = await fragment_api.check_is_number_free(num)
-                                    if is_free:
-                                        async with temp.get_lock():
-                                            if num not in temp.AVAILABLE_NUM:
-                                                temp.AVAILABLE_NUM.add(num)
-                                        logging.info(f"Number {num} confirmed free on Fragment, relisted.")
-                                    else:
-                                        logging.info(f"Number {num} not yet free on Fragment, skipping relist.")
-                                except Exception as e:
-                                    logging.error(f"Fragment check failed for {num}: {e}")
-                                    async with temp.get_lock():
-                                        if num not in temp.AVAILABLE_NUM:
-                                            temp.AVAILABLE_NUM.add(num)
-                                user_id, _, _ = await get_user_by_number(num)
-                                if user_id:
-                                    await remove_number_data(num)
-                                    await remove_number(num, user_id)
-                                await remove_7day_deletion(num)
-                                if user_id:
-                                    try:
-                                        await client.send_message(
-                                            user_id,
-                                            f"✅ The Telegram account linked to your number <b>{num}</b> has been permanently deleted.\n"
-                                            f"The number may now be available for re-rent.",
-                                            parse_mode=ParseMode.HTML,
-                                        )
-                                    except Exception as notify_err:
-                                        logging.error(f"Failed to notify user {user_id} after 7-day deletion of {num}: {notify_err}")
+                                await _finalize_7day_deletion(num, client)
                             continue
-                    # Cleanup after successful completion
-                    user_id, _, _ = await get_user_by_number(num)
-                    if user_id:
-                        await remove_number_data(num)
-                        await remove_number(num, user_id)
-                    await remove_7day_deletion(num)
-                    if user_id:
-                        try:
-                            await client.send_message(
-                                user_id,
-                                f"✅ The Telegram account linked to your number <b>{num}</b> has been permanently deleted.\n"
-                                f"The number may now be available for re-rent.",
-                                parse_mode=ParseMode.HTML,
-                            )
-                        except Exception as notify_err:
-                            logging.error(f"Failed to notify user {user_id} after 7-day deletion of {num}: {notify_err}")
-                    async with temp.get_lock():
-                        if num in temp.RENTED_NUMS:
-                            temp.RENTED_NUMS.remove(num)
-                    try:
-                        from hybrid.plugins.fragment import fragment_api
-                        is_free = await fragment_api.check_is_number_free(num)
-                        if is_free:
-                            async with temp.get_lock():
-                                if num not in temp.AVAILABLE_NUM:
-                                    temp.AVAILABLE_NUM.add(num)
-                            logging.info(f"Number {num} confirmed free on Fragment, relisted.")
-                        else:
-                            logging.info(f"Number {num} not yet free on Fragment, skipping relist.")
-                    except Exception as e:
-                        logging.error(f"Fragment check failed for {num}: {e}")
-                        async with temp.get_lock():
-                            if num not in temp.AVAILABLE_NUM:
-                                temp.AVAILABLE_NUM.add(num)
+                    await _finalize_7day_deletion(num, client)
                 else:
                     logging.warning(f"Session expired for {num}, attempting full re-login to complete deletion.")
                     stat, reason = await delete_account(num, client)
@@ -366,39 +338,7 @@ async def check_7day_accs(client):
                         logging.info(f"Deleted account {num} after 7 days (re-login path).")
                         await save_7day_deletion(num, now)
                     elif stat:
-                        async with temp.get_lock():
-                            if num in temp.RENTED_NUMS:
-                                temp.RENTED_NUMS.remove(num)
-                        try:
-                            from hybrid.plugins.fragment import fragment_api
-                            is_free = await fragment_api.check_is_number_free(num)
-                            if is_free:
-                                async with temp.get_lock():
-                                    if num not in temp.AVAILABLE_NUM:
-                                        temp.AVAILABLE_NUM.add(num)
-                                logging.info(f"Number {num} confirmed free on Fragment, relisted.")
-                            else:
-                                logging.info(f"Number {num} not yet free on Fragment, skipping relist.")
-                        except Exception as e:
-                            logging.error(f"Fragment check failed for {num}: {e}")
-                            async with temp.get_lock():
-                                if num not in temp.AVAILABLE_NUM:
-                                    temp.AVAILABLE_NUM.add(num)
-                        user_id, _, _ = await get_user_by_number(num)
-                        if user_id:
-                            await remove_number_data(num)
-                            await remove_number(num, user_id)
-                        await remove_7day_deletion(num)
-                        if user_id:
-                            try:
-                                await client.send_message(
-                                    user_id,
-                                    f"✅ The Telegram account linked to your number <b>{num}</b> has been permanently deleted.\n"
-                                    f"The number may now be available for re-rent.",
-                                    parse_mode=ParseMode.HTML,
-                                )
-                            except Exception as notify_err:
-                                logging.error(f"Failed to notify user {user_id} after 7-day deletion of {num}: {notify_err}")
+                        await _finalize_7day_deletion(num, client)
                     elif reason == "Banned":
                         pass  # Banned feature disabled
             except Exception as e:
@@ -406,39 +346,7 @@ async def check_7day_accs(client):
                 try:
                     stat, reason = await delete_account(num, client)
                     if stat:
-                        user_id, _, _ = await get_user_by_number(num)
-                        if user_id:
-                            await remove_number_data(num)
-                            await remove_number(num, user_id)
-                        await remove_7day_deletion(num)
-                        if user_id:
-                            try:
-                                await client.send_message(
-                                    user_id,
-                                    f"✅ The Telegram account linked to your number <b>{num}</b> has been permanently deleted.\n"
-                                    f"The number may now be available for re-rent.",
-                                    parse_mode=ParseMode.HTML,
-                                )
-                            except Exception as notify_err:
-                                logging.error(f"Failed to notify user {user_id} after 7-day deletion of {num}: {notify_err}")
-                        async with temp.get_lock():
-                            if num in temp.RENTED_NUMS:
-                                temp.RENTED_NUMS.remove(num)
-                        try:
-                            from hybrid.plugins.fragment import fragment_api
-                            is_free = await fragment_api.check_is_number_free(num)
-                            if is_free:
-                                async with temp.get_lock():
-                                    if num not in temp.AVAILABLE_NUM:
-                                        temp.AVAILABLE_NUM.add(num)
-                                logging.info(f"Number {num} confirmed free on Fragment, relisted.")
-                            else:
-                                logging.info(f"Number {num} not yet free on Fragment, skipping relist.")
-                        except Exception as e:
-                            logging.error(f"Fragment check failed for {num}: {e}")
-                            async with temp.get_lock():
-                                if num not in temp.AVAILABLE_NUM:
-                                    temp.AVAILABLE_NUM.add(num)
+                        await _finalize_7day_deletion(num, client)
                 except Exception as e2:
                     logging.error(f"Fallback delete_account failed for {num}: {e2}")
             finally:
@@ -480,11 +388,11 @@ async def check_restricted_numbers(client):
                         logging.info("Restricted auto-deletion is disabled. Skipping deletion.")
                         continue
 
-                    try:
-                        from hybrid.plugins.fragment import terminate_all_sessions_async
-                        await terminate_all_sessions_async(num)
-                    except Exception:
-                        pass
+                try:
+                    from hybrid.plugins.fragment import terminate_all_sessions_async
+                    await terminate_all_sessions_async(num)
+                except Exception as e:
+                    logging.debug(f"terminate_all_sessions_async failed for restricted number {num}: {e}")
 
                     stat, reason = await delete_account(num, client)
                     if stat and reason == "7Days":
@@ -516,23 +424,128 @@ async def check_restricted_numbers(client):
         await asyncio.sleep(86400)
 
 
-async def check_payments(client):
-    """Background: verify CryptoBot invoices. Update messages when paid. Auto-rent on rentpay payload."""
-    import requests
-    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+async def _process_paid_invoice(client, user_id, msg_id, inv, inv_id):
+    """Shared payment processing + auto-rent for paid invoices. Handles balance crediting, rentpay auto-rent with locking, fallback keyboard, cleanup."""
     from hybrid.plugins.temp import temp
     from hybrid.plugins.db import (
-        get_user_balance, save_user_balance, is_payment_processed_crypto, mark_payment_processed_crypto,
+        get_user_balance, save_user_balance, mark_payment_processed_crypto,
         delete_inv_entry, get_number_info, get_rented_data_for_number,
         save_number, save_rental_atomic, unlock_number_for_rent, lock_number_for_rent,
         record_revenue, record_transaction,
     )
-    from hybrid.plugins.func import t, resolve_payment_keyboard, format_number, format_remaining_time, get_current_datetime, get_remaining_hours
+    from hybrid.plugins.func import t, resolve_payment_keyboard, format_number, format_remaining_time, get_current_datetime, get_remaining_hours, normalize_phone
+    from hybrid.plugins.callback import build_number_actions_keyboard
     from config import D30_RATE, D60_RATE, D90_RATE
+
+    try:
+        await client.edit_message_text(user_id, msg_id, "⌛")
+    except Exception as e:
+        logging.debug(f"_process_paid_invoice edit_message_text ⌛ failed user_id={user_id} msg_id={msg_id}: {e}")
+    payload = (getattr(inv, "payload", "") or "").strip()
+    current_bal = await get_user_balance(user_id) or 0.0
+    fiat_amount = await redis_client.get(f"inv_amount:{inv_id}")
+    credit = float(fiat_amount) if fiat_amount else float(inv.amount)
+    new_bal = current_bal + credit
+    await redis_client.delete(f"inv_amount:{inv_id}")
+    await save_user_balance(user_id, new_bal)
+    await mark_payment_processed_crypto(str(inv_id))
+    await record_transaction(user_id, credit, "deposit", "Balance top-up via CryptoBot")
+    if payload.startswith("rentpay:"):
+        parts = payload.split(":")
+        number = parts[1] if len(parts) >= 2 else ""
+        hours = int(parts[2]) if len(parts) >= 3 else 0
+        number = normalize_phone(number) or number
+        num_text = format_number(number)
+        info = await get_number_info(number)
+        rented_data = await get_rented_data_for_number(number)
+        if info and info.get("available", True) and hours:
+            if rented_data and rented_data.get("user_id") and int(rented_data.get("user_id", 0)) != user_id:
+                keyboard = await resolve_payment_keyboard(user_id, payload)
+                try:
+                    await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
+                except Exception as e:
+                    logging.debug(f"_process_paid_invoice edit_message_text failed user_id={user_id}: {e}")
+            else:
+                prices = info.get("prices", {})
+                price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
+                price = price_map.get(hours)
+                if price is not None and new_bal >= price:
+                    lock_acquired = await lock_number_for_rent(number, user_id, ttl=1800)
+                    if lock_acquired:
+                        try:
+                            rent_date = rented_data.get("rent_date", get_current_datetime()) if rented_data else get_current_datetime()
+                            remaining_hours = get_remaining_hours(rent_date, rented_data.get("hours", 0)) if rented_data else 0
+                            new_hours = remaining_hours + hours
+                            new_balance = new_bal - price
+                            if remaining_hours > 0:
+                                await save_number(number, user_id, new_hours, extend=True)
+                                original_rent_date = rented_data.get("rent_date", get_current_datetime())
+                                await save_rental_atomic(user_id, number, new_balance, original_rent_date, new_hours)
+                            else:
+                                await save_number(number, user_id, new_hours)
+                                await save_rental_atomic(user_id, number, new_balance, get_current_datetime(), new_hours)
+                            await record_revenue(user_id, number, price, new_hours)
+                            await record_transaction(user_id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
+                            async with temp.get_lock():
+                                temp.RENTED_NUMS.add(number)
+                                temp.AVAILABLE_NUM.discard(number)
+                            duration = format_remaining_time(get_current_datetime(), new_hours)
+                            keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
+                            try:
+                                await client.edit_message_text(
+                                    user_id, msg_id,
+                                    t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
+                                    reply_markup=keyboard
+                                )
+                            except Exception as e:
+                                logging.debug(f"_process_paid_invoice edit rental_success failed user_id={user_id}: {e}")
+                        finally:
+                            await unlock_number_for_rent(number)
+                    else:
+                        try:
+                            await client.edit_message_text(
+                                user_id, msg_id,
+                                t(user_id, "payment_confirmed") + "\n\n⚠️ Number was rented by someone else. Your balance has been credited.",
+                                reply_markup=await resolve_payment_keyboard(user_id, payload)
+                            )
+                        except Exception as e:
+                            logging.debug(f"_process_paid_invoice edit_message_text (lock failed) user_id={user_id}: {e}")
+                else:
+                    keyboard = await resolve_payment_keyboard(user_id, payload)
+                    try:
+                        await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
+                    except Exception as e:
+                        logging.debug(f"_process_paid_invoice edit_message_text (no price/bal) user_id={user_id}: {e}")
+        else:
+            keyboard = await resolve_payment_keyboard(user_id, payload)
+            try:
+                await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
+            except Exception as e:
+                logging.debug(f"_process_paid_invoice edit_message_text (not rentpay) user_id={user_id}: {e}")
+    else:
+        keyboard = await resolve_payment_keyboard(user_id, payload)
+        try:
+            await client.edit_message_text(
+                user_id, msg_id,
+                t(user_id, "payment_confirmed"),
+                reply_markup=keyboard
+            )
+        except Exception as e:
+            logging.debug(f"_process_paid_invoice edit_message_text (fallback) user_id={user_id}: {e}")
+    temp.INV_DICT.pop(user_id, None)
+    await delete_inv_entry(user_id)
+    if inv_id in temp.PENDING_INV:
+        temp.PENDING_INV.remove(inv_id)
+
+
+async def check_payments(client):
+    """Background: verify CryptoBot invoices. Update messages when paid. Auto-rent on rentpay payload."""
+    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from hybrid.plugins.temp import temp
+    from hybrid.plugins.db import is_payment_processed_crypto, delete_inv_entry
 
     while True:
         try:
-            # CryptoBot pending invoices
             if CRYPTO_STAT:
                 try:
                     cp_client = cp
@@ -551,108 +564,7 @@ async def check_payments(client):
                                 if inv_id in temp.PENDING_INV:
                                     temp.PENDING_INV.remove(inv_id)
                                 continue
-                            try:
-                                await client.edit_message_text(user_id, msg_id, "⌛")
-                            except Exception:
-                                pass
-                            payload = (getattr(inv, "payload", "") or "").strip()
-                            current_bal = await get_user_balance(user_id) or 0.0
-                            fiat_amount = await redis_client.get(f"inv_amount:{inv_id}")
-                            credit = float(fiat_amount) if fiat_amount else float(inv.amount)
-                            new_bal = current_bal + credit
-                            await redis_client.delete(f"inv_amount:{inv_id}")
-                            await save_user_balance(user_id, new_bal)
-                            await mark_payment_processed_crypto(str(inv_id))
-                            await record_transaction(user_id, credit, "deposit", "Balance top-up via CryptoBot")
-                            # Auto-rent when payload is rentpay:number:hours
-                            if payload.startswith("rentpay:"):
-                                parts = payload.split(":")
-                                number = parts[1] if len(parts) >= 2 else ""
-                                hours = int(parts[2]) if len(parts) >= 3 else 0
-                                from hybrid.plugins.func import normalize_phone
-                                number = normalize_phone(number) or number
-                                num_text = format_number(number)
-                                info = await get_number_info(number)
-                                rented_data = await get_rented_data_for_number(number)
-                                if info and info.get("available", True) and hours:
-                                    if rented_data and rented_data.get("user_id") and int(rented_data.get("user_id", 0)) != user_id:
-                                        keyboard = await resolve_payment_keyboard(user_id, payload)
-                                        try:
-                                            await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
-                                        except Exception:
-                                            pass
-                                    else:
-                                        prices = info.get("prices", {})
-                                        price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
-                                        price = price_map.get(hours)
-                                        if price is not None and new_bal >= price:
-                                            lock_acquired = await lock_number_for_rent(number, user_id, ttl=1800)
-                                            if lock_acquired:
-                                                try:
-                                                    rent_date = rented_data.get("rent_date", get_current_datetime()) if rented_data else get_current_datetime()
-                                                    remaining_hours = get_remaining_hours(rent_date, rented_data.get("hours", 0)) if rented_data else 0
-                                                    new_hours = remaining_hours + hours
-                                                    new_balance = new_bal - price
-                                                    if remaining_hours > 0:
-                                                        await save_number(number, user_id, new_hours, extend=True)
-                                                        original_rent_date = rented_data.get("rent_date", get_current_datetime())
-                                                        await save_rental_atomic(user_id, number, new_balance, original_rent_date, new_hours)
-                                                    else:
-                                                        await save_number(number, user_id, new_hours)
-                                                        await save_rental_atomic(user_id, number, new_balance, get_current_datetime(), new_hours)
-                                                    await record_revenue(user_id, number, price, new_hours)
-                                                    await record_transaction(user_id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
-                                                    async with temp.get_lock():
-                                                        temp.RENTED_NUMS.add(number)
-                                                        temp.AVAILABLE_NUM.discard(number)
-                                                    duration = format_remaining_time(get_current_datetime(), new_hours)
-                                                    from hybrid.plugins.callback import build_number_actions_keyboard
-                                                    keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
-                                                    try:
-                                                        await client.edit_message_text(
-                                                            user_id, msg_id,
-                                                            t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
-                                                            reply_markup=keyboard
-                                                        )
-                                                    except Exception:
-                                                        pass
-                                                finally:
-                                                    await unlock_number_for_rent(number)
-                                            else:
-                                                try:
-                                                    await client.edit_message_text(
-                                                        user_id, msg_id,
-                                                        t(user_id, "payment_confirmed") + "\n\n⚠️ Number was rented by someone else. Your balance has been credited.",
-                                                        reply_markup=await resolve_payment_keyboard(user_id, payload)
-                                                    )
-                                                except Exception:
-                                                    pass
-                                        else:
-                                            keyboard = await resolve_payment_keyboard(user_id, payload)
-                                            try:
-                                                await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
-                                            except Exception:
-                                                pass
-                                else:
-                                    keyboard = await resolve_payment_keyboard(user_id, payload)
-                                    try:
-                                        await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
-                                    except Exception:
-                                        pass
-                            else:
-                                keyboard = await resolve_payment_keyboard(user_id, payload)
-                                try:
-                                    await client.edit_message_text(
-                                        user_id, msg_id,
-                                        t(user_id, "payment_confirmed"),
-                                        reply_markup=keyboard
-                                    )
-                                except Exception:
-                                    pass
-                            temp.INV_DICT.pop(user_id, None)
-                            await delete_inv_entry(user_id)
-                            if inv_id in temp.PENDING_INV:
-                                temp.PENDING_INV.remove(inv_id)
+                            await _process_paid_invoice(client, user_id, msg_id, inv, inv_id)
                         elif inv and getattr(inv, "status", None) == "expired":
                             final_check = await cp_client.get_invoice(inv_id)
                             if final_check and getattr(final_check, "status", None) == "paid":
@@ -662,107 +574,7 @@ async def check_payments(client):
                                     if inv_id in temp.PENDING_INV:
                                         temp.PENDING_INV.remove(inv_id)
                                 else:
-                                    try:
-                                        await client.edit_message_text(user_id, msg_id, "⌛")
-                                    except Exception:
-                                        pass
-                                    payload = (getattr(final_check, "payload", "") or "").strip()
-                                    current_bal = await get_user_balance(user_id) or 0.0
-                                    fiat_amount = await redis_client.get(f"inv_amount:{inv_id}")
-                                    credit = float(fiat_amount) if fiat_amount else float(final_check.amount)
-                                    new_bal = current_bal + credit
-                                    await redis_client.delete(f"inv_amount:{inv_id}")
-                                    await save_user_balance(user_id, new_bal)
-                                    await mark_payment_processed_crypto(str(inv_id))
-                                    await record_transaction(user_id, credit, "deposit", "Balance top-up via CryptoBot")
-                                    if payload.startswith("rentpay:"):
-                                        parts = payload.split(":")
-                                        number = parts[1] if len(parts) >= 2 else ""
-                                        hours = int(parts[2]) if len(parts) >= 3 else 0
-                                        from hybrid.plugins.func import normalize_phone
-                                        number = normalize_phone(number) or number
-                                        num_text = format_number(number)
-                                        info = await get_number_info(number)
-                                        rented_data = await get_rented_data_for_number(number)
-                                        if info and info.get("available", True) and hours:
-                                            if rented_data and rented_data.get("user_id") and int(rented_data.get("user_id", 0)) != user_id:
-                                                keyboard = await resolve_payment_keyboard(user_id, payload)
-                                                try:
-                                                    await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
-                                                except Exception:
-                                                    pass
-                                            else:
-                                                prices = info.get("prices", {})
-                                                price_map = {720: prices.get("30d", D30_RATE), 1440: prices.get("60d", D60_RATE), 2160: prices.get("90d", D90_RATE)}
-                                                price = price_map.get(hours)
-                                                if price is not None and new_bal >= price:
-                                                    lock_acquired = await lock_number_for_rent(number, user_id, ttl=1800)
-                                                    if lock_acquired:
-                                                        try:
-                                                            rent_date = rented_data.get("rent_date", get_current_datetime()) if rented_data else get_current_datetime()
-                                                            remaining_hours = get_remaining_hours(rent_date, rented_data.get("hours", 0)) if rented_data else 0
-                                                            new_hours = remaining_hours + hours
-                                                            new_balance = new_bal - price
-                                                            if remaining_hours > 0:
-                                                                await save_number(number, user_id, new_hours, extend=True)
-                                                                original_rent_date = rented_data.get("rent_date", get_current_datetime())
-                                                                await save_rental_atomic(user_id, number, new_balance, original_rent_date, new_hours)
-                                                            else:
-                                                                await save_number(number, user_id, new_hours)
-                                                                await save_rental_atomic(user_id, number, new_balance, get_current_datetime(), new_hours)
-                                                            await record_revenue(user_id, number, price, new_hours)
-                                                            await record_transaction(user_id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
-                                                            async with temp.get_lock():
-                                                                temp.RENTED_NUMS.add(number)
-                                                                temp.AVAILABLE_NUM.discard(number)
-                                                            duration = format_remaining_time(get_current_datetime(), new_hours)
-                                                            from hybrid.plugins.callback import build_number_actions_keyboard
-                                                            keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
-                                                            try:
-                                                                await client.edit_message_text(
-                                                                    user_id, msg_id,
-                                                                    t(user_id, "rental_success", number=num_text, duration=duration, price=price, balance=new_balance),
-                                                                    reply_markup=keyboard
-                                                                )
-                                                            except Exception:
-                                                                pass
-                                                        finally:
-                                                            await unlock_number_for_rent(number)
-                                                    else:
-                                                        try:
-                                                            await client.edit_message_text(
-                                                                user_id, msg_id,
-                                                                t(user_id, "payment_confirmed") + "\n\n⚠️ Number was rented by someone else. Your balance has been credited.",
-                                                                reply_markup=await resolve_payment_keyboard(user_id, payload)
-                                                            )
-                                                        except Exception:
-                                                            pass
-                                                else:
-                                                    keyboard = await resolve_payment_keyboard(user_id, payload)
-                                                    try:
-                                                        await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
-                                                    except Exception:
-                                                        pass
-                                        else:
-                                            keyboard = await resolve_payment_keyboard(user_id, payload)
-                                            try:
-                                                await client.edit_message_text(user_id, msg_id, t(user_id, "payment_confirmed"), reply_markup=keyboard)
-                                            except Exception:
-                                                pass
-                                    else:
-                                        keyboard = await resolve_payment_keyboard(user_id, payload)
-                                        try:
-                                            await client.edit_message_text(
-                                                user_id, msg_id,
-                                                t(user_id, "payment_confirmed"),
-                                                reply_markup=keyboard
-                                            )
-                                        except Exception:
-                                            pass
-                                    temp.INV_DICT.pop(user_id, None)
-                                    await delete_inv_entry(user_id)
-                                    if inv_id in temp.PENDING_INV:
-                                        temp.PENDING_INV.remove(inv_id)
+                                    await _process_paid_invoice(client, user_id, msg_id, final_check, inv_id)
                             else:
                                 temp.INV_DICT.pop(user_id, None)
                                 await delete_inv_entry(user_id)
@@ -792,8 +604,8 @@ async def check_payments(client):
                                             "Please try renting a new number.",
                                             parse_mode=ParseMode.HTML
                                         )
-                                    except Exception:
-                                        pass
+                                    except Exception as send_e:
+                                        logging.debug(f"check_payments expired send_message fallback failed user_id={user_id}: {send_e}")
                     except Exception as e:
                         logging.debug(f"CryptoBot check invoice {inv_id}: {e}")
 
@@ -861,8 +673,8 @@ def _build_startup_message(bot_username: str, start_timestamp) -> str:
         ).strip()
         if ver:
             version = ver
-    except Exception:
-        pass
+    except Exception as e:
+        logging.debug(f"_build_startup_message git describe failed: {e}")
     try:
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         log = subprocess.check_output(
@@ -962,8 +774,8 @@ class Bot(Client):
         for id in ADMINS:
             try:
                 await self.send_message(id, startup_text)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"Bot.start send_message to admin id={id} failed: {e}")
 
     async def stop(self, *args):
         await super().stop()
