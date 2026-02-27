@@ -47,7 +47,8 @@ DEFAULT_ADMIN_BACK_KEYBOARD = InlineKeyboardMarkup(
 
 
 async def _safe_edit(msg, text=None, reply_markup=None, client=None, **kwargs):
-    """Edit message; if message has photo and client given, delete and send new text so photo is removed."""
+    """Edit message; if message has photo and client given, delete and send new text so photo is removed.
+    Falls back to send_message if edit fails for any reason other than MessageNotModified."""
     kwargs.setdefault("parse_mode", ParseMode.HTML)
     try:
         if text is not None:
@@ -60,6 +61,11 @@ async def _safe_edit(msg, text=None, reply_markup=None, client=None, **kwargs):
         return None
     except Exception as e:
         logging.error(f"Safe edit failed: {e}")
+        if text and client:
+            try:
+                return await client.send_message(msg.chat.id, text, reply_markup=reply_markup, **kwargs)
+            except Exception:
+                pass
         return None
 
 
