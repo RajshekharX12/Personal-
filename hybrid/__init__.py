@@ -803,10 +803,17 @@ async def check_payments(client):
 
 
 async def cleanup_old_invoices(client):
-    """Monthly cleanup: remove unpaid invoices older than 30 days."""
+    """Periodic cleanup: remove unpaid invoices older than 30 days. Checks daily."""
     while True:
-        await asyncio.sleep(30 * 24 * 3600)  # sleep 30 days first
+        await asyncio.sleep(24 * 3600)  # check once per day
         try:
+            last_cleanup = await redis_client.get("last_invoice_cleanup")
+            if last_cleanup:
+                last_ts = float(last_cleanup)
+                import time as _time
+                if (_time.time() - last_ts) < 29 * 24 * 3600:
+                    continue  # less than 29 days since last cleanup, skip
+
             from hybrid.plugins.db import delete_inv_entry
             now = get_current_datetime()
             cleaned = 0
@@ -830,6 +837,9 @@ async def cleanup_old_invoices(client):
                     cleaned += 1
                 except Exception as e:
                     logging.debug(f"Monthly cleanup check failed for {inv_id}: {e}")
+
+            import time as _time
+            await redis_client.set("last_invoice_cleanup", str(_time.time()))
             if cleaned:
                 logging.info(f"Monthly invoice cleanup: removed {cleaned} old unpaid invoices.")
         except Exception as e:
@@ -963,3 +973,4 @@ class Bot(Client):
         except Exception as e:
             logging.debug("Fragment session close on stop: %s", e)
         logging.info("Bot stopped.")
+
