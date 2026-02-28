@@ -20,7 +20,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from hybrid import Bot, LOG_FILE_NAME, logging, ADMINS, gen_4letters
 from hybrid.plugins.temp import temp
-from hybrid.plugins.func import t, restart, check_number_conn, export_numbers_csv
+from hybrid.plugins.func import t, restart, export_numbers_csv
 from hybrid.plugins.db import (
     save_user_id,
     ping_redis,
@@ -321,24 +321,7 @@ async def broadcast_cmd(_, message):
 
     await message.reply_text(f"📢 Broadcast completed!\n<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Success: {success_count}\n<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed: {fail_count}", parse_mode=ParseMode.HTML)
 
-@Bot.on_message(filters.command("checknum") & filters.user(ADMINS))
-async def check_num_cmd(_, message):
-    try:
-        response = await message.chat.ask(
-            "⚠️ send the number you wanna check",
-            timeout=30
-        )
-    except Exception:
-        return await message.reply_text("<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.", parse_mode=ParseMode.HTML)
-    number = response.text if response.text.startswith("+888") else False
-    if not number:
-        return await message.reply_text("<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid number format. Please send a valid number starting with +888.", parse_mode=ParseMode.HTML)
-
-    check = check_number_conn(number)
-    if check:
-        return await message.reply_text(f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Number {number} is available.", parse_mode=ParseMode.HTML)
-    else:
-        return await message.reply_text(f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Number {number} is not available.", parse_mode=ParseMode.HTML)
+# /checknum moved to guard.py (standalone number checker module)
 
 @Bot.on_message(filters.command("exportcsv") & filters.user(ADMINS))
 async def export_csv_cmd(_, message: Message):
