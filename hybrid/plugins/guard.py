@@ -105,7 +105,7 @@ class GuardFragmentAPI:
         self._client: Optional[httpx.AsyncClient] = self._build_client()
 
     def _build_client(self) -> Optional[httpx.AsyncClient]:
-        if not all([self._stel_ssid, self._stel_ton_token, self._stel_token]):
+      if not all([self._stel_ssid, self._stel_ton_token]):
             return None
         cookie = f"stel_ssid={self._stel_ssid}; stel_dt=-300; stel_ton_token={self._stel_ton_token}; stel_token={self._stel_token}"
         return httpx.AsyncClient(
