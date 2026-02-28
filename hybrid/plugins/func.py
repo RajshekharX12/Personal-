@@ -500,10 +500,14 @@ async def delete_account(number: str, app: Client, two_fa_password: str = None) 
 
 
 async def check_number_conn(number: str) -> bool:
-    from hybrid.plugins.fragment import fragment_api
-    if fragment_api is None:
-        return True  # assume free if API not configured
-    return await fragment_api.check_is_number_free(number)
+    """Check if number is free via Guard module (independent cookies).
+    Returns True = free, False = busy. Falls back to True on error."""
+    from hybrid.plugins.guard import guard_is_free
+    try:
+        return await guard_is_free(number)
+    except Exception as e:
+        logging.error("guard check failed for %s: %s — assuming free", number, e)
+        return True
 
 def normalize_phone(number) -> str | None:
     """Normalize to +888XXXXXXXX. Returns None if invalid."""
@@ -626,5 +630,4 @@ async def export_numbers_csv(filename: str = "numbers_export.csv"):
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _write_csv)
     return filename
-
 
