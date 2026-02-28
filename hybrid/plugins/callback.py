@@ -69,7 +69,7 @@ from hybrid.plugins.db import (
     unlock_number_for_rent,
 )
 from hybrid.plugins.db import client as redis_client
-from hybrid.plugins.fragment import fragment_api, terminate_all_sessions_async, get_login_code_async
+from hybrid.plugins.fragment import terminate_all_sessions_async, get_login_code_async
 from config import D30_RATE, D60_RATE, D90_RATE, CRYPTO_API
 
 from datetime import datetime, timedelta, timezone
