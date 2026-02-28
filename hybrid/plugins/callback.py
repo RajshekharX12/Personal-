@@ -737,12 +737,58 @@ Details:
         text = """<tg-emoji emoji-id=\"5472308992514464048\">🛠️</tg-emoji> Admin Tools
 
 - Change Rules: Update the rental rules text.
+- Test number connected: Check if a +888 number is linked to a Telegram account (Fragment).
         """
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("Change Rules", callback_data="admin_change_rules")],
+            [InlineKeyboardButton("📞 Test number connected", callback_data="admin_test_number_connected")],
             [InlineKeyboardButton("⬅️ Back to Admin Menu", callback_data="admin_panel")]
         ])
         await _safe_edit(query.message, text, reply_markup=keyboard, client=client)
+
+    elif data == "admin_test_number_connected" and query.from_user.id in ADMINS:
+        await query.answer()
+        try:
+            response = await query.message.chat.ask(
+                "⚠️ Enter the +888 number to check if it is connected to an account (within 60s):",
+                timeout=60
+            )
+        except Exception:
+            return await query.message.edit_text(
+                "<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout! Please try again.",
+                reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD,
+                parse_mode=ParseMode.HTML,
+            )
+        number = (response.text or "").strip().replace(" ", "")
+        if not number.startswith("+"):
+            number = "+" + number
+        try:
+            await response.delete()
+        except Exception:
+            pass
+        try:
+            await response.sent_message.delete()
+        except Exception:
+            pass
+        if not number.startswith("+888"):
+            return await query.message.edit_text(
+                "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid number. Use a +888 number.",
+                reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD,
+                parse_mode=ParseMode.HTML,
+            )
+        from hybrid.plugins.guard import guard_check
+        ok, status_msg = await guard_check(number)
+        if ok is True:
+            text = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> {number} is <b>free</b> (not connected to an account)."
+        elif ok is False:
+            text = f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> {number} is <b>connected</b> to an account (busy on Fragment)."
+        else:
+            text = f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> {status_msg}"
+        await query.message.edit_text(
+            text,
+            reply_markup=DEFAULT_ADMIN_BACK_KEYBOARD,
+            parse_mode=ParseMode.HTML,
+        )
 
     elif data == "admin_numbers" and query.from_user.id in ADMINS:
         await show_numbers(query, page=1)
@@ -917,14 +963,15 @@ Details:
         if success:
             await log_admin_action(query.from_user.id, "admin_cancel_rent", number, f"user_id={user_id}")
             try:
-                is_connected = await check_number_conn(number)
-                if is_connected:
+                is_free = await check_number_conn(number)
+                if not is_free:
                     try:
+                        from hybrid.plugins.fragment import terminate_all_sessions_async
                         await terminate_all_sessions_async(number)
                     except Exception as e:
                         logging.warning(f"Session termination failed for {number}: {e}")
                 else:
-                    logging.info(f"Number {number} has no active account — skipping termination.")
+                    logging.info(f"Number {number} is free — no active account, skipping termination.")
             except Exception as e:
                 logging.warning(f"Could not check connection status for {number}: {e} — skipping termination.")
             async with temp.get_lock():
@@ -1086,7 +1133,8 @@ The number will appear as 🟢 available in the listing immediately.
         if stat:
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
             try:
-                is_free = await fragment_api.check_is_number_free(identifier)
+                from hybrid.plugins.guard import guard_is_free
+                is_free = await guard_is_free(identifier)
                 if is_free:
                     msg = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Account associated with number {identifier} has been deleted."
                 else:
@@ -1137,9 +1185,10 @@ The number will appear as 🟢 available in the listing immediately.
 
         # ========== Delete Account logic ========== #
         try:
-            is_connected = not await fragment_api.check_is_number_free(number)
+            from hybrid.plugins.guard import guard_is_free
+            is_connected = not await guard_is_free(number)
         except Exception as e:
-            logging.debug(f"fragment_api.check_is_number_free failed for number={number}: {e}")
+            logging.debug(f"guard_is_free failed for number={number}: {e}")
             is_connected = True  # assume connected if check fails, proceed normally
         if not is_connected:
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
@@ -1153,7 +1202,8 @@ The number will appear as 🟢 available in the listing immediately.
             await log_admin_action(query.from_user.id, "admin_delete_acc", number, f"reason={reason}")
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Admin Panel", callback_data="admin_panel")]])
             try:
-                is_free = await fragment_api.check_is_number_free(number)
+                from hybrid.plugins.guard import guard_is_free
+                is_free = await guard_is_free(number)
                 if is_free:
                     msg = f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Account associated with number {number} has been deleted."
                 else:
@@ -1940,4 +1990,5 @@ The number will appear as 🟢 available in the listing immediately.
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
+
 
