@@ -105,9 +105,9 @@ class GuardFragmentAPI:
         self._client: Optional[httpx.AsyncClient] = self._build_client()
 
     def _build_client(self) -> Optional[httpx.AsyncClient]:
-      if not all([self._stel_ssid, self._stel_ton_token]):
+        if not all([self._stel_ssid, self._stel_ton_token, self._stel_token]):
             return None
-cookie = f"stel_ssid={self._stel_ssid}; stel_dt=-300; stel_ton_token={self._stel_ton_token}; stel_token={self._stel_token}"
+        cookie = f"stel_ssid={self._stel_ssid}; stel_dt=-300; stel_ton_token={self._stel_ton_token}; stel_token={self._stel_token}"
         return httpx.AsyncClient(
             params={"hash": self._hash},
             headers={
@@ -125,7 +125,8 @@ cookie = f"stel_ssid={self._stel_ssid}; stel_dt=-300; stel_ton_token={self._stel
 
     @property
     def ready(self) -> bool:
-return self._client is not None and all([self._stel_ssid, self._stel_ton_token])
+        return self._client is not None and all([self._stel_ssid, self._stel_ton_token, self._stel_token])
+
     async def _request(self, data: DATA_T) -> DATA_T:
         if self._client is None:
             raise RuntimeError("Guard API not ready (missing cookies).")
