@@ -125,10 +125,7 @@ class GuardFragmentAPI:
 
     @property
     def ready(self) -> bool:
-        return self._client is not None and all(
-            [self._stel_ssid, self._stel_ton_token, self._stel_token]
-        )
-
+return self._client is not None and all([self._stel_ssid, self._stel_ton_token])
     async def _request(self, data: DATA_T) -> DATA_T:
         if self._client is None:
             raise RuntimeError("Guard API not ready (missing cookies).")
