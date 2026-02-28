@@ -24,7 +24,7 @@ FRAGMENT_API_HASH = os.environ.get("FRAGMENT_API_HASH", "38f80e92d2dbe5065b")
 GUARD_HASH = os.environ.get("GUARD_HASH", "38f80e92d2dbe5065b")
 GUARD_STEL_SSID = os.environ.get("GUARD_STEL_SSID", "")
 GUARD_STEL_TOKEN = os.environ.get("GUARD_STEL_TOKEN", "")
-GUARD_STEL_TON_TOKEN = os.environ.get("GUARD_STEL_TON_TOKEN", "")
+GUARD_STEL_TON_TOKEN = os.environ.get("GUARD_STEL_TON_TOKEN", "xxgsv9mztTU-BGBYhydE4mJHB3JCNmAJNMtQTxCzs-guGtXGEDyWX2_R34L3nM64DE4Iqq1Vpg8kFRezUhCLavT5aZzERq-qBzOAmeHQiO5nvarAeTbpjWXWSjn3jJL1JhHecWeOZJZtA_zNQgT8Za1VpqHxMh9Gh41mwbJGC7CTAr3q_wnU6zpF3r7CcHyCHuv3eMnb")
 GUARD_CACHE_TTL = int(os.environ.get("GUARD_CACHE_TTL", "300"))
 
 # ============== Other Configs =============
@@ -44,6 +44,7 @@ except ValueError:
     raise Exception("Your Admins list doesn't contain valid integers.")
 
 ADMINS.append(OWNER_ID)
+
 
 
 
