@@ -373,7 +373,7 @@ def _register_guard_handlers() -> None:
             return
         display = format_display(number)
         try:
-            is_free = await guard_is_free(display)
+            is_free = await guard_is_free(number)
             if is_free:
                 title = "✅ FREE"
                 desc = f"{display} is available on Fragment."
