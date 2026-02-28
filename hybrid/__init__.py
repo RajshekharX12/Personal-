@@ -212,8 +212,8 @@ async def _process_one_expired(number: str, client, now):
                 temp.RENTED_NUMS.remove(number)
         if not seven_day_pending:
             try:
-                from hybrid.plugins.fragment import fragment_api
-                is_free = await fragment_api.check_is_number_free(number)
+                from hybrid.plugins.guard import guard_is_free
+                is_free = await guard_is_free(number)
                 if is_free:
                     async with temp.get_lock():
                         if number not in temp.AVAILABLE_NUM:
@@ -267,8 +267,8 @@ async def _finalize_7day_deletion(number, client):
         if number in temp.RENTED_NUMS:
             temp.RENTED_NUMS.remove(number)
     try:
-        from hybrid.plugins.fragment import fragment_api
-        is_free = await fragment_api.check_is_number_free(number)
+        from hybrid.plugins.guard import guard_is_free
+        is_free = await guard_is_free(number)
         if is_free:
             async with temp.get_lock():
                 if number not in temp.AVAILABLE_NUM:
@@ -310,8 +310,8 @@ async def check_7day_accs(client):
                     try:
                         await temp_client.invoke(functions.account.DeleteAccount(reason="Cleanup"))
                         try:
-                            from hybrid.plugins.fragment import fragment_api
-                            is_free = await fragment_api.check_is_number_free(num)
+                            from hybrid.plugins.guard import guard_is_free
+                            is_free = await guard_is_free(num)
                             if is_free:
                                 logging.info(f"✅ Account {num} deleted (verified via Fragment).")
                             else:
