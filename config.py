@@ -20,6 +20,13 @@ TON_WALLET = os.environ.get("TON_WALLET", "UQAYH3MHNSUABi73Z6HwIcuXkmws1tBDDN-lW
 # ============== FRAGMENT data =============
 FRAGMENT_API_HASH = os.environ.get("FRAGMENT_API_HASH", "38f80e92d2dbe5065b")
 
+# ============== GUARD (standalone number checker — own cookies/session) =============
+GUARD_HASH = os.environ.get("GUARD_HASH", "38f80e92d2dbe5065b")
+GUARD_STEL_SSID = os.environ.get("GUARD_STEL_SSID", "")
+GUARD_STEL_TOKEN = os.environ.get("GUARD_STEL_TOKEN", "")
+GUARD_STEL_TON_TOKEN = os.environ.get("GUARD_STEL_TON_TOKEN", "")
+GUARD_CACHE_TTL = int(os.environ.get("GUARD_CACHE_TTL", "300"))
+
 # ============== Other Configs =============
 D30_RATE = float(os.environ.get("D30_RATE", "80.0"))
 D60_RATE = float(os.environ.get("D60_RATE", "152.0"))
@@ -37,6 +44,7 @@ except ValueError:
     raise Exception("Your Admins list doesn't contain valid integers.")
 
 ADMINS.append(OWNER_ID)
+
 
 
 
