@@ -26,6 +26,7 @@ from hybrid.plugins.db import (
     ping_redis,
     get_all_user_ids,
     get_all_rentals,
+    get_number_info,
     get_total_balance,
     get_7day_deletions,
     get_total_revenue,
@@ -322,6 +323,38 @@ async def broadcast_cmd(_, message):
     await message.reply_text(f"📢 Broadcast completed!\n<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Success: {success_count}\n<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed: {fail_count}", parse_mode=ParseMode.HTML)
 
 # /checknum moved to guard.py (standalone number checker module)
+
+@Bot.on_message(filters.command("fixstate") & filters.user(ADMINS))
+async def fix_state_cmd(client, message):
+    """Rebuild temp.RENTED_NUMS and temp.AVAILABLE_NUM from Redis data."""
+    msg = await message.reply("🔄 Rebuilding state...")
+
+    rented_count = 0
+    available_count = 0
+
+    all_rentals = await get_all_rentals()
+    rented_numbers = set()
+    for doc in all_rentals:
+        num = doc.get("number")
+        if num:
+            rented_numbers.add(num)
+            rented_count += 1
+
+    async with temp.get_lock():
+        temp.RENTED_NUMS = rented_numbers
+        temp.AVAILABLE_NUM.clear()
+        for num in temp.NUMBE_RS:
+            if num not in rented_numbers:
+                info = await get_number_info(num)
+                if info and info.get("available", True):
+                    temp.AVAILABLE_NUM.add(num)
+                    available_count += 1
+
+    await msg.edit_text(
+        "✅ State rebuilt!\n"
+        f"🔴 Rented: {rented_count}\n"
+        f"🟢 Available: {available_count}"
+    )
 
 @Bot.on_message(filters.command("exportcsv") & filters.user(ADMINS))
 async def export_csv_cmd(_, message: Message):
