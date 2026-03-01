@@ -256,11 +256,11 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             prev_owner_name = f"@{prev_owner.username}" if prev_owner.username else (prev_owner.first_name or str(prev_owner.id))
             await client.send_message(
                 to_user_id,
-                f"🫶 The number below has been securely transferred to your account.\n\n"
+                f"<emoji id=\"6030665018851203489\">🫶</emoji> The number below has been securely transferred to your account.\n\n"
                 f"• <emoji id=\"5422683699130933153\">👤</emoji> Previous Owner: {prev_owner_name}\n\n"
                 f"• <emoji id=\"5467539229468793355\">📞</emoji> Number: {num_text}\n\n"
-                f"• ⏳ Validity: {duration}\n\n"
-                f"⚠️ The previous owner no longer has access. Good luck, Friend :)",
+                f"• <emoji id=\"5778202206922608769\">⏳</emoji> Validity: {duration}\n\n"
+                f"<emoji id=\"5767151002666929821\">⚠️</emoji> The previous owner no longer has access. Good luck, Friend :)",
                 parse_mode=ParseMode.HTML,
             )
         except Exception as e:
@@ -347,13 +347,13 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             f"<b>Transfer {num_text} to {recipient_name}</b>\n"
             f"<b>ID:</b> <code>{to_user.id}</code>\n\n"
             f"<b>They can:</b>\n"
-            f"🔑 Get code\n"
+            f"<emoji id=\"5330115548900501467\">🔑</emoji> Get code\n"
             f"<emoji id=\"5264727218734524899\">🔄</emoji> Renew\n"
-            f"📤 Transfer\n\n"
-            f"⚠️ <b>Note:</b>\n"
+            f"<emoji id=\"5915851493533028206\">📤</emoji> Transfer\n\n"
+            f"<emoji id=\"5767151002666929821\">⚠️</emoji> <b>Note:</b>\n"
             f"Once you transfer the number, you will have no access to it.\n"
             f"Please check the username twice before transferring.\n\n"
-            f"❗ If you transferred to the wrong person, please contact: @Aress immediately."
+            f"<emoji id=\"5767151002666929821\">❗</emoji> If you transferred to the wrong person, please contact: @Aress immediately."
         )
         
         # Try to get and show user's profile photo (edit in place to keep message ID)
@@ -432,7 +432,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
         if not txs and page == 0:
             return await _safe_edit(
                 query.message,
-                "📋 <b>Transaction History</b>\n\n"
+                '<b><emoji id="5197269100878907942">📋</emoji> Transaction History</b>\n\n'
                 "No transactions found.\n"
                 "<i>History is kept for 30 days.</i>",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]),
@@ -441,18 +441,18 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             )
 
         TYPE_LABELS = {
-            "deposit": "💳 Deposit",
-            "rent": "🔑 Rent",
-            "renewal": "🔄 Renewal",
-            "transfer_out": "📤 Sent",
-            "transfer_in": "📥 Received",
-            "transfer": "🔄 Transfer",
-            "admin_credit": "🎁 Admin Credit",
-            "admin_cancel": "🚫 Cancelled",
+            "deposit": '<emoji id="5445353829304387411">💳</emoji> Deposit',
+            "rent": '<emoji id="5330115548900501467">🔑</emoji> Rent',
+            "renewal": '<emoji id="5264727218734524899">🔄</emoji> Renewal',
+            "transfer_out": '<emoji id="5915851493533028206">📤</emoji> Sent',
+            "transfer_in": '<emoji id="5789434362445438164">📥</emoji> Received',
+            "transfer": '<emoji id="5264727218734524899">🔄</emoji> Transfer',
+            "admin_credit": '<emoji id="5019413195186504264">🎁</emoji> Admin Credit',
+            "admin_cancel": '<emoji id="5767151002666929821">🚫</emoji> Cancelled',
         }
 
         lines = [
-            "<b>📋 Transaction History</b>",
+            '<b><emoji id="5197269100878907942">📋</emoji> Transaction History</b>',
             f"<i>Page {page + 1}/{total_pages} • {total} transactions</i>\n",
         ]
         for tx in txs:
@@ -1698,10 +1698,10 @@ The number will appear as 🟢 available in the listing immediately.
             ]
         ])
         await query.message.edit_text(
-            f"⚠️ Confirm Transfer\n\n"
+            f"<emoji id=\"5767151002666929821\">⚠️</emoji> Confirm Transfer\n\n"
             f"📞 Number: {format_number(number)}\n"
             f"👤 From: {owner_name}\n"
-            f"➡️ To: {recipient_name} (ID: {to_user.id})",
+            f"<emoji id=\"5915851493533028206\">➡️</emoji> To: {recipient_name} (ID: {to_user.id})",
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML,
         )
@@ -2072,5 +2072,6 @@ The number will appear as 🟢 available in the listing immediately.
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
+
 
 
