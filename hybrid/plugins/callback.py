@@ -64,9 +64,13 @@ from hybrid.plugins.db import (
     get_rules,
     save_rules,
     save_number,
+    save_number_data,
     save_rental_atomic,
     lock_number_for_rent,
     unlock_number_for_rent,
+    check_rate_limit,
+    record_revenue,
+    record_transaction,
 )
 from hybrid.plugins.db import client as redis_client
 from hybrid.plugins.fragment import terminate_all_sessions_async, get_login_code_async
@@ -258,6 +262,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
 
     elif data.startswith("transfer_"):
         await query.answer()
+        # Note: chat.ask(timeout=60) below blocks this callback for up to 60s; the handler will be logged as SLOW CALLBACK during that time. This is expected — not a bug.
         raw = data.replace("transfer_", "").strip()
         if not raw:
             return await query.answer("Invalid request.", show_alert=True)
@@ -1731,6 +1736,15 @@ The number will appear as 🟢 available in the listing immediately.
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML,
                 )
+            else:
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t(user_id, "back"), callback_data=f"numinfo:{number}:0")]
+                ])
+                await query.message.edit_text(
+                    "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create payment invoice. Please try again.",
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML,
+                )
             return
 
         if hours == 720:
@@ -1825,6 +1839,15 @@ The number will appear as 🟢 available in the listing immediately.
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML,
                 )
+            else:
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t(user_id, "back"), callback_data=f"rentpay:{number}:{hours}")]
+                ])
+                await query.message.edit_text(
+                    "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Failed to create payment invoice. Please try again.",
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML,
+                )
             return
 
         # for renewal check if user already rented this number ,if yes must extend hours by remaining hours + new hours
@@ -1847,12 +1870,14 @@ The number will appear as 🟢 available in the listing immediately.
             else:
                 await save_number(number, user.id, new_hours)
                 await save_rental_atomic(user.id, number, new_balance, get_current_datetime(), new_hours)
-
-            await record_revenue(user.id, number, price, new_hours)
-            await record_transaction(user.id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
             async with temp.get_lock():
                 temp.RENTED_NUMS.add(number)
                 temp.AVAILABLE_NUM.discard(number)
+            try:
+                await record_revenue(user.id, number, price, new_hours)
+                await record_transaction(user.id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
+            except Exception as e:
+                logging.error("Revenue/transaction tracking failed for %s: %s", number, e)
             duration = format_remaining_time(get_current_datetime(), new_hours)
             keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
             await query.message.edit_text(
@@ -1990,5 +2015,6 @@ The number will appear as 🟢 available in the listing immediately.
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
+
 
 
