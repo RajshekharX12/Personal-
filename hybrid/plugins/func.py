@@ -171,7 +171,7 @@ async def show_numbers(query, page: int = 1):
     kb.append([InlineKeyboardButton("Back to Admin Menu", callback_data="admin_panel")])
 
     await query.message.edit_text(
-        f"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji> Available Numbers (Page {page}/{pages})",
+        f"<emoji id=\"5467539229468793355\">📞</emoji> Available Numbers (Page {page}/{pages})",
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
@@ -191,7 +191,7 @@ _EN = LANGUAGES.get("en", {})
 
 def t(user_id: int, key: str, **kwargs):
     text = _EN.get(key, key)
-    _emoji_fallback = {"success":"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji>","error":"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji>","warning":"⚠️","phone":"<tg-emoji emoji-id=\"5467539229468793355\">📞</tg-emoji>","money":"<tg-emoji emoji-id=\"5375296873982604963\">💰</tg-emoji>","renew":"<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji>","get_code":"<tg-emoji emoji-id=\"5433811242135331842\">📨</tg-emoji>","back":"⬅️","date":"<tg-emoji emoji-id=\"5274055917766202507\">📅</tg-emoji>","loading":"<tg-emoji emoji-id=\"5451732530048802485\">⌛</tg-emoji>","time":"<tg-emoji emoji-id=\"5413704112220949842\">🕒</tg-emoji>","timeout":"<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji>"}
+    _emoji_fallback = {"success":"<emoji id=\"5323628709469495421\">✅</emoji>","error":"<emoji id=\"5767151002666929821\">❌</emoji>","warning":"⚠️","phone":"<emoji id=\"5467539229468793355\">📞</emoji>","money":"<emoji id=\"5375296873982604963\">💰</emoji>","renew":"<emoji id=\"5264727218734524899\">🔄</emoji>","get_code":"<emoji id=\"5433811242135331842\">📨</emoji>","back":"⬅️","date":"<emoji id=\"5274055917766202507\">📅</emoji>","loading":"<emoji id=\"5451732530048802485\">⌛</emoji>","time":"<emoji id=\"5413704112220949842\">🕒</emoji>","timeout":"<emoji id=\"5242628160297641831\">⏰</emoji>"}
     text = re.sub(r'\{\{e:(\w+)\}\}', lambda m: _emoji_fallback.get(m.group(1), ""), text)
     text = _md_to_html(text)
     return text.format(**kwargs) if kwargs else text
@@ -311,7 +311,7 @@ async def send_cp_invoice(cp, client: Client, user_id: int, amount: float, descr
         [InlineKeyboardButton(t(user_id, "back"), callback_data=payload)],
     ]
     await msg.edit(
-        f"<tg-emoji emoji-id=\"5206583755367538087\">💸</tg-emoji> Invoice Created\n\n"
+        f"<emoji id=\"5206583755367538087\">💸</emoji> Invoice Created\n\n"
         f"Amount: {amount} USDT\n"
         f"Description: {description}\n"
         f"Pay using the button below.",
