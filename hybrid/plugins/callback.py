@@ -83,7 +83,7 @@ _file_logger = logging.getLogger("callback.file")
 _file_logger.setLevel(logging.DEBUG)
 _file_logger.propagate = False
 _file_handler = RotatingFileHandler(LOG_FILE_NAME, maxBytes=50000000, backupCount=10, encoding="utf-8")
-_file_handler.setFormatter(logging.Formatter("[%(asctime)s - %(levelname)s] - %(name)s - %(message)s", datefmt="%d-%b-%y %H:%M:%S"))
+_file_handler.setFormatter(logging.Formatter("%(asctime)s │ %(levelname)-7s │ %(message)s", datefmt="%d-%b-%y %H:%M:%S"))
 _file_logger.addHandler(_file_handler)
 
 if CRYPTO_STAT:
@@ -108,7 +108,7 @@ async def _safe_edit(msg, text=None, reply_markup=None, client=None, **kwargs):
     except MessageNotModified:
         return None
     except Exception as e:
-        logging.error(f"Safe edit failed: {e}")
+        logging.debug("🔇 [SKIP] _safe_edit failed: %s", e)
         if text and client:
             try:
                 return await client.send_message(msg.chat.id, text, reply_markup=reply_markup, **kwargs)
@@ -132,8 +132,10 @@ async def callback_handler(client: Client, query: CallbackQuery):
             logging.debug(f"callback query.answer failed: {e}")
     finally:
         elapsed_ms = (time.monotonic() - start) * 1000
-        if elapsed_ms > 1000:
-            _file_logger.warning(f"[SLOW CALLBACK] data={query.data!r} user={query.from_user.id} took {elapsed_ms:.0f}ms")
+        INTERACTIVE_CALLBACKS = ("transfer_", "admin_cancel_rent", "admin_add_balance", "admin_change_date", "admin_user_info", "admin_transfer_number")
+        is_interactive = any(query.data.startswith(p) if p.endswith("_") else query.data == p for p in INTERACTIVE_CALLBACKS)
+        if elapsed_ms > 1500 and not is_interactive:
+            _file_logger.warning("[SLOW CALLBACK] data=%r user=%d took %.0fms", query.data, query.from_user.id, elapsed_ms)
 
 
 async def _callback_handler_impl(client: Client, query: CallbackQuery):
@@ -218,7 +220,7 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
                 return await query.answer(t(user_id, "error_occurred"), show_alert=True)
         
         number = normalize_phone(raw_num) or raw_num
-        logging.info(f"Transfer confirm: user_id={user_id}, raw_num={raw_num}, normalized={number}, to_user_id={to_user_id}")
+        logging.info("📤 [TRANSFER] from=%s to=%s number=%s", user_id, to_user_id, number)
         rented_data = await get_rental_by_owner(user_id, number)
         logging.info(f"Rental data found for transfer: number={number}, owner={rented_data.get('user_id') if rented_data else None}")
         if not rented_data:
@@ -236,7 +238,8 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
             msg = err if err else "Transfer failed."
             return await query.answer(msg, show_alert=True)
         num_text = format_number(number)
-        await record_transaction(user_id, 0, "transfer", f"Transferred {num_text} to user {to_user_id}")
+        await record_transaction(user_id, 0, "transfer_out", f"Transferred {num_text} to {to_user_id}")
+        await record_transaction(to_user_id, 0, "transfer_in", f"Received {num_text} from {user_id}")
         async with temp.get_lock():
             temp.RENTED_NUMS.discard(number)
             temp.RENTED_NUMS.add(number)
@@ -415,23 +418,48 @@ async def _callback_handler_impl(client: Client, query: CallbackQuery):
     elif data == "tx_history":
         txs = await get_user_transactions(user_id)
         if not txs:
-            return await query.message.edit_text(
-                "📋 No transactions found.\n\n"
-                "⚠️ Transaction history is kept for 30 days only.",
+            return await _safe_edit(
+                query.message,
+                "📋 <b>Transaction History</b>\n\n"
+                "No transactions found.\n"
+                "<i>History is kept for 30 days.</i>",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]]),
                 parse_mode=ParseMode.HTML,
+                client=client,
             )
-        lines = ["<b>📋 Transaction History</b>", "<i>Last 30 days only</i>\n"]
+        TYPE_LABELS = {
+            "deposit": "💳 Deposit",
+            "rent": "🔑 Rent",
+            "renewal": "🔄 Renewal",
+            "transfer_out": "📤 Sent",
+            "transfer_in": "📥 Received",
+            "transfer": "🔄 Transfer",
+            "admin_credit": "🎁 Admin Credit",
+            "admin_cancel": "🚫 Cancelled",
+        }
+        lines = ["<b>📋 Transaction History</b>", "<i>Last 30 days</i>\n", "━━━━━━━━━━━━━━━━━━━━━"]
         for tx in txs:
             amount = float(tx.get("amount", 0))
-            emoji = "➕" if amount > 0 else "➖" if amount < 0 else "↔️"
-            lines.append(
-                f"{emoji} <b>{abs(amount):.2f} USDT</b> — {tx.get('description', '')}\n"
-                f"   📅 {tx.get('date', 'N/A')}"
-            )
+            tx_type = tx.get("type", "unknown")
+            label = TYPE_LABELS.get(tx_type, f"📌 {tx_type.title()}")
+            date = tx.get("date", "N/A")
+            desc = tx.get("description", "")
+            if amount > 0:
+                amount_str = f"+{amount:.2f} USDT"
+            elif amount < 0:
+                amount_str = f"{amount:.2f} USDT"
+            else:
+                amount_str = "—"
+            lines.append(f"{label}")
+            lines.append(f"   {amount_str}  •  {date}")
+            if desc:
+                lines.append(f"   <i>{desc}</i>")
+            lines.append("━━━━━━━━━━━━━━━━━━━━━")
         text = "\n".join(lines)
+        if len(text) > 4000:
+            text = "\n".join(lines[:60]) + "\n\n<i>... showing most recent only</i>"
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t(user_id, "back"), callback_data="profile")]])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        await _safe_edit(query.message, text, reply_markup=keyboard, parse_mode=ParseMode.HTML, client=client)
 
     elif data == "back_home":
         user = query.from_user
@@ -967,6 +995,7 @@ Details:
 
         if success:
             await log_admin_action(query.from_user.id, "admin_cancel_rent", number, f"user_id={user_id}")
+            await record_transaction(user_id, 0, "admin_cancel", f"Rental cancelled by admin: {number}")
             try:
                 is_free = await check_number_conn(number)
                 if not is_free:
@@ -1062,6 +1091,7 @@ The number will appear as 🟢 available in the listing immediately.
         current_bal = await get_user_balance(user.id) or 0.0
         new_bal = current_bal + amount
         await save_user_balance(user.id, new_bal)
+        await record_transaction(user.id, amount, "admin_credit", f"Admin added {amount} USDT")
         await log_admin_action(query.from_user.id, "admin_add_balance", str(user.id), f"amount={amount} new_bal={new_bal}")
         await response.delete()
         await response.sent_message.delete()
@@ -1875,9 +1905,12 @@ The number will appear as 🟢 available in the listing immediately.
                 temp.AVAILABLE_NUM.discard(number)
             try:
                 await record_revenue(user.id, number, price, new_hours)
-                await record_transaction(user.id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
+                if remaining_hours > 0:
+                    await record_transaction(user.id, -price, "renewal", f"Renewed {num_text} for {hours // 24} days")
+                else:
+                    await record_transaction(user.id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
             except Exception as e:
-                logging.error("Revenue/transaction tracking failed for %s: %s", number, e)
+                logging.error("🔑 [RENT] Revenue/transaction tracking failed number=%s: %s", number, e)
             duration = format_remaining_time(get_current_datetime(), new_hours)
             keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
             await query.message.edit_text(
