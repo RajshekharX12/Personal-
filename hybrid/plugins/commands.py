@@ -231,13 +231,13 @@ async def clear_db_cmd(_, message):
             timeout=30
         )
     except Exception:
-        return await message.reply_text("<emoji id=\"5242628160297641831\\">⏰</emoji> Timeout! Please try again.", parse_mode=ParseMode.HTML)
+        return await message.reply_text("<emoji id=\"5242628160297641831\">⏰</emoji> Timeout! Please try again.", parse_mode=ParseMode.HTML)
     if response.text.strip().upper() != "YES":
-        return await message.reply_text("<emoji id=\"5767151002666929821\\">❌</emoji> Database clear operation cancelled.", parse_mode=ParseMode.HTML)
+        return await message.reply_text("<emoji id=\"5767151002666929821\">❌</emoji> Database clear operation cancelled.", parse_mode=ParseMode.HTML)
     stat, _ = await delete_all_data()
     if stat:
         await log_admin_action(message.from_user.id, "cleardb", "all", None)
-        await message.reply_text("<emoji id=\"5323628709469495421\\">✅</emoji> All data has been cleared from the database.", parse_mode=ParseMode.HTML)
+        await message.reply_text("<emoji id=\"5323628709469495421\">✅</emoji> All data has been cleared from the database.", parse_mode=ParseMode.HTML)
 
 @Bot.on_message(filters.command("sysinfo") & filters.user(ADMINS))
 async def sysinfo_cmd(_, message):
@@ -256,7 +256,7 @@ async def sysinfo_cmd(_, message):
         )
         await message.reply_text(sys_info, parse_mode=ParseMode.HTML)
     except ImportError:
-        await message.reply_text("<emoji id=\"5767151002666929821\\">❌</emoji> psutil module is not installed. Please install it to use this command.", parse_mode=ParseMode.HTML)
+        await message.reply_text("<emoji id=\"5767151002666929821\">❌</emoji> psutil module is not installed. Please install it to use this command.", parse_mode=ParseMode.HTML)
 
 @Bot.on_message(filters.command("addadmin") & filters.user(ADMINS))
 async def add_admin_cmd(_, message):
@@ -265,13 +265,13 @@ async def add_admin_cmd(_, message):
     try:
         user_id = int(message.command[1])
     except ValueError:
-        return await message.reply_text("<emoji id=\"5767151002666929821\\">❌</emoji> Invalid user ID. Please provide a valid integer.", parse_mode=ParseMode.HTML)
+        return await message.reply_text("<emoji id=\"5767151002666929821\">❌</emoji> Invalid user ID. Please provide a valid integer.", parse_mode=ParseMode.HTML)
     success, status = await add_admin(user_id)
     if success:
         await log_admin_action(message.from_user.id, "addadmin", str(user_id), None)
-        await message.reply_text(f"<emoji id=\"5323628709469495421\\">✅</emoji> User {user_id} has been added as an admin.", parse_mode=ParseMode.HTML)
+        await message.reply_text(f"<emoji id=\"5323628709469495421\">✅</emoji> User {user_id} has been added as an admin.", parse_mode=ParseMode.HTML)
     else:
-        await message.reply_text(f"<emoji id=\"5767151002666929821\\">❌</emoji> User {user_id} could not be added. Status: {status}", parse_mode=ParseMode.HTML)
+        await message.reply_text(f"<emoji id=\"5767151002666929821\">❌</emoji> User {user_id} could not be added. Status: {status}", parse_mode=ParseMode.HTML)
 
 @Bot.on_message(filters.command("remadmin") & filters.user(ADMINS))
 async def remove_admin_cmd(_, message):
@@ -280,13 +280,13 @@ async def remove_admin_cmd(_, message):
     try:
         user_id = int(message.command[1])
     except ValueError:
-        return await message.reply_text("<emoji id=\"5767151002666929821\\">❌</emoji> Invalid user ID. Please provide a valid integer.", parse_mode=ParseMode.HTML)
+        return await message.reply_text("<emoji id=\"5767151002666929821\">❌</emoji> Invalid user ID. Please provide a valid integer.", parse_mode=ParseMode.HTML)
     success, status = await remove_admin(user_id)
     if success:
         await log_admin_action(message.from_user.id, "remadmin", str(user_id), None)
-        await message.reply_text(f"<emoji id=\"5323628709469495421\\">✅</emoji> User {user_id} has been removed from admins.", parse_mode=ParseMode.HTML)
+        await message.reply_text(f"<emoji id=\"5323628709469495421\">✅</emoji> User {user_id} has been removed from admins.", parse_mode=ParseMode.HTML)
     else:
-        await message.reply_text(f"<emoji id=\"5767151002666929821\\">❌</emoji> User {user_id} could not be removed. Status: {status}", parse_mode=ParseMode.HTML)
+        await message.reply_text(f"<emoji id=\"5767151002666929821\">❌</emoji> User {user_id} could not be removed. Status: {status}", parse_mode=ParseMode.HTML)
 
 @Bot.on_message(filters.command("broadcast") & filters.user(ADMINS))
 async def broadcast_cmd(_, message):
@@ -294,7 +294,7 @@ async def broadcast_cmd(_, message):
         return await message.reply_text("Usage: /broadcast as reply to a message", parse_mode=ParseMode.HTML)
     broadcast_message = message.reply_to_message
     if not broadcast_message:
-        return await message.reply_text("<emoji id=\"5767151002666929821\\">❌</emoji> Please reply to a text message to broadcast.", parse_mode=ParseMode.HTML)
+        return await message.reply_text("<emoji id=\"5767151002666929821\">❌</emoji> Please reply to a text message to broadcast.", parse_mode=ParseMode.HTML)
     user_ids = await get_all_user_ids()
     success_count = 0
     fail_count = 0
@@ -320,7 +320,7 @@ async def broadcast_cmd(_, message):
 
     await asyncio.gather(*[send_one(uid) for uid in user_ids], return_exceptions=True)
 
-    await message.reply_text(f"📢 Broadcast completed!\n<emoji id=\"5323628709469495421\\">✅</emoji> Success: {success_count}\n<emoji id=\"5767151002666929821\\">❌</emoji> Failed: {fail_count}", parse_mode=ParseMode.HTML)
+    await message.reply_text(f"📢 Broadcast completed!\n<emoji id=\"5323628709469495421\">✅</emoji> Success: {success_count}\n<emoji id=\"5767151002666929821\">❌</emoji> Failed: {fail_count}", parse_mode=ParseMode.HTML)
 
 # /checknum moved to guard.py (standalone number checker module)
 
@@ -365,7 +365,7 @@ async def export_csv_cmd(_, message: Message):
         os.remove(filename)
         await msg.delete()
     except Exception as e:
-        await message.reply_text(f"<emoji id=\"5767151002666929821\\">❌</emoji> Failed to export: {e}", parse_mode=ParseMode.HTML)
+        await message.reply_text(f"<emoji id=\"5767151002666929821\">❌</emoji> Failed to export: {e}", parse_mode=ParseMode.HTML)
 
 @Bot.on_message(filters.command("createbtn") & filters.private)
 async def create_button_cmd(_, message: Message):
