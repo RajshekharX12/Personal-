@@ -201,14 +201,14 @@ def t(user_id: int, key: str, **kwargs):
 NUMBERS_PER_PAGE = 8
 
 async def build_rentnum_keyboard(user_id: int, page: int = 0):
-    filtered_numbers = temp.AVAILABLE_NUM
+    # Pagination must show ALL numbers (available + rented). NUMBE_RS has every number from Fragment.
+    filtered_numbers = list(temp.NUMBE_RS)
     filtered_numbers = [num for num in filtered_numbers if num not in temp.UN_AV_NUMS]
     seen = set()
     filtered_numbers = [x for x in filtered_numbers if not (x in seen or seen.add(x))]
 
     available_nums = [n for n in filtered_numbers if n not in temp.RENTED_NUMS]
     rented_nums = [n for n in filtered_numbers if n in temp.RENTED_NUMS]
-
     ordered_numbers = available_nums + rented_nums
 
     start = page * NUMBERS_PER_PAGE
@@ -630,4 +630,5 @@ async def export_numbers_csv(filename: str = "numbers_export.csv"):
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _write_csv)
     return filename
+
 
