@@ -277,35 +277,35 @@ def _register_guard_handlers() -> None:
                     number = "+" + number
             if not number.startswith("+888"):
                 await message.reply_text(
-                    "<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Invalid number. Use a +888 number.",
+                    "<emoji id=\"5767151002666929821\\">❌</emoji> Invalid number. Use a +888 number.",
                     parse_mode=ParseMode.HTML,
                 )
                 return
             ok, status_msg = await guard_check(number)
             if ok is True:
                 await message.reply_text(
-                    f"<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> {status_msg}",
+                    f"<emoji id=\"5323628709469495421\\">✅</emoji> {status_msg}",
                     parse_mode=ParseMode.HTML,
                 )
             elif ok is False:
                 await message.reply_text(
-                    f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> {status_msg}",
+                    f"<emoji id=\"5767151002666929821\\">❌</emoji> {status_msg}",
                     parse_mode=ParseMode.HTML,
                 )
             else:
                 await message.reply_text(
-                    f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> {status_msg}",
+                    f"<emoji id=\"5767151002666929821\\">❌</emoji> {status_msg}",
                     parse_mode=ParseMode.HTML,
                 )
         except asyncio.TimeoutError:
             await message.reply_text(
-                "<tg-emoji emoji-id=\"5242628160297641831\">⏰</tg-emoji> Timeout. Try again.",
+                "<emoji id=\"5242628160297641831\\">⏰</emoji> Timeout. Try again.",
                 parse_mode=ParseMode.HTML,
             )
         except Exception as e:
             logging.exception("checknum command failed")
             await message.reply_text(
-                f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Error: {e}",
+                f"<emoji id=\"5767151002666929821\\">❌</emoji> Error: {e}",
                 parse_mode=ParseMode.HTML,
             )
 
@@ -323,13 +323,13 @@ def _register_guard_handlers() -> None:
             if _cache is not None:
                 _cache.clear_all()
             await message.reply_text(
-                "<tg-emoji emoji-id=\"5323628709469495421\">✅</tg-emoji> Guard credentials reloaded and cache cleared.",
+                "<emoji id=\"5323628709469495421\\">✅</emoji> Guard credentials reloaded and cache cleared.",
                 parse_mode=ParseMode.HTML,
             )
         except Exception as e:
             logging.exception("reload_guard failed")
             await message.reply_text(
-                f"<tg-emoji emoji-id=\"5767151002666929821\">❌</tg-emoji> Reload failed: {e}",
+                f"<emoji id=\"5767151002666929821\\">❌</emoji> Reload failed: {e}",
                 parse_mode=ParseMode.HTML,
             )
 
