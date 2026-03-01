@@ -513,8 +513,9 @@ async def _process_paid_invoice(client, user_id, msg_id, inv, inv_id):
                         try:
                             await client.edit_message_text(
                                 user_id, msg_id,
-                                t(user_id, "payment_confirmed") + "\n\n⚠️ Number was rented by someone else. Your balance has been credited.",
-                                reply_markup=await resolve_payment_keyboard(user_id, payload)
+                                t(user_id, "payment_confirmed") + '\n\n<emoji id="5767151002666929821">⚠️</emoji> Number was rented by someone else. Your balance has been credited.',
+                                reply_markup=await resolve_payment_keyboard(user_id, payload),
+                                parse_mode=ParseMode.HTML
                             )
                         except Exception as e:
                             logging.debug(f"_process_paid_invoice edit_message_text (lock failed) user_id={user_id}: {e}")
@@ -592,7 +593,7 @@ async def check_payments(client):
                                 try:
                                     await client.edit_message_text(
                                         user_id, msg_id,
-                                        "⚠️ Your payment invoice has expired.\n\n"
+                                        '<emoji id="5767151002666929821">⚠️</emoji> Your payment invoice has expired.\n\n'
                                         "We have verified that no payment was received for this invoice. "
                                         "Please return to the number listing and initiate a new rental — "
                                         "your spot is open and available.\n\n"
@@ -607,7 +608,7 @@ async def check_payments(client):
                                     try:
                                         await client.send_message(
                                             user_id,
-                                            "⚠️ Your payment invoice has expired.\n\n"
+                                            '<emoji id="5767151002666929821">⚠️</emoji> Your payment invoice has expired.\n\n'
                                             "We have verified that no payment was received. "
                                             "Please try renting a new number.",
                                             parse_mode=ParseMode.HTML
