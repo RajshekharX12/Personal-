@@ -889,8 +889,8 @@ async def record_transaction(user_id: int, amount: float, tx_type: str, descript
         "user_id": str(user_id),
         "amount": str(amount),
         "type": tx_type,
-        "description": description,
-        "date": now.strftime("%d/%m/%Y %H:%M"),
+        "description": description[:200] if description else "",
+        "date": now.strftime("%d %b %Y, %H:%M UTC"),
     })
     await client.expire(key, 30 * 24 * 3600)
     list_key = f"tx:list:{user_id}"
