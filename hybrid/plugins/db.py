@@ -898,18 +898,24 @@ async def record_transaction(user_id: int, amount: float, tx_type: str, descript
     await client.expire(list_key, 30 * 24 * 3600)
 
 
-async def get_user_transactions(user_id: int) -> list:
-    """Get last 20 transactions for user. Returns newest first."""
+async def get_user_transactions(user_id: int, page: int = 0, per_page: int = 5) -> tuple:
+    """Get transactions for user with pagination. Returns (txs, total_count)."""
     list_key = f"tx:list:{user_id}"
-    keys = await client.lrange(list_key, -20, -1)
+    total = await client.llen(list_key)
+    if total == 0:
+        return [], 0
+    # Get the slice for this page (newest first)
+    start = -(page + 1) * per_page
+    end = -page * per_page - 1 if page > 0 else -1
+    keys = await client.lrange(list_key, start, end)
     if not keys:
-        return []
+        return [], total
     txs = []
     for k in reversed(keys):
         data = await client.hgetall(k)
         if data:
             txs.append(data)
-    return txs
+    return txs, total
 
 
 # ========= MAINTENANCE =========
