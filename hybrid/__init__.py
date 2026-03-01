@@ -37,7 +37,7 @@ if not os.path.exists(LOG_FILE_NAME):
 
 logging.basicConfig(
     level=logging.INFO,
-    format="[%(asctime)s - %(levelname)s] - %(name)s - %(message)s",
+    format="%(asctime)s │ %(levelname)-7s │ %(message)s",
     datefmt='%d-%b-%y %H:%M:%S',
     handlers=[
         RotatingFileHandler(
@@ -51,6 +51,8 @@ logging.basicConfig(
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 logging.getLogger("aiosend.client").setLevel(logging.WARNING)
 logging.getLogger("aiosend.polling").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 CRYPTO_STAT = False
 if CRYPTO_API:
@@ -58,7 +60,7 @@ if CRYPTO_API:
         cp = CryptoPay(CRYPTO_API)
         CRYPTO_STAT = True
     except Exception as e:
-        logging.error(f"Failed to initialize CryptoPay: {e}")
+        logging.error("💳 [PAYMENT] CryptoPay init failed: %s", e)
 
 plugins = dict(root="hybrid/plugins")
 
@@ -73,7 +75,7 @@ async def load_num_data():
     so the event loop is not blocked, and we keep the same cookie/request behavior that
     was working before (httpx async path can differ re cookies and may return empty).
     """
-    logging.info("Loading numbers from Fragment API...")
+    logging.info("🚀 [STARTUP] Loading numbers from Fragment API...")
     from hybrid.plugins.fragment import get_fragment_numbers
     loop = asyncio.get_event_loop()
     try:
@@ -100,7 +102,7 @@ async def load_num_data():
             temp.RENTED_NUMS.add(num)
         elif info and info.get("available", True):
             temp.AVAILABLE_NUM.add(num)
-    logging.info("Numbers loaded — %d total | %d available | %d rented", len(temp.NUMBE_RS), len(temp.AVAILABLE_NUM), len(temp.RENTED_NUMS))
+    logging.info("🚀 [STARTUP] Loaded %d numbers | %d available | %d rented", len(temp.NUMBE_RS), len(temp.AVAILABLE_NUM), len(temp.RENTED_NUMS))
 
 
 from hybrid.plugins.db import get_number_data, get_remaining_rent_days, is_restricted_del_enabled, remove_number, remove_number_data, save_restricted_number, get_all_rentals, get_expired_numbers
@@ -489,9 +491,12 @@ async def _process_paid_invoice(client, user_id, msg_id, inv, inv_id):
                                 temp.AVAILABLE_NUM.discard(number)
                             try:
                                 await record_revenue(user_id, number, price, new_hours)
-                                await record_transaction(user_id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
+                                if remaining_hours > 0:
+                                    await record_transaction(user_id, -price, "renewal", f"Renewed {num_text} for {hours // 24} days")
+                                else:
+                                    await record_transaction(user_id, -price, "rent", f"Rented {num_text} for {hours // 24} days")
                             except Exception as e:
-                                logging.error("Post-rental tracking failed for %s: %s", number, e)
+                                logging.error("🔑 [RENT] Post-rental tracking failed number=%s: %s", number, e)
                             duration = format_remaining_time(get_current_datetime(), new_hours)
                             keyboard = await build_number_actions_keyboard(user_id, number, "my_rentals")
                             try:
@@ -733,12 +738,12 @@ class Bot(Client):
         usr_bot_me = await self.get_me()
         self.start_timestamp = datetime.now()
 
-        logging.info(f"{BANNER}")
+        logging.info("%s", BANNER)
         self.set_parse_mode(ParseMode.HTML)
         self.username = usr_bot_me.username
         temp.BOT_UN = self.username
         print(f"============  {temp.BOT_UN}  ============")
-        logging.info(f"@{self.username} Bot Running..!")
+        logging.info("🚀 [STARTUP] @%s Bot running.", self.username)
         msg_id, user_id = get_restart_data("Bot")
         if msg_id and user_id:
             try:
@@ -749,17 +754,17 @@ class Bot(Client):
                 pass
 
         asyncio.create_task(schedule_reminders(self))
-        logging.info("Started reminder scheduler (every 15 min).")
+        logging.info("🔔 [STARTUP] Reminder scheduler started (every 15 min).")
         asyncio.create_task(check_expired_numbers(self))
-        logging.info("Started background task to check expired numbers.")
+        logging.info("⏰ [STARTUP] Expired numbers checker started.")
         asyncio.create_task(check_7day_accs(self))
-        logging.info("Started background task to check 7-day deletion accounts.")
+        logging.info("⏰ [STARTUP] 7-day deletion checker started.")
         # Restricted numbers detection/deletion DISABLED
         # asyncio.create_task(check_restricted_numbers(self))
         asyncio.create_task(check_payments(self))
-        logging.info("Started payment checker (CryptoBot).")
+        logging.info("💳 [STARTUP] Payment checker (CryptoBot) started.")
         asyncio.create_task(cleanup_old_invoices(self))
-        logging.info("Monthly invoice cleanup scheduled.")
+        logging.info("💳 [STARTUP] Monthly invoice cleanup scheduled.")
 
         from hybrid.plugins.db import get_all_admins
         AD_MINS = await get_all_admins()
@@ -787,5 +792,5 @@ class Bot(Client):
             await close_fragment_session()
         except Exception as e:
             logging.debug("Fragment session close on stop: %s", e)
-        logging.info("Bot stopped.")
+        logging.info("🛑 [SHUTDOWN] Bot stopped.")
 
